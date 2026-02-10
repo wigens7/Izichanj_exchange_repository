@@ -89,6 +89,7 @@ export default function ProfilePage() {
             </div>
 
             <div className="w-full md:w-2/3">
+                {user.kycStatus === 'verified' ? null : (
                 <Card>
                     <CardHeader>
                         <CardTitle>{t.profile.kycTitle}</CardTitle>
@@ -97,15 +98,7 @@ export default function ProfilePage() {
                         </CardDescription>
                     </CardHeader>
                     <CardContent>
-                        {user.kycStatus === 'verified' ? (
-                            <div className="text-center py-10 space-y-4">
-                                <div className="w-16 h-16 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto">
-                                    <CheckCircle2 className="w-8 h-8" />
-                                </div>
-                                <h3 className="text-xl font-bold text-emerald-700">{t.profile.verified}</h3>
-                                <p className="text-muted-foreground">{t.profile.verifiedDescription}</p>
-                            </div>
-                        ) : user.kycStatus === 'pending' ? (
+                        {user.kycStatus === 'pending' ? (
                             <div className="text-center py-10 bg-amber-50 rounded-xl border border-amber-100">
                                 <h3 className="text-lg font-bold text-amber-700">{t.profile.underReview}</h3>
                                 <p className="text-amber-600/80 mt-2">{t.profile.underReviewDescription}</p>
@@ -209,6 +202,7 @@ export default function ProfilePage() {
                         )}
                     </CardContent>
                 </Card>
+                )}
             </div>
         </div>
     </div>
