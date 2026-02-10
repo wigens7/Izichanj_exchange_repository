@@ -4,6 +4,7 @@
 A secure fintech mobile web app for converting USDT (TRC20/BEP20) to MonCash/NatCash. Users register with email/password, complete KYC verification, submit deposits with transaction hashes, and request withdrawals to local mobile money accounts.
 
 ## Recent Changes
+- **Feb 10, 2026**: Built comprehensive admin panel with 4 tabs (Users, Deposits, Withdrawals, KYC) with approve/reject functionality. Added email OTP verification flow after registration. Updated login/register redirects for verification. Fixed deposit/withdrawal type issues.
 - **Feb 10, 2026**: Replaced Replit Auth with custom email/password authentication. Added sign-up form with password confirmation, sign-in form, bcrypt password hashing. Removed authUserId dependency from profiles table.
 
 ## Architecture
@@ -29,10 +30,24 @@ A secure fintech mobile web app for converting USDT (TRC20/BEP20) to MonCash/Nat
 - `client/src/components/layout-shell.tsx` - App layout with sidebar navigation
 
 ## Auth Endpoints
-- `POST /api/auth/register` - Register with fullName, email, password, confirmPassword
-- `POST /api/auth/login` - Login with email, password
+- `POST /api/auth/register` - Register with fullName, email, password, confirmPassword (sends OTP)
+- `POST /api/auth/login` - Login with email, password (sends OTP if unverified)
+- `POST /api/auth/verify-email` - Verify email with { code }
+- `POST /api/auth/resend-otp` - Resend verification OTP
 - `POST /api/auth/logout` - Destroy session
 - `GET /api/user` - Get current authenticated profile
+
+## Admin Endpoints (role=admin required)
+- `GET /api/admin/users` - List all users
+- `PATCH /api/admin/users/:id/balance` - Update user balance
+- `GET /api/admin/deposits` - List all deposits
+- `PATCH /api/admin/deposits/:id/approve` - Approve deposit
+- `PATCH /api/admin/deposits/:id/reject` - Reject deposit
+- `GET /api/admin/withdrawals` - List all withdrawals
+- `PATCH /api/admin/withdrawals/:id/approve` - Approve withdrawal
+- `PATCH /api/admin/withdrawals/:id/reject` - Reject withdrawal
+- `PATCH /api/admin/kyc/:id/verify` - Verify KYC
+- `PATCH /api/admin/kyc/:id/reject` - Reject KYC
 
 ## USDT Deposit Addresses
 - TRC20: TRydVikZb957Y298cKsFL81aajz3sfaUmq
