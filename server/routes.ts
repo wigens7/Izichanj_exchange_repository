@@ -213,6 +213,8 @@ export async function registerRoutes(
   app.post(api.kyc.upload.path, isAuthenticated, async (req: any, res) => {
     const profile = await getProfileFromReq(req);
     if (!profile) return res.status(401).json({ message: "Unauthorized" });
+    if (profile.kycStatus === "verified") return res.status(400).json({ message: "KYC already approved" });
+    if (profile.kycStatus === "pending") return res.status(400).json({ message: "KYC already submitted and under review" });
     const { idDocumentUrl, idDocumentBackUrl, selfieUrl } = req.body;
     if (!idDocumentUrl || !idDocumentBackUrl || !selfieUrl) return res.status(400).json({ message: "Missing documents" });
     const kyc = await storage.createKyc({ profileId: profile.id, idDocumentUrl, idDocumentBackUrl, selfieUrl });
