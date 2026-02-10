@@ -2,7 +2,7 @@ import { useUser } from "@/hooks/use-auth";
 import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Loader2, LogIn } from "lucide-react";
+import { Loader2, LogIn, UserPlus } from "lucide-react";
 import { motion } from "framer-motion";
 import { useEffect } from "react";
 
@@ -54,13 +54,30 @@ export default function LoginPage() {
             <Button
               className="w-full h-11 text-base primary-gradient"
               onClick={() => { window.location.href = "/api/login"; }}
-              data-testid="button-login"
+              data-testid="button-sign-in"
             >
               <LogIn className="w-5 h-5 mr-2" />
-              Sign In with Replit
+              Sign In
             </Button>
+
+            <div className="flex items-center gap-3">
+              <div className="h-px bg-border flex-1" />
+              <span className="text-xs text-muted-foreground uppercase">or</span>
+              <div className="h-px bg-border flex-1" />
+            </div>
+
+            <Button
+              variant="outline"
+              className="w-full h-11 text-base"
+              onClick={() => { window.location.href = "/api/login"; }}
+              data-testid="button-sign-up"
+            >
+              <UserPlus className="w-5 h-5 mr-2" />
+              Sign Up
+            </Button>
+
             <p className="text-xs text-center text-muted-foreground">
-              Supports Google, GitHub, Apple, email & more
+              Continue with Google, GitHub, Apple, email & more
             </p>
           </CardContent>
         </Card>
