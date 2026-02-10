@@ -54,6 +54,7 @@ export const kycDocuments = pgTable("kyc_documents", {
   id: serial("id").primaryKey(),
   profileId: integer("profile_id").references(() => profiles.id).notNull(),
   idDocumentUrl: text("id_document_url"),
+  idDocumentBackUrl: text("id_document_back_url"),
   selfieUrl: text("selfie_url"),
   submittedAt: timestamp("submitted_at").defaultNow().notNull(),
 });

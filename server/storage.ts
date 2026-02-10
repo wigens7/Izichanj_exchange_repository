@@ -21,7 +21,7 @@ export interface IStorage {
   getWithdrawals(profileId?: number): Promise<Withdrawal[]>;
   updateWithdrawalStatus(id: number, status: "approved" | "rejected"): Promise<Withdrawal>;
 
-  createKyc(kyc: { profileId: number; idDocumentUrl: string; selfieUrl: string }): Promise<KycDocument>;
+  createKyc(kyc: { profileId: number; idDocumentUrl: string; idDocumentBackUrl: string; selfieUrl: string }): Promise<KycDocument>;
   getKyc(profileId: number): Promise<KycDocument | undefined>;
   getAllKyc(): Promise<(KycDocument & { profile: Profile })[]>;
   updateKycStatus(profileId: number, status: "verified" | "rejected"): Promise<void>;
@@ -107,7 +107,7 @@ export class DatabaseStorage implements IStorage {
     return withdrawal;
   }
 
-  async createKyc(kyc: { profileId: number; idDocumentUrl: string; selfieUrl: string }): Promise<KycDocument> {
+  async createKyc(kyc: { profileId: number; idDocumentUrl: string; idDocumentBackUrl: string; selfieUrl: string }): Promise<KycDocument> {
     const existing = await this.getKyc(kyc.profileId);
     if (existing) {
       const [updated] = await db.update(kycDocuments).set(kyc).where(eq(kycDocuments.profileId, kyc.profileId)).returning();

@@ -203,9 +203,9 @@ export async function registerRoutes(
   app.post(api.kyc.upload.path, isAuthenticated, async (req: any, res) => {
     const profile = await getProfileFromReq(req);
     if (!profile) return res.status(401).json({ message: "Unauthorized" });
-    const { idDocumentUrl, selfieUrl } = req.body;
-    if (!idDocumentUrl || !selfieUrl) return res.status(400).json({ message: "Missing documents" });
-    const kyc = await storage.createKyc({ profileId: profile.id, idDocumentUrl, selfieUrl });
+    const { idDocumentUrl, idDocumentBackUrl, selfieUrl } = req.body;
+    if (!idDocumentUrl || !idDocumentBackUrl || !selfieUrl) return res.status(400).json({ message: "Missing documents" });
+    const kyc = await storage.createKyc({ profileId: profile.id, idDocumentUrl, idDocumentBackUrl, selfieUrl });
     res.status(201).json(kyc);
   });
 

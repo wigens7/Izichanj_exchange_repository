@@ -17,25 +17,26 @@ export default function ProfilePage() {
   const { uploadFile, isUploading } = useUpload();
   
   const [idUrl, setIdUrl] = useState<string>("");
+  const [idBackUrl, setIdBackUrl] = useState<string>("");
   const [selfieUrl, setSelfieUrl] = useState<string>("");
 
   if (!user) return null;
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, type: 'id' | 'selfie') => {
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, type: 'id' | 'id-back' | 'selfie') => {
     const file = e.target.files?.[0];
     if (!file) return;
     
-    // We assume backend returns objectPath which we store
     const res = await uploadFile(file);
     if (res) {
         if (type === 'id') setIdUrl(res.objectPath);
+        else if (type === 'id-back') setIdBackUrl(res.objectPath);
         else setSelfieUrl(res.objectPath);
     }
   };
 
   const handleSubmit = () => {
-    if (idUrl && selfieUrl) {
-        submitKyc({ idDocumentUrl: idUrl, selfieUrl: selfieUrl });
+    if (idUrl && idBackUrl && selfieUrl) {
+        submitKyc({ idDocumentUrl: idUrl, idDocumentBackUrl: idBackUrl, selfieUrl: selfieUrl });
     }
   };
 
@@ -92,12 +93,12 @@ export default function ProfilePage() {
                             </div>
                         ) : (
                             <div className="space-y-6">
-                                <div className="grid md:grid-cols-2 gap-6">
+                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                                     <div className="space-y-2">
-                                        <Label>Government ID (Front)</Label>
+                                        <Label>ID Card (Front)</Label>
                                         <div className="border-2 border-dashed border-border rounded-xl p-6 text-center hover:bg-muted/50 transition-colors">
                                             {idUrl ? (
-                                                <div className="text-sm text-emerald-600 flex items-center justify-center gap-2">
+                                                <div className="text-sm text-emerald-600 flex items-center justify-center gap-2" data-testid="status-id-front-uploaded">
                                                     <CheckCircle2 className="w-4 h-4" /> Uploaded
                                                 </div>
                                             ) : (
@@ -107,6 +108,7 @@ export default function ProfilePage() {
                                                         accept="image/*" 
                                                         className="hidden" 
                                                         id="id-upload"
+                                                        data-testid="input-id-front-upload"
                                                         onChange={(e) => handleFileUpload(e, 'id')}
                                                         disabled={isUploading}
                                                     />
@@ -120,10 +122,37 @@ export default function ProfilePage() {
                                     </div>
 
                                     <div className="space-y-2">
+                                        <Label>ID Card (Back)</Label>
+                                        <div className="border-2 border-dashed border-border rounded-xl p-6 text-center hover:bg-muted/50 transition-colors">
+                                            {idBackUrl ? (
+                                                <div className="text-sm text-emerald-600 flex items-center justify-center gap-2" data-testid="status-id-back-uploaded">
+                                                    <CheckCircle2 className="w-4 h-4" /> Uploaded
+                                                </div>
+                                            ) : (
+                                                <>
+                                                    <Input 
+                                                        type="file" 
+                                                        accept="image/*" 
+                                                        className="hidden" 
+                                                        id="id-back-upload"
+                                                        data-testid="input-id-back-upload"
+                                                        onChange={(e) => handleFileUpload(e, 'id-back')}
+                                                        disabled={isUploading}
+                                                    />
+                                                    <label htmlFor="id-back-upload" className="cursor-pointer block">
+                                                        <UploadCloud className="w-8 h-8 mx-auto text-muted-foreground mb-2" />
+                                                        <span className="text-sm text-primary font-medium">Click to upload</span>
+                                                    </label>
+                                                </>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    <div className="space-y-2">
                                         <Label>Selfie with ID</Label>
                                         <div className="border-2 border-dashed border-border rounded-xl p-6 text-center hover:bg-muted/50 transition-colors">
                                             {selfieUrl ? (
-                                                <div className="text-sm text-emerald-600 flex items-center justify-center gap-2">
+                                                <div className="text-sm text-emerald-600 flex items-center justify-center gap-2" data-testid="status-selfie-uploaded">
                                                     <CheckCircle2 className="w-4 h-4" /> Uploaded
                                                 </div>
                                             ) : (
@@ -133,6 +162,7 @@ export default function ProfilePage() {
                                                         accept="image/*" 
                                                         className="hidden" 
                                                         id="selfie-upload"
+                                                        data-testid="input-selfie-upload"
                                                         onChange={(e) => handleFileUpload(e, 'selfie')}
                                                         disabled={isUploading}
                                                     />
@@ -150,8 +180,9 @@ export default function ProfilePage() {
 
                                 <Button 
                                     className="w-full primary-gradient" 
-                                    disabled={!idUrl || !selfieUrl || isSubmitting || isUploading}
+                                    disabled={!idUrl || !idBackUrl || !selfieUrl || isSubmitting || isUploading}
                                     onClick={handleSubmit}
+                                    data-testid="button-submit-kyc"
                                 >
                                     {isSubmitting ? <Loader2 className="animate-spin mr-2" /> : "Submit for Verification"}
                                 </Button>

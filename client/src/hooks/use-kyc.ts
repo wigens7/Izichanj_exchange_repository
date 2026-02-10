@@ -20,7 +20,7 @@ export function useUploadKyc() {
   const { toast } = useToast();
 
   return useMutation({
-    mutationFn: async (data: { idDocumentUrl: string, selfieUrl: string }) => {
+    mutationFn: async (data: { idDocumentUrl: string, idDocumentBackUrl: string, selfieUrl: string }) => {
       // Backend expects these URLs (from object storage upload)
       const res = await fetch(api.kyc.upload.path, {
         method: api.kyc.upload.method,
