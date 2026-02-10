@@ -36,7 +36,7 @@ export default function WithdrawPage() {
 
   const onSubmit = (data: z.infer<typeof withdrawSchema>) => {
     createWithdrawal({
-        amount: Number(data.amount),
+        amount: data.amount,
         currency: data.currency,
         phoneNumber: data.phoneNumber,
         otp: data.otp

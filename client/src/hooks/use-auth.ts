@@ -31,7 +31,9 @@ export function useLogin() {
     },
     onSuccess: (profile) => {
       queryClient.setQueryData(["/api/user"], profile);
-      toast({ title: "Welcome back!", description: `Signed in as ${profile.fullName}` });
+      if (!profile.needsVerification) {
+        toast({ title: "Welcome back!", description: `Signed in as ${profile.fullName}` });
+      }
     },
     onError: (error: Error) => {
       toast({ title: "Sign in failed", description: error.message, variant: "destructive" });
@@ -54,10 +56,54 @@ export function useRegister() {
     },
     onSuccess: (profile) => {
       queryClient.setQueryData(["/api/user"], profile);
-      toast({ title: "Account created!", description: `Welcome to EASYCHANGE, ${profile.fullName}` });
+      toast({ title: "Check your email", description: "We sent a 6-digit verification code" });
     },
     onError: (error: Error) => {
       toast({ title: "Sign up failed", description: error.message, variant: "destructive" });
+    },
+  });
+}
+
+export function useVerifyEmail() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  return useMutation({
+    mutationFn: async (code: string) => {
+      const res = await apiRequest("POST", "/api/auth/verify-email", { code });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.message || "Verification failed");
+      }
+      return res.json();
+    },
+    onSuccess: (profile) => {
+      queryClient.setQueryData(["/api/user"], profile);
+      toast({ title: "Email verified!", description: `Welcome to EASYCHANGE, ${profile.fullName}` });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Verification failed", description: error.message, variant: "destructive" });
+    },
+  });
+}
+
+export function useResendOtp() {
+  const { toast } = useToast();
+
+  return useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/auth/resend-otp");
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.message || "Failed to resend code");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Code resent", description: "Check your email for the new code" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
     },
   });
 }

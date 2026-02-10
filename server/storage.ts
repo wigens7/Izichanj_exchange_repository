@@ -7,6 +7,7 @@ export interface IStorage {
   getProfileByEmail(email: string): Promise<Profile | undefined>;
   createProfile(fullName: string, email: string, passwordHash: string): Promise<Profile>;
   updateProfileBalance(id: number, balance: number): Promise<Profile>;
+  markEmailVerified(id: number): Promise<void>;
 
   createOtp(profileId: number, code: string): Promise<void>;
   getValidOtp(profileId: number, code: string): Promise<typeof otps.$inferSelect | undefined>;
@@ -46,6 +47,10 @@ export class DatabaseStorage implements IStorage {
   async updateProfileBalance(id: number, balance: number): Promise<Profile> {
     const [profile] = await db.update(profiles).set({ balance: balance.toString() }).where(eq(profiles.id, id)).returning();
     return profile;
+  }
+
+  async markEmailVerified(id: number): Promise<void> {
+    await db.update(profiles).set({ emailVerified: true }).where(eq(profiles.id, id));
   }
 
   async createOtp(profileId: number, code: string): Promise<void> {

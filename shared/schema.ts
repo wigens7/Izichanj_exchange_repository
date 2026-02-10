@@ -15,6 +15,7 @@ export const profiles = pgTable("profiles", {
   fullName: text("full_name").notNull(),
   email: text("email").notNull().unique(),
   passwordHash: text("password_hash").notNull(),
+  emailVerified: boolean("email_verified").default(false).notNull(),
   role: userRoleEnum("role").default("user").notNull(),
   kycStatus: kycStatusEnum("kyc_status").default("not_submitted").notNull(),
   balance: decimal("balance", { precision: 10, scale: 2 }).default("0").notNull(),

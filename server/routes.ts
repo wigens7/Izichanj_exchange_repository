@@ -43,12 +43,52 @@ export async function registerRoutes(
       }
       const passwordHash = await bcrypt.hash(input.password, 12);
       const profile = await storage.createProfile(input.fullName, input.email, passwordHash);
+      const code = crypto.randomInt(100000, 999999).toString();
+      await storage.createOtp(profile.id, code);
+      await sendEmailOtp(profile.email, code);
       req.session.profileId = profile.id;
       const { passwordHash: _, ...safeProfile } = profile;
       res.status(201).json(safeProfile);
     } catch (e) {
       if (e instanceof z.ZodError) return res.status(400).json({ message: e.errors[0].message });
       console.error("Registration error:", e);
+      res.status(500).json({ message: "Internal Error" });
+    }
+  });
+
+  app.post("/api/auth/verify-email", async (req, res) => {
+    try {
+      const profileId = req.session?.profileId;
+      if (!profileId) return res.status(401).json({ message: "Unauthorized" });
+      const { code } = req.body;
+      if (!code) return res.status(400).json({ message: "Verification code is required" });
+      const validOtp = await storage.getValidOtp(profileId, code);
+      if (!validOtp) return res.status(400).json({ message: "Invalid or expired code" });
+      await storage.markOtpVerified(validOtp.id);
+      await storage.markEmailVerified(profileId);
+      const profile = await storage.getProfile(profileId);
+      if (!profile) return res.status(401).json({ message: "Unauthorized" });
+      const { passwordHash: _, ...safeProfile } = profile;
+      res.json(safeProfile);
+    } catch (e) {
+      console.error("Verify email error:", e);
+      res.status(500).json({ message: "Internal Error" });
+    }
+  });
+
+  app.post("/api/auth/resend-otp", async (req, res) => {
+    try {
+      const profileId = req.session?.profileId;
+      if (!profileId) return res.status(401).json({ message: "Unauthorized" });
+      const profile = await storage.getProfile(profileId);
+      if (!profile) return res.status(401).json({ message: "Unauthorized" });
+      if (profile.emailVerified) return res.json({ message: "Email already verified" });
+      const code = crypto.randomInt(100000, 999999).toString();
+      await storage.createOtp(profile.id, code);
+      await sendEmailOtp(profile.email, code);
+      res.json({ message: "OTP sent" });
+    } catch (e) {
+      console.error("Resend OTP error:", e);
       res.status(500).json({ message: "Internal Error" });
     }
   });
@@ -65,6 +105,13 @@ export async function registerRoutes(
         return res.status(401).json({ message: "Invalid email or password" });
       }
       req.session.profileId = profile.id;
+      if (!profile.emailVerified) {
+        const code = crypto.randomInt(100000, 999999).toString();
+        await storage.createOtp(profile.id, code);
+        await sendEmailOtp(profile.email, code);
+        const { passwordHash: _, ...safeProfile } = profile;
+        return res.json({ ...safeProfile, needsVerification: true });
+      }
       const { passwordHash: _, ...safeProfile } = profile;
       res.json(safeProfile);
     } catch (e) {

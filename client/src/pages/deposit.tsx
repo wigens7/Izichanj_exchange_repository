@@ -25,7 +25,7 @@ export default function DepositPage() {
 
   const onSubmit = (data: z.infer<typeof depositSchema>) => {
     createDeposit({
-        amountUsdt: Number(data.amountUsdt),
+        amountUsdt: data.amountUsdt,
         txHash: data.txHash
     }, {
         onSuccess: () => form.reset()

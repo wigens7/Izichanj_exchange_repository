@@ -15,6 +15,7 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 function SignInForm() {
   const loginMutation = useLogin();
   const [showPassword, setShowPassword] = useState(false);
+  const [, setLocation] = useLocation();
 
   const form = useForm<LoginInput>({
     resolver: zodResolver(loginSchema),
@@ -22,7 +23,15 @@ function SignInForm() {
   });
 
   const onSubmit = (data: LoginInput) => {
-    loginMutation.mutate(data);
+    loginMutation.mutate(data, {
+      onSuccess: (profile) => {
+        if (profile.needsVerification || !profile.emailVerified) {
+          setLocation("/verify-email");
+        } else {
+          setLocation("/");
+        }
+      },
+    });
   };
 
   return (
@@ -100,6 +109,7 @@ function SignUpForm() {
   const registerMutation = useRegister();
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
+  const [, setLocation] = useLocation();
 
   const form = useForm<RegisterInput>({
     resolver: zodResolver(registerSchema),
@@ -107,7 +117,11 @@ function SignUpForm() {
   });
 
   const onSubmit = (data: RegisterInput) => {
-    registerMutation.mutate(data);
+    registerMutation.mutate(data, {
+      onSuccess: () => {
+        setLocation("/verify-email");
+      },
+    });
   };
 
   return (
@@ -236,7 +250,11 @@ export default function LoginPage() {
 
   useEffect(() => {
     if (user) {
-      setLocation("/");
+      if (!user.emailVerified) {
+        setLocation("/verify-email");
+      } else {
+        setLocation("/");
+      }
     }
   }, [user, setLocation]);
 

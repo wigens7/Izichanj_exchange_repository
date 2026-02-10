@@ -7,6 +7,7 @@ import { useUser } from "@/hooks/use-auth";
 import { Loader2 } from "lucide-react";
 
 import LoginPage from "@/pages/login";
+import VerifyEmailPage from "@/pages/verify-email";
 import DashboardPage from "@/pages/dashboard";
 import DepositPage from "@/pages/deposit";
 import WithdrawPage from "@/pages/withdraw";
@@ -30,6 +31,10 @@ function ProtectedRoute({ component: Component, adminOnly = false }: { component
     return <Redirect to="/login" />;
   }
 
+  if (!user.emailVerified) {
+    return <Redirect to="/verify-email" />;
+  }
+
   if (adminOnly && user.role !== "admin") {
     return <Redirect to="/" />;
   }
@@ -45,6 +50,7 @@ function Router() {
   return (
     <Switch>
       <Route path="/login" component={LoginPage} />
+      <Route path="/verify-email" component={VerifyEmailPage} />
 
       <Route path="/">
         <ProtectedRoute component={DashboardPage} />
