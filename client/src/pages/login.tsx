@@ -1,5 +1,6 @@
 import { useUser, useLogin, useRegister } from "@/hooks/use-auth";
 import { useLocation } from "wouter";
+import { useLanguage } from "@/lib/i18n";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -16,6 +17,7 @@ function SignInForm() {
   const loginMutation = useLogin();
   const [showPassword, setShowPassword] = useState(false);
   const [, setLocation] = useLocation();
+  const { t } = useLanguage();
 
   const form = useForm<LoginInput>({
     resolver: zodResolver(loginSchema),
@@ -42,7 +44,7 @@ function SignInForm() {
           name="email"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Email</FormLabel>
+              <FormLabel>{t.login.email}</FormLabel>
               <FormControl>
                 <Input
                   type="email"
@@ -61,7 +63,7 @@ function SignInForm() {
           name="password"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Password</FormLabel>
+              <FormLabel>{t.login.password}</FormLabel>
               <FormControl>
                 <div className="relative">
                   <Input
@@ -98,7 +100,7 @@ function SignInForm() {
           ) : (
             <LogIn className="w-4 h-4 mr-2" />
           )}
-          Sign In
+          {t.login.signIn}
         </Button>
       </form>
     </Form>
@@ -110,6 +112,7 @@ function SignUpForm() {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const [, setLocation] = useLocation();
+  const { t } = useLanguage();
 
   const form = useForm<RegisterInput>({
     resolver: zodResolver(registerSchema),
@@ -132,7 +135,7 @@ function SignUpForm() {
           name="fullName"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Full Name</FormLabel>
+              <FormLabel>{t.login.fullName}</FormLabel>
               <FormControl>
                 <Input
                   placeholder="John Doe"
@@ -150,7 +153,7 @@ function SignUpForm() {
           name="email"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Email</FormLabel>
+              <FormLabel>{t.login.email}</FormLabel>
               <FormControl>
                 <Input
                   type="email"
@@ -169,7 +172,7 @@ function SignUpForm() {
           name="password"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Password</FormLabel>
+              <FormLabel>{t.login.password}</FormLabel>
               <FormControl>
                 <div className="relative">
                   <Input
@@ -200,7 +203,7 @@ function SignUpForm() {
           name="confirmPassword"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Confirm Password</FormLabel>
+              <FormLabel>{t.login.confirmPassword}</FormLabel>
               <FormControl>
                 <div className="relative">
                   <Input
@@ -237,7 +240,7 @@ function SignUpForm() {
           ) : (
             <UserPlus className="w-4 h-4 mr-2" />
           )}
-          Create Account
+          {t.login.createAccount}
         </Button>
       </form>
     </Form>
@@ -247,6 +250,7 @@ function SignUpForm() {
 export default function LoginPage() {
   const { data: user, isLoading } = useUser();
   const [, setLocation] = useLocation();
+  const { t } = useLanguage();
 
   useEffect(() => {
     if (user) {
@@ -276,33 +280,33 @@ export default function LoginPage() {
       <div className="w-full max-w-md z-10">
         <div className="text-center mb-8">
           <h1 className="text-4xl font-display font-bold bg-gradient-to-r from-blue-600 to-emerald-600 bg-clip-text text-transparent">
-            EASYCHANGE
+            {t.login.appTitle}
           </h1>
-          <p className="text-muted-foreground mt-2">Secure Crypto to Cash Exchange</p>
+          <p className="text-muted-foreground mt-2">{t.login.appSubtitle}</p>
         </div>
 
         <Card className="glass-card border-none shadow-2xl">
           <Tabs defaultValue="signin" className="w-full">
             <CardHeader className="pb-2">
               <TabsList className="grid w-full grid-cols-2" data-testid="tabs-auth">
-                <TabsTrigger value="signin" data-testid="tab-signin">Sign In</TabsTrigger>
-                <TabsTrigger value="signup" data-testid="tab-signup">Sign Up</TabsTrigger>
+                <TabsTrigger value="signin" data-testid="tab-signin">{t.login.signIn}</TabsTrigger>
+                <TabsTrigger value="signup" data-testid="tab-signup">{t.login.signUp}</TabsTrigger>
               </TabsList>
             </CardHeader>
 
             <CardContent>
               <TabsContent value="signin" className="mt-0">
                 <div className="text-center mb-4">
-                  <CardTitle className="text-xl" data-testid="text-signin-title">Welcome Back</CardTitle>
-                  <CardDescription>Sign in to your account</CardDescription>
+                  <CardTitle className="text-xl" data-testid="text-signin-title">{t.login.welcomeBack}</CardTitle>
+                  <CardDescription>{t.login.signInDescription}</CardDescription>
                 </div>
                 <SignInForm />
               </TabsContent>
 
               <TabsContent value="signup" className="mt-0">
                 <div className="text-center mb-4">
-                  <CardTitle className="text-xl" data-testid="text-signup-title">Create Account</CardTitle>
-                  <CardDescription>Start exchanging crypto securely</CardDescription>
+                  <CardTitle className="text-xl" data-testid="text-signup-title">{t.login.createAccount}</CardTitle>
+                  <CardDescription>{t.login.signUpDescription}</CardDescription>
                 </div>
                 <SignUpForm />
               </TabsContent>

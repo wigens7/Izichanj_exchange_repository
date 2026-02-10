@@ -1,6 +1,7 @@
 import { ReactNode } from "react";
 import { Link, useLocation } from "wouter";
 import { useUser, useLogout } from "@/hooks/use-auth";
+import { useLanguage } from "@/lib/i18n";
 import { 
   LayoutDashboard, 
   ArrowDownCircle, 
@@ -23,17 +24,18 @@ export function LayoutShell({ children }: LayoutShellProps) {
   const [location] = useLocation();
   const { data: user } = useUser();
   const { mutate: logout } = useLogout();
+  const { t } = useLanguage();
   const [isOpen, setIsOpen] = useState(false);
 
-  const navItems = [
-    { href: "/", label: "Dashboard", icon: LayoutDashboard },
-    { href: "/deposit", label: "Deposit", icon: ArrowDownCircle },
-    { href: "/withdraw", label: "Withdraw", icon: ArrowUpCircle },
-    { href: "/profile", label: "Profile & KYC", icon: UserCircle },
+  const navItems: { href: string; label: string; icon: any }[] = [
+    { href: "/", label: t.nav.dashboard, icon: LayoutDashboard },
+    { href: "/deposit", label: t.nav.deposit, icon: ArrowDownCircle },
+    { href: "/withdraw", label: t.nav.withdraw, icon: ArrowUpCircle },
+    { href: "/profile", label: t.nav.profileKyc, icon: UserCircle },
   ];
 
   if (user?.role === "admin") {
-    navItems.push({ href: "/admin", label: "Admin Panel", icon: ShieldCheck });
+    navItems.push({ href: "/admin", label: t.nav.adminPanel, icon: ShieldCheck });
   }
 
   const NavContent = () => (
@@ -42,7 +44,7 @@ export function LayoutShell({ children }: LayoutShellProps) {
         <h1 className="text-2xl font-display font-bold bg-gradient-to-r from-primary to-blue-600 bg-clip-text text-transparent">
           EASYCHANGE
         </h1>
-        <p className="text-sm text-muted-foreground mt-1">Crypto to Cash</p>
+        <p className="text-sm text-muted-foreground mt-1">{t.nav.cryptoToCash}</p>
       </div>
 
       <nav className="flex-1 px-4 space-y-2">
@@ -78,7 +80,7 @@ export function LayoutShell({ children }: LayoutShellProps) {
             onClick={() => logout()}
         >
           <LogOut className="w-4 h-4 mr-2" />
-          Sign Out
+          {t.nav.signOut}
         </Button>
       </div>
     </div>
@@ -86,7 +88,6 @@ export function LayoutShell({ children }: LayoutShellProps) {
 
   return (
     <div className="min-h-screen bg-gray-50/50 dark:bg-slate-950">
-      {/* Mobile Header */}
       <header className="lg:hidden fixed top-0 left-0 right-0 h-16 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border-b border-border z-50 flex items-center justify-between px-4">
         <h1 className="text-xl font-display font-bold text-primary">EASYCHANGE</h1>
         <Sheet open={isOpen} onOpenChange={setIsOpen}>
@@ -101,12 +102,10 @@ export function LayoutShell({ children }: LayoutShellProps) {
         </Sheet>
       </header>
 
-      {/* Desktop Sidebar */}
       <aside className="hidden lg:block fixed top-0 left-0 bottom-0 w-64 bg-white dark:bg-slate-900 border-r border-border z-40">
         <NavContent />
       </aside>
 
-      {/* Main Content */}
       <main className="pt-20 lg:pt-8 lg:pl-64 min-h-screen">
         <div className="container max-w-5xl mx-auto px-4 sm:px-6 pb-20">
           {children}

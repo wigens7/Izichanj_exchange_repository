@@ -4,6 +4,7 @@
 A secure fintech mobile web app for converting USDT (TRC20/BEP20) to MonCash/NatCash. Users register with email/password, complete KYC verification, submit deposits with transaction hashes, and request withdrawals to local mobile money accounts.
 
 ## Recent Changes
+- **Feb 10, 2026**: Added multi-language support (English, French, Haitian Creole). Language selector on profile page with localStorage persistence. All pages translated. Added KYC enforcement on deposit/withdrawal endpoints and pages.
 - **Feb 10, 2026**: Built comprehensive admin panel with 4 tabs (Users, Deposits, Withdrawals, KYC) with approve/reject functionality. Added email OTP verification flow after registration. Updated login/register redirects for verification. Fixed deposit/withdrawal type issues.
 - **Feb 10, 2026**: Replaced Replit Auth with custom email/password authentication. Added sign-up form with password confirmation, sign-in form, bcrypt password hashing. Removed authUserId dependency from profiles table.
 

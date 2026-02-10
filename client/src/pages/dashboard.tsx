@@ -1,5 +1,6 @@
 import { useUser } from "@/hooks/use-auth";
 import { useDeposits, useWithdrawals } from "@/hooks/use-transactions";
+import { useLanguage } from "@/lib/i18n";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ArrowUpRight, ArrowDownLeft, Wallet, Clock, CheckCircle, XCircle } from "lucide-react";
 import { format } from "date-fns";
@@ -12,6 +13,7 @@ export default function DashboardPage() {
   const { data: user } = useUser();
   const { data: deposits, isLoading: isDepositsLoading } = useDeposits();
   const { data: withdrawals, isLoading: isWithdrawalsLoading } = useWithdrawals();
+  const { t } = useLanguage();
 
   const totalDeposited = deposits 
     ?.filter(d => d.status === 'approved')
@@ -21,7 +23,6 @@ export default function DashboardPage() {
     ?.filter(w => w.status === 'approved')
     .reduce((acc, curr) => acc + Number(curr.amount), 0) || 0;
 
-  // Combine and sort transactions for a unified feed
   const allTransactions = [
     ...(deposits?.map(d => ({ ...d, type: 'deposit' as const })) || []),
     ...(withdrawals?.map(w => ({ ...w, type: 'withdrawal' as const })) || [])
@@ -51,25 +52,25 @@ export default function DashboardPage() {
   return (
     <div className="space-y-8 animate-in fade-in duration-500">
       <div className="flex flex-col gap-2">
-        <h1 className="text-3xl font-display font-bold">Dashboard</h1>
-        <p className="text-muted-foreground">Welcome back, {user.fullName}</p>
+        <h1 className="text-3xl font-display font-bold">{t.dashboard.title}</h1>
+        <p className="text-muted-foreground">{t.dashboard.welcomeBack} {user.fullName}</p>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <StatCard 
-            title="Current Balance" 
+            title={t.dashboard.currentBalance}
             value={`${user.balance} HTG`} 
             icon={Wallet} 
             colorClass="text-blue-600" 
         />
         <StatCard 
-            title="Total Deposited" 
+            title={t.dashboard.totalDeposited}
             value={`$${totalDeposited.toFixed(2)}`} 
             icon={ArrowDownLeft} 
             colorClass="text-emerald-600" 
         />
         <StatCard 
-            title="Total Withdrawn" 
+            title={t.dashboard.totalWithdrawn}
             value={`${totalWithdrawn.toFixed(2)} HTG`} 
             icon={ArrowUpRight} 
             colorClass="text-amber-600" 
@@ -78,14 +79,14 @@ export default function DashboardPage() {
 
       <Card className="border-none shadow-lg">
         <CardHeader>
-          <CardTitle>Transaction History</CardTitle>
+          <CardTitle>{t.dashboard.transactionHistory}</CardTitle>
         </CardHeader>
         <CardContent>
           <Tabs defaultValue="all" className="w-full">
             <TabsList className="mb-4">
-              <TabsTrigger value="all">All</TabsTrigger>
-              <TabsTrigger value="deposits">Deposits</TabsTrigger>
-              <TabsTrigger value="withdrawals">Withdrawals</TabsTrigger>
+              <TabsTrigger value="all">{t.dashboard.all}</TabsTrigger>
+              <TabsTrigger value="deposits">{t.dashboard.deposits}</TabsTrigger>
+              <TabsTrigger value="withdrawals">{t.dashboard.withdrawals}</TabsTrigger>
             </TabsList>
             
             <TabsContent value="all" className="space-y-4">
@@ -94,14 +95,13 @@ export default function DashboardPage() {
                     <Skeleton key={i} className="h-16 w-full rounded-xl" />
                 ))
               ) : allTransactions.length === 0 ? (
-                <div className="text-center py-10 text-muted-foreground">No transactions yet.</div>
+                <div className="text-center py-10 text-muted-foreground">{t.dashboard.noTransactions}</div>
               ) : (
                 allTransactions.map((txn) => (
                   <TransactionRow key={`${txn.type}-${txn.id}`} txn={txn} />
                 ))
               )}
             </TabsContent>
-            {/* Can duplicate list logic for tabs or filter */}
           </Tabs>
         </CardContent>
       </Card>
@@ -111,6 +111,7 @@ export default function DashboardPage() {
 
 function TransactionRow({ txn }: { txn: any }) {
     const isDeposit = txn.type === 'deposit';
+    const { t } = useLanguage();
     return (
         <motion.div 
             initial={{ opacity: 0, y: 10 }}
@@ -123,7 +124,7 @@ function TransactionRow({ txn }: { txn: any }) {
                 </div>
                 <div>
                     <p className="font-semibold text-foreground">
-                        {isDeposit ? 'USDT Deposit' : `${txn.currency} Withdrawal`}
+                        {isDeposit ? t.dashboard.usdtDeposit : `${txn.currency} ${t.dashboard.withdrawal}`}
                     </p>
                     <p className="text-xs text-muted-foreground">
                         {format(new Date(txn.createdAt), "MMM d, yyyy 'at' h:mm a")}

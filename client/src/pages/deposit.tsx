@@ -3,6 +3,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useCreateDeposit } from "@/hooks/use-transactions";
 import { useUser } from "@/hooks/use-auth";
+import { useLanguage } from "@/lib/i18n";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
@@ -21,6 +22,7 @@ export default function DepositPage() {
   const { data: user } = useUser();
   const { mutate: createDeposit, isPending } = useCreateDeposit();
   const { toast } = useToast();
+  const { t } = useLanguage();
   const kycVerified = user?.kycStatus === "verified";
 
   const form = useForm<z.infer<typeof depositSchema>>({
@@ -39,7 +41,7 @@ export default function DepositPage() {
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
-    toast({ title: "Copied", description: "Address copied to clipboard" });
+    toast({ title: t.deposit.copied, description: t.deposit.copiedDescription });
   };
 
   const AddressCard = ({ network, address }: { network: string, address: string }) => (
@@ -57,17 +59,17 @@ export default function DepositPage() {
   return (
     <div className="max-w-2xl mx-auto space-y-8 animate-in slide-in-from-bottom-4 duration-500">
         <div>
-            <h1 className="text-3xl font-display font-bold">Deposit USDT</h1>
-            <p className="text-muted-foreground">Send USDT to one of the addresses below, then submit proof.</p>
+            <h1 className="text-3xl font-display font-bold">{t.deposit.title}</h1>
+            <p className="text-muted-foreground">{t.deposit.subtitle}</p>
         </div>
 
         {!kycVerified && (
             <Alert className="bg-amber-500/10 border-amber-200 text-amber-800 dark:text-amber-300" data-testid="alert-kyc-required-deposit">
                 <ShieldAlert className="h-4 w-4" />
-                <AlertTitle>KYC Verification Required</AlertTitle>
+                <AlertTitle>{t.kyc.required}</AlertTitle>
                 <AlertDescription>
-                    You must complete identity verification before making deposits.{" "}
-                    <Link href="/profile" className="underline font-medium">Go to Profile & KYC</Link>
+                    {t.kyc.depositMessage}{" "}
+                    <Link href="/profile" className="underline font-medium">{t.kyc.goToProfile}</Link>
                 </AlertDescription>
             </Alert>
         )}
@@ -76,7 +78,7 @@ export default function DepositPage() {
             <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                     <QrCode className="w-5 h-5 text-primary" />
-                    Wallet Addresses
+                    {t.deposit.walletAddresses}
                 </CardTitle>
             </CardHeader>
             <CardContent className="grid gap-4">
@@ -87,8 +89,8 @@ export default function DepositPage() {
 
         <Card className={!kycVerified ? "opacity-50 pointer-events-none" : ""}>
             <CardHeader>
-                <CardTitle>Submit Transaction</CardTitle>
-                <CardDescription>We will verify your deposit within minutes.</CardDescription>
+                <CardTitle>{t.deposit.submitTransaction}</CardTitle>
+                <CardDescription>{t.deposit.verifyDescription}</CardDescription>
             </CardHeader>
             <CardContent>
                 <Form {...form}>
@@ -98,7 +100,7 @@ export default function DepositPage() {
                             name="amountUsdt"
                             render={({ field }) => (
                                 <FormItem>
-                                    <FormLabel>Amount Sent (USDT)</FormLabel>
+                                    <FormLabel>{t.deposit.amountSent}</FormLabel>
                                     <FormControl>
                                         <Input type="number" step="0.01" placeholder="100.00" {...field} data-testid="input-deposit-amount" />
                                     </FormControl>
@@ -111,16 +113,16 @@ export default function DepositPage() {
                             name="txHash"
                             render={({ field }) => (
                                 <FormItem>
-                                    <FormLabel>Transaction Hash (TXID)</FormLabel>
+                                    <FormLabel>{t.deposit.txHash}</FormLabel>
                                     <FormControl>
-                                        <Input placeholder="Enter transaction hash..." {...field} data-testid="input-deposit-txhash" />
+                                        <Input placeholder={t.deposit.txHashPlaceholder} {...field} data-testid="input-deposit-txhash" />
                                     </FormControl>
                                     <FormMessage />
                                 </FormItem>
                             )}
                         />
                         <Button type="submit" className="w-full primary-gradient h-11" disabled={isPending || !kycVerified} data-testid="button-submit-deposit">
-                            {isPending ? <Loader2 className="animate-spin mr-2" /> : "Verify Deposit"}
+                            {isPending ? <Loader2 className="animate-spin mr-2" /> : t.deposit.verifyDeposit}
                         </Button>
                     </form>
                 </Form>

@@ -1,18 +1,21 @@
 import { useUser } from "@/hooks/use-auth";
 import { useKycStatus, useUploadKyc } from "@/hooks/use-kyc";
 import { useUpload } from "@/hooks/use-upload";
+import { useLanguage, languageNames, type Language } from "@/lib/i18n";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { StatusBadge } from "@/components/status-badge";
-import { Loader2, UploadCloud, CheckCircle2 } from "lucide-react";
+import { Loader2, UploadCloud, CheckCircle2, Globe } from "lucide-react";
 import { useState } from "react";
 
 export default function ProfilePage() {
   const { data: user } = useUser();
   const { data: kycStatus, isLoading } = useKycStatus();
   const { mutate: submitKyc, isPending: isSubmitting } = useUploadKyc();
+  const { language, setLanguage, t } = useLanguage();
   
   const { uploadFile, isUploading } = useUpload();
   
@@ -55,14 +58,30 @@ export default function ProfilePage() {
                     <CardContent>
                         <div className="space-y-4">
                             <div className="flex justify-between items-center py-2 border-b">
-                                <span className="text-sm text-muted-foreground">Status</span>
+                                <span className="text-sm text-muted-foreground">{t.profile.status}</span>
                                 <StatusBadge status={user.kycStatus} />
                             </div>
                             <div className="flex justify-between items-center py-2 border-b">
-                                <span className="text-sm text-muted-foreground">Joined</span>
+                                <span className="text-sm text-muted-foreground">{t.profile.joined}</span>
                                 <span className="text-sm font-medium">
                                     {new Date(user.createdAt).toLocaleDateString()}
                                 </span>
+                            </div>
+                            <div className="py-2 border-b space-y-2">
+                                <div className="flex items-center gap-2">
+                                    <Globe className="w-4 h-4 text-muted-foreground" />
+                                    <span className="text-sm text-muted-foreground">{t.profile.language}</span>
+                                </div>
+                                <Select value={language} onValueChange={(val) => setLanguage(val as Language)}>
+                                    <SelectTrigger data-testid="select-language">
+                                        <SelectValue placeholder={t.profile.selectLanguage} />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="en" data-testid="option-lang-en">{languageNames.en}</SelectItem>
+                                        <SelectItem value="fr" data-testid="option-lang-fr">{languageNames.fr}</SelectItem>
+                                        <SelectItem value="ht" data-testid="option-lang-ht">{languageNames.ht}</SelectItem>
+                                    </SelectContent>
+                                </Select>
                             </div>
                         </div>
                     </CardContent>
@@ -72,9 +91,9 @@ export default function ProfilePage() {
             <div className="w-full md:w-2/3">
                 <Card>
                     <CardHeader>
-                        <CardTitle>Identity Verification (KYC)</CardTitle>
+                        <CardTitle>{t.profile.kycTitle}</CardTitle>
                         <CardDescription>
-                            Verify your identity to increase limits and enable withdrawals.
+                            {t.profile.kycDescription}
                         </CardDescription>
                     </CardHeader>
                     <CardContent>
@@ -83,23 +102,23 @@ export default function ProfilePage() {
                                 <div className="w-16 h-16 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto">
                                     <CheckCircle2 className="w-8 h-8" />
                                 </div>
-                                <h3 className="text-xl font-bold text-emerald-700">You are verified!</h3>
-                                <p className="text-muted-foreground">Your account has full access.</p>
+                                <h3 className="text-xl font-bold text-emerald-700">{t.profile.verified}</h3>
+                                <p className="text-muted-foreground">{t.profile.verifiedDescription}</p>
                             </div>
                         ) : user.kycStatus === 'pending' ? (
                             <div className="text-center py-10 bg-amber-50 rounded-xl border border-amber-100">
-                                <h3 className="text-lg font-bold text-amber-700">Verification Under Review</h3>
-                                <p className="text-amber-600/80 mt-2">Please wait while our team reviews your documents.</p>
+                                <h3 className="text-lg font-bold text-amber-700">{t.profile.underReview}</h3>
+                                <p className="text-amber-600/80 mt-2">{t.profile.underReviewDescription}</p>
                             </div>
                         ) : (
                             <div className="space-y-6">
                                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                                     <div className="space-y-2">
-                                        <Label>ID Card (Front)</Label>
+                                        <Label>{t.profile.idFront}</Label>
                                         <div className="border-2 border-dashed border-border rounded-xl p-6 text-center hover:bg-muted/50 transition-colors">
                                             {idUrl ? (
                                                 <div className="text-sm text-emerald-600 flex items-center justify-center gap-2" data-testid="status-id-front-uploaded">
-                                                    <CheckCircle2 className="w-4 h-4" /> Uploaded
+                                                    <CheckCircle2 className="w-4 h-4" /> {t.profile.uploaded}
                                                 </div>
                                             ) : (
                                                 <>
@@ -114,7 +133,7 @@ export default function ProfilePage() {
                                                     />
                                                     <label htmlFor="id-upload" className="cursor-pointer block">
                                                         <UploadCloud className="w-8 h-8 mx-auto text-muted-foreground mb-2" />
-                                                        <span className="text-sm text-primary font-medium">Click to upload</span>
+                                                        <span className="text-sm text-primary font-medium">{t.profile.clickToUpload}</span>
                                                     </label>
                                                 </>
                                             )}
@@ -122,11 +141,11 @@ export default function ProfilePage() {
                                     </div>
 
                                     <div className="space-y-2">
-                                        <Label>ID Card (Back)</Label>
+                                        <Label>{t.profile.idBack}</Label>
                                         <div className="border-2 border-dashed border-border rounded-xl p-6 text-center hover:bg-muted/50 transition-colors">
                                             {idBackUrl ? (
                                                 <div className="text-sm text-emerald-600 flex items-center justify-center gap-2" data-testid="status-id-back-uploaded">
-                                                    <CheckCircle2 className="w-4 h-4" /> Uploaded
+                                                    <CheckCircle2 className="w-4 h-4" /> {t.profile.uploaded}
                                                 </div>
                                             ) : (
                                                 <>
@@ -141,7 +160,7 @@ export default function ProfilePage() {
                                                     />
                                                     <label htmlFor="id-back-upload" className="cursor-pointer block">
                                                         <UploadCloud className="w-8 h-8 mx-auto text-muted-foreground mb-2" />
-                                                        <span className="text-sm text-primary font-medium">Click to upload</span>
+                                                        <span className="text-sm text-primary font-medium">{t.profile.clickToUpload}</span>
                                                     </label>
                                                 </>
                                             )}
@@ -149,11 +168,11 @@ export default function ProfilePage() {
                                     </div>
 
                                     <div className="space-y-2">
-                                        <Label>Selfie with ID</Label>
+                                        <Label>{t.profile.selfie}</Label>
                                         <div className="border-2 border-dashed border-border rounded-xl p-6 text-center hover:bg-muted/50 transition-colors">
                                             {selfieUrl ? (
                                                 <div className="text-sm text-emerald-600 flex items-center justify-center gap-2" data-testid="status-selfie-uploaded">
-                                                    <CheckCircle2 className="w-4 h-4" /> Uploaded
+                                                    <CheckCircle2 className="w-4 h-4" /> {t.profile.uploaded}
                                                 </div>
                                             ) : (
                                                 <>
@@ -168,7 +187,7 @@ export default function ProfilePage() {
                                                     />
                                                     <label htmlFor="selfie-upload" className="cursor-pointer block">
                                                         <UploadCloud className="w-8 h-8 mx-auto text-muted-foreground mb-2" />
-                                                        <span className="text-sm text-primary font-medium">Click to upload</span>
+                                                        <span className="text-sm text-primary font-medium">{t.profile.clickToUpload}</span>
                                                     </label>
                                                 </>
                                             )}
@@ -176,7 +195,7 @@ export default function ProfilePage() {
                                     </div>
                                 </div>
                                 
-                                {isUploading && <p className="text-center text-sm text-muted-foreground animate-pulse">Uploading documents...</p>}
+                                {isUploading && <p className="text-center text-sm text-muted-foreground animate-pulse">{t.profile.uploading}</p>}
 
                                 <Button 
                                     className="w-full primary-gradient" 
@@ -184,7 +203,7 @@ export default function ProfilePage() {
                                     onClick={handleSubmit}
                                     data-testid="button-submit-kyc"
                                 >
-                                    {isSubmitting ? <Loader2 className="animate-spin mr-2" /> : "Submit for Verification"}
+                                    {isSubmitting ? <Loader2 className="animate-spin mr-2" /> : t.profile.submitVerification}
                                 </Button>
                             </div>
                         )}

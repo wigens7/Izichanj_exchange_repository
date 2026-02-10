@@ -4,6 +4,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useCreateWithdrawal, useRequestWithdrawalOtp } from "@/hooks/use-transactions";
 import { useUser } from "@/hooks/use-auth";
+import { useLanguage } from "@/lib/i18n";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
@@ -25,6 +26,7 @@ export default function WithdrawPage() {
   const { mutate: createWithdrawal, isPending: isWithdrawPending } = useCreateWithdrawal();
   const { mutate: requestOtp, isPending: isOtpPending } = useRequestWithdrawalOtp();
   const [otpSent, setOtpSent] = useState(false);
+  const { t } = useLanguage();
   const kycVerified = user?.kycStatus === "verified";
 
   const form = useForm<z.infer<typeof withdrawSchema>>({
@@ -55,25 +57,25 @@ export default function WithdrawPage() {
   return (
     <div className="max-w-xl mx-auto space-y-6 animate-in slide-in-from-bottom-4 duration-500">
         <div>
-            <h1 className="text-3xl font-display font-bold">Withdraw Funds</h1>
-            <p className="text-muted-foreground">Cash out to your local mobile wallet.</p>
+            <h1 className="text-3xl font-display font-bold">{t.withdraw.title}</h1>
+            <p className="text-muted-foreground">{t.withdraw.subtitle}</p>
         </div>
 
         {!kycVerified ? (
             <Alert className="bg-amber-500/10 border-amber-200 text-amber-800 dark:text-amber-300" data-testid="alert-kyc-required-withdraw">
                 <ShieldAlert className="h-4 w-4" />
-                <AlertTitle>KYC Verification Required</AlertTitle>
+                <AlertTitle>{t.kyc.required}</AlertTitle>
                 <AlertDescription>
-                    You must complete identity verification before making withdrawals.{" "}
-                    <Link href="/profile" className="underline font-medium">Go to Profile & KYC</Link>
+                    {t.kyc.withdrawMessage}{" "}
+                    <Link href="/profile" className="underline font-medium">{t.kyc.goToProfile}</Link>
                 </AlertDescription>
             </Alert>
         ) : (
             <Alert className="bg-amber-500/10 border-amber-200 text-amber-800 dark:text-amber-300">
                 <ShieldAlert className="h-4 w-4" />
-                <AlertTitle>Security Verification</AlertTitle>
+                <AlertTitle>{t.withdraw.securityVerification}</AlertTitle>
                 <AlertDescription>
-                    Withdrawals are validated within 15-20 minutes after confirmation.
+                    {t.withdraw.securityDescription}
                 </AlertDescription>
             </Alert>
         )}
@@ -88,11 +90,11 @@ export default function WithdrawPage() {
                                 name="currency"
                                 render={({ field }) => (
                                     <FormItem>
-                                        <FormLabel>Wallet Type</FormLabel>
+                                        <FormLabel>{t.withdraw.walletType}</FormLabel>
                                         <Select onValueChange={field.onChange} defaultValue={field.value}>
                                             <FormControl>
                                                 <SelectTrigger>
-                                                    <SelectValue placeholder="Select wallet" />
+                                                    <SelectValue placeholder={t.withdraw.selectWallet} />
                                                 </SelectTrigger>
                                             </FormControl>
                                             <SelectContent>
@@ -109,7 +111,7 @@ export default function WithdrawPage() {
                                 name="amount"
                                 render={({ field }) => (
                                     <FormItem>
-                                        <FormLabel>Amount (HTG)</FormLabel>
+                                        <FormLabel>{t.withdraw.amountHtg}</FormLabel>
                                         <FormControl>
                                             <Input type="number" placeholder="500" {...field} />
                                         </FormControl>
@@ -124,7 +126,7 @@ export default function WithdrawPage() {
                             name="phoneNumber"
                             render={({ field }) => (
                                 <FormItem>
-                                    <FormLabel>Phone Number</FormLabel>
+                                    <FormLabel>{t.withdraw.phoneNumber}</FormLabel>
                                     <FormControl>
                                         <Input placeholder="3700-0000" {...field} />
                                     </FormControl>
@@ -135,7 +137,7 @@ export default function WithdrawPage() {
 
                         <div className="p-4 bg-muted/50 rounded-lg space-y-4 border border-border">
                             <div className="flex items-center justify-between">
-                                <span className="text-sm font-medium">Verification</span>
+                                <span className="text-sm font-medium">{t.withdraw.verification}</span>
                                 {!otpSent && (
                                     <Button 
                                         type="button" 
@@ -145,7 +147,7 @@ export default function WithdrawPage() {
                                         disabled={isOtpPending}
                                     >
                                         {isOtpPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
-                                        Send OTP Code
+                                        {t.withdraw.sendOtp}
                                     </Button>
                                 )}
                             </div>
@@ -156,7 +158,7 @@ export default function WithdrawPage() {
                                     name="otp"
                                     render={({ field }) => (
                                         <FormItem>
-                                            <FormLabel>Enter 6-digit Code</FormLabel>
+                                            <FormLabel>{t.withdraw.enterCode}</FormLabel>
                                             <FormControl>
                                                 <Input 
                                                     placeholder="123456" 
@@ -166,7 +168,7 @@ export default function WithdrawPage() {
                                                 />
                                             </FormControl>
                                             <FormMessage />
-                                            <p className="text-xs text-muted-foreground">Code sent to your email.</p>
+                                            <p className="text-xs text-muted-foreground">{t.withdraw.codeSent}</p>
                                         </FormItem>
                                     )}
                                 />
@@ -178,7 +180,7 @@ export default function WithdrawPage() {
                             className="w-full secondary-gradient h-11" 
                             disabled={isWithdrawPending || !otpSent}
                         >
-                            {isWithdrawPending ? <Loader2 className="animate-spin mr-2" /> : "Confirm Withdrawal"}
+                            {isWithdrawPending ? <Loader2 className="animate-spin mr-2" /> : t.withdraw.confirmWithdrawal}
                         </Button>
                     </form>
                 </Form>

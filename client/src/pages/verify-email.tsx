@@ -1,5 +1,6 @@
 import { useUser, useVerifyEmail, useResendOtp } from "@/hooks/use-auth";
 import { useLocation } from "wouter";
+import { useLanguage } from "@/lib/i18n";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp";
@@ -9,6 +10,7 @@ import { useEffect, useState } from "react";
 export default function VerifyEmailPage() {
   const { data: user, isLoading } = useUser();
   const [, setLocation] = useLocation();
+  const { t } = useLanguage();
   const verifyMutation = useVerifyEmail();
   const resendMutation = useResendOtp();
   const [code, setCode] = useState("");
@@ -62,7 +64,7 @@ export default function VerifyEmailPage() {
           <h1 className="text-4xl font-display font-bold bg-gradient-to-r from-blue-600 to-emerald-600 bg-clip-text text-transparent">
             EASYCHANGE
           </h1>
-          <p className="text-muted-foreground mt-2">Secure Crypto to Cash Exchange</p>
+          <p className="text-muted-foreground mt-2">{t.login.appSubtitle}</p>
         </div>
 
         <Card className="glass-card border-none shadow-2xl">
@@ -70,9 +72,9 @@ export default function VerifyEmailPage() {
             <div className="mx-auto mb-4 w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center">
               <Mail className="w-8 h-8 text-primary" />
             </div>
-            <CardTitle className="text-2xl" data-testid="text-verify-title">Verify Your Email</CardTitle>
+            <CardTitle className="text-2xl" data-testid="text-verify-title">{t.verifyEmail.title}</CardTitle>
             <CardDescription>
-              We sent a 6-digit code to <span className="font-medium text-foreground">{user?.email}</span>
+              {t.verifyEmail.description} <span className="font-medium text-foreground">{user?.email}</span>
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
@@ -103,11 +105,11 @@ export default function VerifyEmailPage() {
               {verifyMutation.isPending ? (
                 <Loader2 className="w-4 h-4 mr-2 animate-spin" />
               ) : null}
-              Verify Email
+              {t.verifyEmail.verifyButton}
             </Button>
 
             <div className="text-center">
-              <p className="text-sm text-muted-foreground mb-2">Didn't receive the code?</p>
+              <p className="text-sm text-muted-foreground mb-2">{t.verifyEmail.didntReceive}</p>
               <Button
                 variant="ghost"
                 size="sm"
@@ -120,7 +122,7 @@ export default function VerifyEmailPage() {
                 ) : (
                   <RefreshCw className="w-4 h-4 mr-2" />
                 )}
-                {countdown > 0 ? `Resend in ${countdown}s` : "Resend Code"}
+                {countdown > 0 ? `${t.verifyEmail.resendIn} ${countdown}s` : t.verifyEmail.resendCode}
               </Button>
             </div>
           </CardContent>

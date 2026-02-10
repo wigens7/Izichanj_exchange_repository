@@ -1,0 +1,376 @@
+import { createContext, useContext, useState, useEffect, ReactNode } from "react";
+
+export type Language = "en" | "fr" | "ht";
+
+export const languageNames: Record<Language, string> = {
+  en: "English",
+  fr: "Fran\u00e7ais",
+  ht: "Krey\u00f2l Ayisyen",
+};
+
+const translations = {
+  en: {
+    nav: {
+      dashboard: "Dashboard",
+      deposit: "Deposit",
+      withdraw: "Withdraw",
+      profileKyc: "Profile & KYC",
+      adminPanel: "Admin Panel",
+      signOut: "Sign Out",
+      cryptoToCash: "Crypto to Cash",
+    },
+    dashboard: {
+      title: "Dashboard",
+      welcomeBack: "Welcome back,",
+      currentBalance: "Current Balance",
+      totalDeposited: "Total Deposited",
+      totalWithdrawn: "Total Withdrawn",
+      transactionHistory: "Transaction History",
+      all: "All",
+      deposits: "Deposits",
+      withdrawals: "Withdrawals",
+      noTransactions: "No transactions yet.",
+      usdtDeposit: "USDT Deposit",
+      withdrawal: "Withdrawal",
+    },
+    deposit: {
+      title: "Deposit USDT",
+      subtitle: "Send USDT to one of the addresses below, then submit proof.",
+      walletAddresses: "Wallet Addresses",
+      submitTransaction: "Submit Transaction",
+      verifyDescription: "We will verify your deposit within minutes.",
+      amountSent: "Amount Sent (USDT)",
+      txHash: "Transaction Hash (TXID)",
+      txHashPlaceholder: "Enter transaction hash...",
+      verifyDeposit: "Verify Deposit",
+      copied: "Copied",
+      copiedDescription: "Address copied to clipboard",
+      amountError: "Amount must be greater than 0",
+      txHashError: "Transaction hash invalid",
+    },
+    withdraw: {
+      title: "Withdraw Funds",
+      subtitle: "Cash out to your local mobile wallet.",
+      securityVerification: "Security Verification",
+      securityDescription: "Withdrawals are validated within 15-20 minutes after confirmation.",
+      walletType: "Wallet Type",
+      selectWallet: "Select wallet",
+      amountHtg: "Amount (HTG)",
+      phoneNumber: "Phone Number",
+      verification: "Verification",
+      sendOtp: "Send OTP Code",
+      enterCode: "Enter 6-digit Code",
+      codeSent: "Code sent to your email.",
+      confirmWithdrawal: "Confirm Withdrawal",
+      amountError: "Amount must be greater than 0",
+      phoneError: "Phone number required",
+      otpError: "OTP must be 6 digits",
+    },
+    profile: {
+      status: "Status",
+      joined: "Joined",
+      language: "Language",
+      selectLanguage: "Select language",
+      kycTitle: "Identity Verification (KYC)",
+      kycDescription: "Verify your identity to increase limits and enable withdrawals.",
+      verified: "You are verified!",
+      verifiedDescription: "Your account has full access.",
+      underReview: "Verification Under Review",
+      underReviewDescription: "Please wait while our team reviews your documents.",
+      idFront: "ID Card (Front)",
+      idBack: "ID Card (Back)",
+      selfie: "Selfie with ID",
+      clickToUpload: "Click to upload",
+      uploaded: "Uploaded",
+      uploading: "Uploading documents...",
+      submitVerification: "Submit for Verification",
+    },
+    kyc: {
+      required: "KYC Verification Required",
+      depositMessage: "You must complete identity verification before making deposits.",
+      withdrawMessage: "You must complete identity verification before making withdrawals.",
+      goToProfile: "Go to Profile & KYC",
+    },
+    login: {
+      appTitle: "EASYCHANGE",
+      appSubtitle: "Secure Crypto to Cash Exchange",
+      signIn: "Sign In",
+      signUp: "Sign Up",
+      welcomeBack: "Welcome Back",
+      signInDescription: "Sign in to your account",
+      createAccount: "Create Account",
+      signUpDescription: "Start exchanging crypto securely",
+      email: "Email",
+      password: "Password",
+      fullName: "Full Name",
+      confirmPassword: "Confirm Password",
+    },
+    verifyEmail: {
+      title: "Verify Your Email",
+      description: "We sent a 6-digit code to",
+      verifyButton: "Verify Email",
+      didntReceive: "Didn't receive the code?",
+      resendIn: "Resend in",
+      resendCode: "Resend Code",
+    },
+  },
+  fr: {
+    nav: {
+      dashboard: "Tableau de bord",
+      deposit: "D\u00e9p\u00f4t",
+      withdraw: "Retrait",
+      profileKyc: "Profil & KYC",
+      adminPanel: "Panneau admin",
+      signOut: "D\u00e9connexion",
+      cryptoToCash: "Crypto en cash",
+    },
+    dashboard: {
+      title: "Tableau de bord",
+      welcomeBack: "Bon retour,",
+      currentBalance: "Solde actuel",
+      totalDeposited: "Total d\u00e9pos\u00e9",
+      totalWithdrawn: "Total retir\u00e9",
+      transactionHistory: "Historique des transactions",
+      all: "Tout",
+      deposits: "D\u00e9p\u00f4ts",
+      withdrawals: "Retraits",
+      noTransactions: "Aucune transaction pour le moment.",
+      usdtDeposit: "D\u00e9p\u00f4t USDT",
+      withdrawal: "Retrait",
+    },
+    deposit: {
+      title: "D\u00e9poser USDT",
+      subtitle: "Envoyez des USDT \u00e0 l'une des adresses ci-dessous, puis soumettez la preuve.",
+      walletAddresses: "Adresses de portefeuille",
+      submitTransaction: "Soumettre la transaction",
+      verifyDescription: "Nous v\u00e9rifierons votre d\u00e9p\u00f4t en quelques minutes.",
+      amountSent: "Montant envoy\u00e9 (USDT)",
+      txHash: "Hash de transaction (TXID)",
+      txHashPlaceholder: "Entrez le hash de transaction...",
+      verifyDeposit: "V\u00e9rifier le d\u00e9p\u00f4t",
+      copied: "Copi\u00e9",
+      copiedDescription: "Adresse copi\u00e9e dans le presse-papiers",
+      amountError: "Le montant doit \u00eatre sup\u00e9rieur \u00e0 0",
+      txHashError: "Hash de transaction invalide",
+    },
+    withdraw: {
+      title: "Retirer des fonds",
+      subtitle: "Encaissez vers votre portefeuille mobile local.",
+      securityVerification: "V\u00e9rification de s\u00e9curit\u00e9",
+      securityDescription: "Les retraits sont valid\u00e9s dans les 15 \u00e0 20 minutes apr\u00e8s confirmation.",
+      walletType: "Type de portefeuille",
+      selectWallet: "S\u00e9lectionner le portefeuille",
+      amountHtg: "Montant (HTG)",
+      phoneNumber: "Num\u00e9ro de t\u00e9l\u00e9phone",
+      verification: "V\u00e9rification",
+      sendOtp: "Envoyer le code OTP",
+      enterCode: "Entrez le code \u00e0 6 chiffres",
+      codeSent: "Code envoy\u00e9 \u00e0 votre e-mail.",
+      confirmWithdrawal: "Confirmer le retrait",
+      amountError: "Le montant doit \u00eatre sup\u00e9rieur \u00e0 0",
+      phoneError: "Num\u00e9ro de t\u00e9l\u00e9phone requis",
+      otpError: "Le code OTP doit contenir 6 chiffres",
+    },
+    profile: {
+      status: "Statut",
+      joined: "Inscrit le",
+      language: "Langue",
+      selectLanguage: "Choisir la langue",
+      kycTitle: "V\u00e9rification d'identit\u00e9 (KYC)",
+      kycDescription: "V\u00e9rifiez votre identit\u00e9 pour augmenter les limites et activer les retraits.",
+      verified: "Vous \u00eates v\u00e9rifi\u00e9 !",
+      verifiedDescription: "Votre compte a un acc\u00e8s complet.",
+      underReview: "V\u00e9rification en cours",
+      underReviewDescription: "Veuillez patienter pendant que notre \u00e9quipe examine vos documents.",
+      idFront: "Carte d'identit\u00e9 (Recto)",
+      idBack: "Carte d'identit\u00e9 (Verso)",
+      selfie: "Selfie avec pi\u00e8ce d'identit\u00e9",
+      clickToUpload: "Cliquez pour t\u00e9l\u00e9charger",
+      uploaded: "T\u00e9l\u00e9charg\u00e9",
+      uploading: "T\u00e9l\u00e9chargement des documents...",
+      submitVerification: "Soumettre pour v\u00e9rification",
+    },
+    kyc: {
+      required: "V\u00e9rification KYC requise",
+      depositMessage: "Vous devez compl\u00e9ter la v\u00e9rification d'identit\u00e9 avant de faire des d\u00e9p\u00f4ts.",
+      withdrawMessage: "Vous devez compl\u00e9ter la v\u00e9rification d'identit\u00e9 avant de faire des retraits.",
+      goToProfile: "Aller au Profil & KYC",
+    },
+    login: {
+      appTitle: "EASYCHANGE",
+      appSubtitle: "\u00c9change s\u00e9curis\u00e9 de crypto en cash",
+      signIn: "Se connecter",
+      signUp: "S'inscrire",
+      welcomeBack: "Bon retour",
+      signInDescription: "Connectez-vous \u00e0 votre compte",
+      createAccount: "Cr\u00e9er un compte",
+      signUpDescription: "Commencez \u00e0 \u00e9changer des cryptos en toute s\u00e9curit\u00e9",
+      email: "E-mail",
+      password: "Mot de passe",
+      fullName: "Nom complet",
+      confirmPassword: "Confirmer le mot de passe",
+    },
+    verifyEmail: {
+      title: "V\u00e9rifiez votre e-mail",
+      description: "Nous avons envoy\u00e9 un code \u00e0 6 chiffres \u00e0",
+      verifyButton: "V\u00e9rifier l'e-mail",
+      didntReceive: "Vous n'avez pas re\u00e7u le code ?",
+      resendIn: "Renvoyer dans",
+      resendCode: "Renvoyer le code",
+    },
+  },
+  ht: {
+    nav: {
+      dashboard: "Tablo",
+      deposit: "Depo",
+      withdraw: "Retr\u00e8",
+      profileKyc: "Pwofil & KYC",
+      adminPanel: "Pano admin",
+      signOut: "Dekonekte",
+      cryptoToCash: "Kripto an lajan kach",
+    },
+    dashboard: {
+      title: "Tablo",
+      welcomeBack: "Byenvini ank\u00f2,",
+      currentBalance: "Balans akty\u00e8l",
+      totalDeposited: "Total depoze",
+      totalWithdrawn: "Total retire",
+      transactionHistory: "Istwa tranzaksyon",
+      all: "Tout",
+      deposits: "Depo yo",
+      withdrawals: "Retr\u00e8 yo",
+      noTransactions: "Pa gen okenn tranzaksyon ank\u00f2.",
+      usdtDeposit: "Depo USDT",
+      withdrawal: "Retr\u00e8",
+    },
+    deposit: {
+      title: "Depoze USDT",
+      subtitle: "Voye USDT nan youn nan adr\u00e8s ki anba yo, epi soum\u00e8t pr\u00e8v la.",
+      walletAddresses: "Adr\u00e8s bous",
+      submitTransaction: "Soum\u00e8t tranzaksyon",
+      verifyDescription: "Nou pral verifye depo w la nan k\u00e8k minit.",
+      amountSent: "Montan voye (USDT)",
+      txHash: "Hash tranzaksyon (TXID)",
+      txHashPlaceholder: "Antre hash tranzaksyon an...",
+      verifyDeposit: "Verifye depo",
+      copied: "Kopye",
+      copiedDescription: "Adr\u00e8s kopye nan pres-papye",
+      amountError: "Montan an dwe plis pase 0",
+      txHashError: "Hash tranzaksyon envalid",
+    },
+    withdraw: {
+      title: "Retire Lajan",
+      subtitle: "Retire lajan nan bous mobil lokal ou.",
+      securityVerification: "Verifikasyon sekirite",
+      securityDescription: "Retr\u00e8 yo valid\u00e9 nan 15-20 minit apr\u00e8 konfimasyon.",
+      walletType: "Tip bous",
+      selectWallet: "Chwazi bous",
+      amountHtg: "Montan (HTG)",
+      phoneNumber: "Nimer\u00f2 telef\u00f2n",
+      verification: "Verifikasyon",
+      sendOtp: "Voye k\u00f2d OTP",
+      enterCode: "Antre k\u00f2d 6 chif",
+      codeSent: "K\u00f2d voye nan im\u00e8l ou.",
+      confirmWithdrawal: "Konf\u00e8me retr\u00e8",
+      amountError: "Montan an dwe plis pase 0",
+      phoneError: "Nimer\u00f2 telef\u00f2n obligatwa",
+      otpError: "K\u00f2d OTP dwe gen 6 chif",
+    },
+    profile: {
+      status: "Estati",
+      joined: "Enskri",
+      language: "Lang",
+      selectLanguage: "Chwazi lang",
+      kycTitle: "Verifikasyon idantite (KYC)",
+      kycDescription: "Verifye idantite w pou ogmante limit yo ak aktive retr\u00e8 yo.",
+      verified: "Ou verifye!",
+      verifiedDescription: "Kont ou gen tout aks\u00e8.",
+      underReview: "Verifikasyon an revizyon",
+      underReviewDescription: "Tanpri tann pandan ekip nou an ap revize dokiman w yo.",
+      idFront: "Kat idantite (Devan)",
+      idBack: "Kat idantite (D\u00e8y\u00e8)",
+      selfie: "Selfie ak kat idantite",
+      clickToUpload: "Klike pou telechaje",
+      uploaded: "Telechaje",
+      uploading: "Ap telechaje dokiman yo...",
+      submitVerification: "Soum\u00e8t pou verifikasyon",
+    },
+    kyc: {
+      required: "Verifikasyon KYC obligatwa",
+      depositMessage: "Ou dwe konplete verifikasyon idantite anvan ou f\u00e8 depo.",
+      withdrawMessage: "Ou dwe konplete verifikasyon idantite anvan ou f\u00e8 retr\u00e8.",
+      goToProfile: "Ale nan Pwofil & KYC",
+    },
+    login: {
+      appTitle: "EASYCHANGE",
+      appSubtitle: "Echanj kripto an lajan kach an sekirite",
+      signIn: "Konekte",
+      signUp: "Enskri",
+      welcomeBack: "Byenvini ank\u00f2",
+      signInDescription: "Konekte nan kont ou",
+      createAccount: "Kreye kont",
+      signUpDescription: "Komanase echanj kripto an sekirite",
+      email: "Im\u00e8l",
+      password: "Modpas",
+      fullName: "Non konpl\u00e8",
+      confirmPassword: "Konf\u00e8me modpas",
+    },
+    verifyEmail: {
+      title: "Verifye im\u00e8l ou",
+      description: "Nou voye yon k\u00f2d 6 chif bay",
+      verifyButton: "Verifye im\u00e8l",
+      didntReceive: "Ou pa resevwa k\u00f2d la?",
+      resendIn: "Revoye nan",
+      resendCode: "Revoye k\u00f2d",
+    },
+  },
+} as const;
+
+type TranslationSet = {
+  nav: { dashboard: string; deposit: string; withdraw: string; profileKyc: string; adminPanel: string; signOut: string; cryptoToCash: string };
+  dashboard: { title: string; welcomeBack: string; currentBalance: string; totalDeposited: string; totalWithdrawn: string; transactionHistory: string; all: string; deposits: string; withdrawals: string; noTransactions: string; usdtDeposit: string; withdrawal: string };
+  deposit: { title: string; subtitle: string; walletAddresses: string; submitTransaction: string; verifyDescription: string; amountSent: string; txHash: string; txHashPlaceholder: string; verifyDeposit: string; copied: string; copiedDescription: string; amountError: string; txHashError: string };
+  withdraw: { title: string; subtitle: string; securityVerification: string; securityDescription: string; walletType: string; selectWallet: string; amountHtg: string; phoneNumber: string; verification: string; sendOtp: string; enterCode: string; codeSent: string; confirmWithdrawal: string; amountError: string; phoneError: string; otpError: string };
+  profile: { status: string; joined: string; language: string; selectLanguage: string; kycTitle: string; kycDescription: string; verified: string; verifiedDescription: string; underReview: string; underReviewDescription: string; idFront: string; idBack: string; selfie: string; clickToUpload: string; uploaded: string; uploading: string; submitVerification: string };
+  kyc: { required: string; depositMessage: string; withdrawMessage: string; goToProfile: string };
+  login: { appTitle: string; appSubtitle: string; signIn: string; signUp: string; welcomeBack: string; signInDescription: string; createAccount: string; signUpDescription: string; email: string; password: string; fullName: string; confirmPassword: string };
+  verifyEmail: { title: string; description: string; verifyButton: string; didntReceive: string; resendIn: string; resendCode: string };
+};
+
+interface LanguageContextType {
+  language: Language;
+  setLanguage: (lang: Language) => void;
+  t: TranslationSet;
+}
+
+const LanguageContext = createContext<LanguageContextType>({
+  language: "en",
+  setLanguage: () => {},
+  t: translations.en as TranslationSet,
+});
+
+export function LanguageProvider({ children }: { children: ReactNode }) {
+  const [language, setLanguageState] = useState<Language>(() => {
+    const saved = localStorage.getItem("app-language");
+    return (saved as Language) || "en";
+  });
+
+  const setLanguage = (lang: Language) => {
+    setLanguageState(lang);
+    localStorage.setItem("app-language", lang);
+  };
+
+  useEffect(() => {
+    document.documentElement.lang = language;
+  }, [language]);
+
+  return (
+    <LanguageContext.Provider value={{ language, setLanguage, t: translations[language] as TranslationSet }}>
+      {children}
+    </LanguageContext.Provider>
+  );
+}
+
+export function useLanguage() {
+  return useContext(LanguageContext);
+}
