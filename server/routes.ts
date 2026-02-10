@@ -181,13 +181,20 @@ export async function registerRoutes(
       const profile = await getProfileFromReq(req);
       if (!profile) return res.status(401).json({ message: "Unauthorized" });
       if (profile.kycStatus !== "verified") return res.status(403).json({ message: "KYC verification required before making withdrawals" });
-      const { otp, ...rest } = req.body;
-      api.withdrawals.create.input.parse(req.body);
+      const parsed = api.withdrawals.create.input.parse(req.body);
 
-      const validOtp = await storage.getValidOtp(profile.id, otp);
+      if (parsed.withdrawMethod === "phone" && (!parsed.phoneNumber || parsed.phoneNumber.length < 8)) {
+        return res.status(400).json({ message: "Phone number is required for phone withdrawal" });
+      }
+      if (parsed.withdrawMethod === "qrcode" && !parsed.qrCodeUrl) {
+        return res.status(400).json({ message: "QR code image is required for QR code withdrawal" });
+      }
+
+      const validOtp = await storage.getValidOtp(profile.id, parsed.otp);
       if (!validOtp) return res.status(401).json({ message: "Invalid OTP" });
       await storage.markOtpVerified(validOtp.id);
 
+      const { otp, ...rest } = parsed;
       const withdrawal = await storage.createWithdrawal({ ...rest, profileId: profile.id });
       res.status(201).json(withdrawal);
     } catch (e) {

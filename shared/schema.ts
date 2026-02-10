@@ -8,6 +8,7 @@ export * from "./models/auth";
 export const kycStatusEnum = pgEnum("kyc_status", ["not_submitted", "pending", "verified", "rejected"]);
 export const txnStatusEnum = pgEnum("txn_status", ["pending", "approved", "rejected"]);
 export const currencyEnum = pgEnum("currency", ["MonCash", "NatCash"]);
+export const withdrawMethodEnum = pgEnum("withdraw_method", ["phone", "qrcode"]);
 export const userRoleEnum = pgEnum("user_role", ["user", "admin"]);
 
 export const profiles = pgTable("profiles", {
@@ -45,7 +46,9 @@ export const withdrawals = pgTable("withdrawals", {
   profileId: integer("profile_id").references(() => profiles.id).notNull(),
   amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
   currency: currencyEnum("currency").notNull(),
-  phoneNumber: text("phone_number").notNull(),
+  withdrawMethod: withdrawMethodEnum("withdraw_method").default("phone").notNull(),
+  phoneNumber: text("phone_number"),
+  qrCodeUrl: text("qr_code_url"),
   status: txnStatusEnum("status").default("pending").notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });

@@ -360,7 +360,8 @@ function WithdrawalsTab() {
                 <TableHead>User ID</TableHead>
                 <TableHead>Amount (HTG)</TableHead>
                 <TableHead>Wallet</TableHead>
-                <TableHead>Phone</TableHead>
+                <TableHead>Method</TableHead>
+                <TableHead>Details</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Date</TableHead>
                 <TableHead>Actions</TableHead>
@@ -375,7 +376,18 @@ function WithdrawalsTab() {
                   <TableCell>
                     <Badge variant="outline">{w.currency}</Badge>
                   </TableCell>
-                  <TableCell className="font-mono text-sm">{w.phoneNumber}</TableCell>
+                  <TableCell>
+                    <Badge variant="outline">{w.withdrawMethod === "qrcode" ? "QR Code" : "Phone"}</Badge>
+                  </TableCell>
+                  <TableCell className="font-mono text-sm">
+                    {w.withdrawMethod === "qrcode" ? (
+                      w.qrCodeUrl ? (
+                        <a href={w.qrCodeUrl} target="_blank" rel="noopener noreferrer" className="text-primary underline" data-testid={`link-qr-${w.id}`}>View QR</a>
+                      ) : "—"
+                    ) : (
+                      w.phoneNumber || "—"
+                    )}
+                  </TableCell>
                   <TableCell>
                     <StatusBadge status={w.status} />
                   </TableCell>
@@ -414,7 +426,7 @@ function WithdrawalsTab() {
               ))}
               {(!withdrawals || withdrawals.length === 0) && (
                 <TableRow>
-                  <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
+                  <TableCell colSpan={10} className="text-center py-8 text-muted-foreground">
                     No withdrawals found
                   </TableCell>
                 </TableRow>

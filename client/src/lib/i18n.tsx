@@ -56,7 +56,14 @@ const translations = {
       walletType: "Wallet Type",
       selectWallet: "Select wallet",
       amountHtg: "Amount (HTG)",
+      withdrawMethod: "Withdrawal Method",
+      phoneMethod: "Phone Number",
+      qrCodeMethod: "QR Code",
       phoneNumber: "Phone Number",
+      qrCodeUpload: "Upload QR Code",
+      qrCodeDescription: "Upload your mobile wallet QR code for payment.",
+      qrCodeUploaded: "QR Code uploaded",
+      clickToUploadQr: "Click to upload QR code",
       verification: "Verification",
       sendOtp: "Send OTP Code",
       enterCode: "Enter 6-digit Code",
@@ -64,6 +71,7 @@ const translations = {
       confirmWithdrawal: "Confirm Withdrawal",
       amountError: "Amount must be greater than 0",
       phoneError: "Phone number required",
+      qrCodeError: "QR code image required",
       otpError: "OTP must be 6 digits",
     },
     profile: {
@@ -161,7 +169,14 @@ const translations = {
       walletType: "Type de portefeuille",
       selectWallet: "S\u00e9lectionner le portefeuille",
       amountHtg: "Montant (HTG)",
+      withdrawMethod: "M\u00e9thode de retrait",
+      phoneMethod: "Num\u00e9ro de t\u00e9l\u00e9phone",
+      qrCodeMethod: "Code QR",
       phoneNumber: "Num\u00e9ro de t\u00e9l\u00e9phone",
+      qrCodeUpload: "T\u00e9l\u00e9charger le code QR",
+      qrCodeDescription: "T\u00e9l\u00e9chargez le code QR de votre portefeuille mobile pour le paiement.",
+      qrCodeUploaded: "Code QR t\u00e9l\u00e9charg\u00e9",
+      clickToUploadQr: "Cliquez pour t\u00e9l\u00e9charger le code QR",
       verification: "V\u00e9rification",
       sendOtp: "Envoyer le code OTP",
       enterCode: "Entrez le code \u00e0 6 chiffres",
@@ -169,6 +184,7 @@ const translations = {
       confirmWithdrawal: "Confirmer le retrait",
       amountError: "Le montant doit \u00eatre sup\u00e9rieur \u00e0 0",
       phoneError: "Num\u00e9ro de t\u00e9l\u00e9phone requis",
+      qrCodeError: "Image du code QR requise",
       otpError: "Le code OTP doit contenir 6 chiffres",
     },
     profile: {
@@ -266,7 +282,14 @@ const translations = {
       walletType: "Tip bous",
       selectWallet: "Chwazi bous",
       amountHtg: "Montan (HTG)",
+      withdrawMethod: "Met\u00f2d retr\u00e8",
+      phoneMethod: "Nimer\u00f2 telef\u00f2n",
+      qrCodeMethod: "K\u00f2d QR",
       phoneNumber: "Nimer\u00f2 telef\u00f2n",
+      qrCodeUpload: "Telechaje k\u00f2d QR",
+      qrCodeDescription: "Telechaje k\u00f2d QR bous mobil ou pou peman.",
+      qrCodeUploaded: "K\u00f2d QR telechaje",
+      clickToUploadQr: "Klike pou telechaje k\u00f2d QR",
       verification: "Verifikasyon",
       sendOtp: "Voye k\u00f2d OTP",
       enterCode: "Antre k\u00f2d 6 chif",
@@ -274,6 +297,7 @@ const translations = {
       confirmWithdrawal: "Konf\u00e8me retr\u00e8",
       amountError: "Montan an dwe plis pase 0",
       phoneError: "Nimer\u00f2 telef\u00f2n obligatwa",
+      qrCodeError: "Imaj k\u00f2d QR obligatwa",
       otpError: "K\u00f2d OTP dwe gen 6 chif",
     },
     profile: {
@@ -330,7 +354,7 @@ type TranslationSet = {
   nav: { dashboard: string; deposit: string; withdraw: string; profileKyc: string; adminPanel: string; signOut: string; cryptoToCash: string };
   dashboard: { title: string; welcomeBack: string; currentBalance: string; totalDeposited: string; totalWithdrawn: string; transactionHistory: string; all: string; deposits: string; withdrawals: string; noTransactions: string; usdtDeposit: string; withdrawal: string };
   deposit: { title: string; subtitle: string; walletAddresses: string; submitTransaction: string; verifyDescription: string; amountSent: string; txHash: string; txHashPlaceholder: string; verifyDeposit: string; copied: string; copiedDescription: string; amountError: string; txHashError: string };
-  withdraw: { title: string; subtitle: string; securityVerification: string; securityDescription: string; walletType: string; selectWallet: string; amountHtg: string; phoneNumber: string; verification: string; sendOtp: string; enterCode: string; codeSent: string; confirmWithdrawal: string; amountError: string; phoneError: string; otpError: string };
+  withdraw: { title: string; subtitle: string; securityVerification: string; securityDescription: string; walletType: string; selectWallet: string; amountHtg: string; withdrawMethod: string; phoneMethod: string; qrCodeMethod: string; phoneNumber: string; qrCodeUpload: string; qrCodeDescription: string; qrCodeUploaded: string; clickToUploadQr: string; verification: string; sendOtp: string; enterCode: string; codeSent: string; confirmWithdrawal: string; amountError: string; phoneError: string; qrCodeError: string; otpError: string };
   profile: { status: string; joined: string; language: string; selectLanguage: string; kycTitle: string; kycDescription: string; verified: string; verifiedDescription: string; underReview: string; underReviewDescription: string; idFront: string; idBack: string; selfie: string; clickToUpload: string; uploaded: string; uploading: string; submitVerification: string };
   kyc: { required: string; depositMessage: string; withdrawMessage: string; goToProfile: string };
   login: { appTitle: string; appSubtitle: string; signIn: string; signUp: string; welcomeBack: string; signInDescription: string; createAccount: string; signUpDescription: string; email: string; password: string; fullName: string; confirmPassword: string };

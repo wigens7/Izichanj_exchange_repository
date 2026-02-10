@@ -51,7 +51,14 @@ export const api = {
     create: {
       method: 'POST' as const,
       path: '/api/withdrawals' as const,
-      input: insertWithdrawalSchema.extend({ otp: z.string() }),
+      input: z.object({
+        amount: z.string(),
+        currency: z.enum(["MonCash", "NatCash"]),
+        withdrawMethod: z.enum(["phone", "qrcode"]),
+        phoneNumber: z.string().optional(),
+        qrCodeUrl: z.string().optional(),
+        otp: z.string(),
+      }),
       responses: {
         201: z.custom<typeof withdrawals.$inferSelect>(),
         400: errorSchemas.validation,

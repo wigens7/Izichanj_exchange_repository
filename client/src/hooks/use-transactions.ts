@@ -67,7 +67,7 @@ export function useCreateWithdrawal() {
   const { toast } = useToast();
 
   return useMutation({
-    mutationFn: async (data: InsertWithdrawal & { otp: string }) => {
+    mutationFn: async (data: { amount: string; currency: string; withdrawMethod: string; phoneNumber?: string; qrCodeUrl?: string; otp: string }) => {
       const res = await apiRequest(api.withdrawals.create.method, api.withdrawals.create.path, data);
       if (!res.ok) {
         if (res.status === 401) throw new Error("Invalid OTP");
