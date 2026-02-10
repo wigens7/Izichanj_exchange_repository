@@ -5,6 +5,9 @@ import type { Express, RequestHandler } from "express";
 declare module "express-session" {
   interface SessionData {
     profileId: number;
+    pending2faProfileId: number;
+    currentChallenge: string;
+    webauthnProfileId: number;
   }
 }
 

@@ -4,6 +4,7 @@
 A secure fintech mobile web app for converting USDT (TRC20/BEP20) to MonCash/NatCash. Users register with email/password, complete KYC verification, submit deposits with transaction hashes, and request withdrawals to local mobile money accounts.
 
 ## Recent Changes
+- **Feb 10, 2026**: Added 2FA (TOTP) and WebAuthn fingerprint/biometric authentication. New /security page for managing 2FA and registered biometric devices. Login flow handles 2FA verification step. Fingerprint login option on login page.
 - **Feb 10, 2026**: Added withdrawal method choice: users can withdraw via phone number or QR code. QR code method requires uploading a QR code image. Updated schema (withdrawMethod, qrCodeUrl columns), backend validation, frontend UI with method toggle, and admin panel display.
 - **Feb 10, 2026**: Added multi-language support (English, French, Haitian Creole). Language selector on profile page with localStorage persistence. All pages translated. Added KYC enforcement on deposit/withdrawal endpoints and pages.
 - **Feb 10, 2026**: Built comprehensive admin panel with 4 tabs (Users, Deposits, Withdrawals, KYC) with approve/reject functionality. Added email OTP verification flow after registration. Updated login/register redirects for verification. Fixed deposit/withdrawal type issues.
@@ -11,10 +12,12 @@ A secure fintech mobile web app for converting USDT (TRC20/BEP20) to MonCash/Nat
 
 ## Architecture
 - **Authentication**: Custom email/password with bcrypt hashing, express-session stored in PostgreSQL
+- **2FA**: TOTP-based two-factor authentication using otplib, QR code setup
+- **WebAuthn**: Fingerprint/biometric login via SimpleWebAuthn
 - **Database**: PostgreSQL with Drizzle ORM
   - `sessions` table (express-session storage via connect-pg-simple)
-  - `profiles` table (serial IDs, email/password auth, role, KYC status, balance)
-  - `deposits`, `withdrawals`, `otps`, `kyc_documents` tables reference `profiles.id`
+  - `profiles` table (serial IDs, email/password auth, role, KYC status, balance, twoFactorSecret, twoFactorEnabled)
+  - `deposits`, `withdrawals`, `otps`, `kyc_documents`, `webauthn_credentials` tables reference `profiles.id`
 - **Object Storage**: Replit Object Storage for KYC document uploads
 - **Frontend**: React + Vite + TanStack Query + Wouter + Shadcn UI
 - **Backend**: Express.js
@@ -38,6 +41,18 @@ A secure fintech mobile web app for converting USDT (TRC20/BEP20) to MonCash/Nat
 - `POST /api/auth/resend-otp` - Resend verification OTP
 - `POST /api/auth/logout` - Destroy session
 - `GET /api/user` - Get current authenticated profile
+- `POST /api/auth/verify-2fa` - Verify 2FA code during login
+
+## Security Endpoints (authenticated)
+- `POST /api/security/2fa/setup` - Generate 2FA secret and QR code
+- `POST /api/security/2fa/verify` - Verify TOTP code to enable 2FA
+- `POST /api/security/2fa/disable` - Disable 2FA with code verification
+- `GET /api/security/webauthn/credentials` - List registered WebAuthn devices
+- `POST /api/security/webauthn/register-options` - Get WebAuthn registration options
+- `POST /api/security/webauthn/register-verify` - Verify and save WebAuthn credential
+- `DELETE /api/security/webauthn/credentials/:id` - Remove a WebAuthn device
+- `POST /api/security/webauthn/auth-options` - Get WebAuthn authentication options (public)
+- `POST /api/security/webauthn/auth-verify` - Verify WebAuthn authentication (public)
 
 ## Admin Endpoints (role=admin required)
 - `GET /api/admin/users` - List all users

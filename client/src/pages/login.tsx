@@ -4,20 +4,78 @@ import { useLanguage } from "@/lib/i18n";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Loader2, LogIn, UserPlus, Eye, EyeOff } from "lucide-react";
+import { Loader2, LogIn, UserPlus, Eye, EyeOff, Shield, Fingerprint } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { loginSchema, registerSchema, type LoginInput, type RegisterInput } from "@shared/schema";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
+import { startAuthentication } from "@simplewebauthn/browser";
+
+function TwoFAStep({ onSuccess }: { onSuccess: (profile: any) => void }) {
+  const [code, setCode] = useState("");
+  const [isPending, setIsPending] = useState(false);
+  const { toast } = useToast();
+  const { t } = useLanguage();
+
+  const handleVerify = async () => {
+    if (code.length !== 6) return;
+    setIsPending(true);
+    try {
+      const res = await apiRequest("POST", "/api/auth/verify-2fa", { code });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.message);
+      }
+      const profile = await res.json();
+      queryClient.setQueryData(["/api/user"], profile);
+      onSuccess(profile);
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    } finally {
+      setIsPending(false);
+    }
+  };
+
+  return (
+    <div className="space-y-4 text-center">
+      <div className="w-16 h-16 mx-auto bg-primary/10 rounded-full flex items-center justify-center">
+        <Shield className="w-8 h-8 text-primary" />
+      </div>
+      <h3 className="text-lg font-bold" data-testid="text-2fa-title">{t.security.twoFARequired}</h3>
+      <p className="text-sm text-muted-foreground">{t.security.enter2FACode}</p>
+      <Input
+        placeholder="000000"
+        maxLength={6}
+        value={code}
+        onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
+        className="text-center text-2xl tracking-[0.5em] font-mono"
+        data-testid="input-2fa-login-code"
+      />
+      <Button
+        className="w-full primary-gradient"
+        onClick={handleVerify}
+        disabled={code.length !== 6 || isPending}
+        data-testid="button-verify-2fa-login"
+      >
+        {isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Shield className="w-4 h-4 mr-2" />}
+        {t.security.verifyLogin}
+      </Button>
+    </div>
+  );
+}
 
 function SignInForm() {
   const loginMutation = useLogin();
   const [showPassword, setShowPassword] = useState(false);
+  const [needs2FA, setNeeds2FA] = useState(false);
   const [, setLocation] = useLocation();
   const { t } = useLanguage();
+  const { toast } = useToast();
+  const [isFingerprintLoading, setIsFingerprintLoading] = useState(false);
 
   const form = useForm<LoginInput>({
     resolver: zodResolver(loginSchema),
@@ -27,7 +85,9 @@ function SignInForm() {
   const onSubmit = (data: LoginInput) => {
     loginMutation.mutate(data, {
       onSuccess: (profile) => {
-        if (profile.needsVerification || !profile.emailVerified) {
+        if (profile.needs2FA) {
+          setNeeds2FA(true);
+        } else if (profile.needsVerification || !profile.emailVerified) {
           setLocation("/verify-email");
         } else {
           setLocation("/");
@@ -35,6 +95,48 @@ function SignInForm() {
       },
     });
   };
+
+  const handleFingerprintLogin = async () => {
+    const email = form.getValues("email");
+    if (!email) {
+      toast({ title: "Error", description: "Enter your email first", variant: "destructive" });
+      return;
+    }
+    setIsFingerprintLoading(true);
+    try {
+      const optionsRes = await apiRequest("POST", "/api/security/webauthn/auth-options", { email });
+      if (!optionsRes.ok) {
+        const err = await optionsRes.json();
+        throw new Error(err.message);
+      }
+      const options = await optionsRes.json();
+      const credential = await startAuthentication({ optionsJSON: options });
+      const verifyRes = await apiRequest("POST", "/api/security/webauthn/auth-verify", credential);
+      if (!verifyRes.ok) {
+        const err = await verifyRes.json();
+        throw new Error(err.message);
+      }
+      const profile = await verifyRes.json();
+      queryClient.setQueryData(["/api/user"], profile);
+      toast({ title: "Welcome back!", description: `Signed in as ${profile.fullName}` });
+      setLocation("/");
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message || "Fingerprint login failed", variant: "destructive" });
+    } finally {
+      setIsFingerprintLoading(false);
+    }
+  };
+
+  if (needs2FA) {
+    return (
+      <TwoFAStep
+        onSuccess={(profile) => {
+          toast({ title: "Welcome back!", description: `Signed in as ${profile.fullName}` });
+          setLocation("/");
+        }}
+      />
+    );
+  }
 
   return (
     <Form {...form}>
@@ -101,6 +203,31 @@ function SignInForm() {
             <LogIn className="w-4 h-4 mr-2" />
           )}
           {t.login.signIn}
+        </Button>
+
+        <div className="relative">
+          <div className="absolute inset-0 flex items-center">
+            <span className="w-full border-t" />
+          </div>
+          <div className="relative flex justify-center text-xs uppercase">
+            <span className="bg-card px-2 text-muted-foreground">or</span>
+          </div>
+        </div>
+
+        <Button
+          type="button"
+          variant="outline"
+          className="w-full"
+          onClick={handleFingerprintLogin}
+          disabled={isFingerprintLoading}
+          data-testid="button-fingerprint-login"
+        >
+          {isFingerprintLoading ? (
+            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+          ) : (
+            <Fingerprint className="w-4 h-4 mr-2" />
+          )}
+          {t.security.fingerprintLogin}
         </Button>
       </form>
     </Form>

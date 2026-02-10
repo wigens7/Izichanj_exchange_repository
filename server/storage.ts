@@ -1,6 +1,6 @@
-import { profiles, deposits, withdrawals, kycDocuments, otps, type Profile, type Deposit, type InsertDeposit, type Withdrawal, type InsertWithdrawal, type KycDocument } from "@shared/schema";
+import { profiles, deposits, withdrawals, kycDocuments, otps, webauthnCredentials, type Profile, type Deposit, type InsertDeposit, type Withdrawal, type InsertWithdrawal, type KycDocument, type WebAuthnCredential } from "@shared/schema";
 import { db } from "./db";
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, and } from "drizzle-orm";
 
 export interface IStorage {
   getProfile(id: number): Promise<Profile | undefined>;
@@ -26,6 +26,16 @@ export interface IStorage {
   getAllKyc(): Promise<(KycDocument & { profile: Profile })[]>;
   updateKycStatus(profileId: number, status: "verified" | "rejected"): Promise<void>;
   getAllProfiles(): Promise<Profile[]>;
+
+  setTwoFactorSecret(profileId: number, secret: string): Promise<void>;
+  enableTwoFactor(profileId: number): Promise<void>;
+  disableTwoFactor(profileId: number): Promise<void>;
+
+  createWebAuthnCredential(cred: { profileId: number; credentialId: string; publicKey: string; counter: number; deviceName: string }): Promise<WebAuthnCredential>;
+  getWebAuthnCredentials(profileId: number): Promise<WebAuthnCredential[]>;
+  getWebAuthnCredentialById(credentialId: string): Promise<WebAuthnCredential | undefined>;
+  updateWebAuthnCounter(credentialId: string, counter: number): Promise<void>;
+  deleteWebAuthnCredential(id: number, profileId: number): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -135,6 +145,40 @@ export class DatabaseStorage implements IStorage {
 
   async getAllProfiles(): Promise<Profile[]> {
     return db.select().from(profiles).orderBy(desc(profiles.createdAt));
+  }
+
+  async setTwoFactorSecret(profileId: number, secret: string): Promise<void> {
+    await db.update(profiles).set({ twoFactorSecret: secret }).where(eq(profiles.id, profileId));
+  }
+
+  async enableTwoFactor(profileId: number): Promise<void> {
+    await db.update(profiles).set({ twoFactorEnabled: true }).where(eq(profiles.id, profileId));
+  }
+
+  async disableTwoFactor(profileId: number): Promise<void> {
+    await db.update(profiles).set({ twoFactorEnabled: false, twoFactorSecret: null }).where(eq(profiles.id, profileId));
+  }
+
+  async createWebAuthnCredential(cred: { profileId: number; credentialId: string; publicKey: string; counter: number; deviceName: string }): Promise<WebAuthnCredential> {
+    const [credential] = await db.insert(webauthnCredentials).values(cred).returning();
+    return credential;
+  }
+
+  async getWebAuthnCredentials(profileId: number): Promise<WebAuthnCredential[]> {
+    return db.select().from(webauthnCredentials).where(eq(webauthnCredentials.profileId, profileId));
+  }
+
+  async getWebAuthnCredentialById(credentialId: string): Promise<WebAuthnCredential | undefined> {
+    const [credential] = await db.select().from(webauthnCredentials).where(eq(webauthnCredentials.credentialId, credentialId));
+    return credential;
+  }
+
+  async updateWebAuthnCounter(credentialId: string, counter: number): Promise<void> {
+    await db.update(webauthnCredentials).set({ counter }).where(eq(webauthnCredentials.credentialId, credentialId));
+  }
+
+  async deleteWebAuthnCredential(id: number, profileId: number): Promise<void> {
+    await db.delete(webauthnCredentials).where(and(eq(webauthnCredentials.id, id), eq(webauthnCredentials.profileId, profileId)));
   }
 }
 

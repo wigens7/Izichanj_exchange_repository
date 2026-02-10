@@ -8,6 +8,7 @@ import {
   ArrowUpCircle, 
   UserCircle, 
   ShieldCheck, 
+  Shield,
   LogOut,
   Menu,
   X
@@ -32,6 +33,7 @@ export function LayoutShell({ children }: LayoutShellProps) {
     { href: "/deposit", label: t.nav.deposit, icon: ArrowDownCircle },
     { href: "/withdraw", label: t.nav.withdraw, icon: ArrowUpCircle },
     { href: "/profile", label: t.nav.profileKyc, icon: UserCircle },
+    { href: "/security", label: t.security.title, icon: Shield },
   ];
 
   if (user?.role === "admin") {

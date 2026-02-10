@@ -13,6 +13,7 @@ import DashboardPage from "@/pages/dashboard";
 import DepositPage from "@/pages/deposit";
 import WithdrawPage from "@/pages/withdraw";
 import ProfilePage from "@/pages/profile";
+import SecurityPage from "@/pages/security";
 import AdminPage from "@/pages/admin";
 import NotFound from "@/pages/not-found";
 import { LayoutShell } from "@/components/layout-shell";
@@ -64,6 +65,9 @@ function Router() {
       </Route>
       <Route path="/profile">
         <ProtectedRoute component={ProfilePage} />
+      </Route>
+      <Route path="/security">
+        <ProtectedRoute component={SecurityPage} />
       </Route>
       <Route path="/admin">
         <ProtectedRoute component={AdminPage} adminOnly />

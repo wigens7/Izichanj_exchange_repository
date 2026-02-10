@@ -8,6 +8,19 @@ import { setupAuth, isAuthenticated } from "./auth";
 import { registerObjectStorageRoutes } from "./replit_integrations/object_storage";
 import crypto from "crypto";
 import bcrypt from "bcryptjs";
+import * as otplibModule from "otplib";
+import QRCode from "qrcode";
+import {
+  generateRegistrationOptions,
+  verifyRegistrationResponse,
+  generateAuthenticationOptions,
+  verifyAuthenticationResponse,
+} from "@simplewebauthn/server";
+import type { AuthenticatorTransportFuture } from "@simplewebauthn/types";
+
+const rpName = "EASYCHANGE";
+const rpID = process.env.REPLIT_DEV_DOMAIN?.replace(/^https?:\/\//, "") || "localhost";
+const origin = process.env.REPLIT_DEV_DOMAIN ? `https://${rpID}` : "http://localhost:5000";
 
 async function sendEmailOtp(email: string, code: string) {
   console.log(`[MOCK EMAIL] Sending OTP ${code} to ${email}`);
@@ -104,19 +117,54 @@ export async function registerRoutes(
       if (!valid) {
         return res.status(401).json({ message: "Invalid email or password" });
       }
-      req.session.profileId = profile.id;
+
       if (!profile.emailVerified) {
+        req.session.profileId = profile.id;
         const code = crypto.randomInt(100000, 999999).toString();
         await storage.createOtp(profile.id, code);
         await sendEmailOtp(profile.email, code);
-        const { passwordHash: _, ...safeProfile } = profile;
+        const { passwordHash: _, twoFactorSecret: _s, ...safeProfile } = profile;
         return res.json({ ...safeProfile, needsVerification: true });
       }
-      const { passwordHash: _, ...safeProfile } = profile;
+
+      if (profile.twoFactorEnabled) {
+        req.session.pending2faProfileId = profile.id;
+        return res.json({ needs2FA: true });
+      }
+
+      req.session.profileId = profile.id;
+      const { passwordHash: _, twoFactorSecret: _s, ...safeProfile } = profile;
       res.json(safeProfile);
     } catch (e) {
       if (e instanceof z.ZodError) return res.status(400).json({ message: e.errors[0].message });
       console.error("Login error:", e);
+      res.status(500).json({ message: "Internal Error" });
+    }
+  });
+
+  app.post("/api/auth/verify-2fa", async (req: any, res) => {
+    try {
+      const profileId = req.session?.pending2faProfileId;
+      if (!profileId) return res.status(401).json({ message: "No pending 2FA verification" });
+
+      const { code } = req.body;
+      if (!code) return res.status(400).json({ message: "Code is required" });
+
+      const profile = await storage.getProfile(profileId);
+      if (!profile || !profile.twoFactorSecret) {
+        return res.status(401).json({ message: "Unauthorized" });
+      }
+
+      const result = await otplibModule.verify({ token: code, secret: profile.twoFactorSecret });
+      if (!result.valid) return res.status(400).json({ message: "Invalid 2FA code" });
+
+      req.session.profileId = profileId;
+      delete req.session.pending2faProfileId;
+
+      const { passwordHash: _, twoFactorSecret: _s, ...safeProfile } = profile;
+      res.json(safeProfile);
+    } catch (e) {
+      console.error("2FA login verify error:", e);
       res.status(500).json({ message: "Internal Error" });
     }
   });
@@ -134,7 +182,7 @@ export async function registerRoutes(
   app.get(api.auth.me.path, isAuthenticated, async (req: any, res) => {
     const profile = await getProfileFromReq(req);
     if (!profile) return res.status(401).json({ message: "Unauthorized" });
-    const { passwordHash: _, ...safeProfile } = profile;
+    const { passwordHash: _, twoFactorSecret: _s, ...safeProfile } = profile;
     res.json(safeProfile);
   });
 
@@ -274,6 +322,230 @@ export async function registerRoutes(
   app.get(api.admin.allWithdrawals.path, isAuthenticated, isAdmin, async (req: any, res) => {
     const allWithdrawals = await storage.getWithdrawals();
     res.json(allWithdrawals);
+  });
+
+  // ======= 2FA TOTP Routes =======
+  app.post("/api/security/2fa/setup", isAuthenticated, async (req: any, res) => {
+    try {
+      const profile = await getProfileFromReq(req);
+      if (!profile) return res.status(401).json({ message: "Unauthorized" });
+      if (profile.twoFactorEnabled) return res.status(400).json({ message: "2FA is already enabled" });
+
+      const secret = otplibModule.generateSecret();
+      await storage.setTwoFactorSecret(profile.id, secret);
+
+      const otpauth = otplibModule.generateURI({ secret, issuer: rpName, label: profile.email });
+      const qrCodeDataUrl = await QRCode.toDataURL(otpauth);
+
+      res.json({ secret, qrCode: qrCodeDataUrl });
+    } catch (e) {
+      console.error("2FA setup error:", e);
+      res.status(500).json({ message: "Internal Error" });
+    }
+  });
+
+  app.post("/api/security/2fa/verify", isAuthenticated, async (req: any, res) => {
+    try {
+      const profile = await getProfileFromReq(req);
+      if (!profile) return res.status(401).json({ message: "Unauthorized" });
+      if (profile.twoFactorEnabled) return res.status(400).json({ message: "2FA is already enabled" });
+      if (!profile.twoFactorSecret) return res.status(400).json({ message: "Please set up 2FA first" });
+
+      const { code } = req.body;
+      if (!code) return res.status(400).json({ message: "Code is required" });
+
+      const result = await otplibModule.verify({ token: code, secret: profile.twoFactorSecret });
+      if (!result.valid) return res.status(400).json({ message: "Invalid code. Please try again." });
+
+      await storage.enableTwoFactor(profile.id);
+      res.json({ message: "2FA enabled successfully" });
+    } catch (e) {
+      console.error("2FA verify error:", e);
+      res.status(500).json({ message: "Internal Error" });
+    }
+  });
+
+  app.post("/api/security/2fa/disable", isAuthenticated, async (req: any, res) => {
+    try {
+      const profile = await getProfileFromReq(req);
+      if (!profile) return res.status(401).json({ message: "Unauthorized" });
+      if (!profile.twoFactorEnabled) return res.status(400).json({ message: "2FA is not enabled" });
+
+      const { code } = req.body;
+      if (!code) return res.status(400).json({ message: "Code is required" });
+
+      const result = await otplibModule.verify({ token: code, secret: profile.twoFactorSecret! });
+      if (!result.valid) return res.status(400).json({ message: "Invalid code" });
+
+      await storage.disableTwoFactor(profile.id);
+      res.json({ message: "2FA disabled successfully" });
+    } catch (e) {
+      console.error("2FA disable error:", e);
+      res.status(500).json({ message: "Internal Error" });
+    }
+  });
+
+  // ======= WebAuthn (Fingerprint) Routes =======
+  app.get("/api/security/webauthn/credentials", isAuthenticated, async (req: any, res) => {
+    const profile = await getProfileFromReq(req);
+    if (!profile) return res.status(401).json({ message: "Unauthorized" });
+    const creds = await storage.getWebAuthnCredentials(profile.id);
+    res.json(creds.map(c => ({ id: c.id, deviceName: c.deviceName, createdAt: c.createdAt })));
+  });
+
+  app.post("/api/security/webauthn/register-options", isAuthenticated, async (req: any, res) => {
+    try {
+      const profile = await getProfileFromReq(req);
+      if (!profile) return res.status(401).json({ message: "Unauthorized" });
+
+      const existingCreds = await storage.getWebAuthnCredentials(profile.id);
+
+      const options = await generateRegistrationOptions({
+        rpName,
+        rpID,
+        userName: profile.email,
+        attestationType: "none",
+        excludeCredentials: existingCreds.map(c => ({
+          id: c.credentialId,
+          transports: ["internal" as AuthenticatorTransportFuture],
+        })),
+        authenticatorSelection: {
+          authenticatorAttachment: "platform",
+          userVerification: "required",
+          residentKey: "preferred",
+        },
+      });
+
+      req.session.currentChallenge = options.challenge;
+      res.json(options);
+    } catch (e) {
+      console.error("WebAuthn register options error:", e);
+      res.status(500).json({ message: "Internal Error" });
+    }
+  });
+
+  app.post("/api/security/webauthn/register-verify", isAuthenticated, async (req: any, res) => {
+    try {
+      const profile = await getProfileFromReq(req);
+      if (!profile) return res.status(401).json({ message: "Unauthorized" });
+
+      const expectedChallenge = req.session.currentChallenge;
+      if (!expectedChallenge) return res.status(400).json({ message: "No challenge found. Please try again." });
+
+      const verification = await verifyRegistrationResponse({
+        response: req.body.credential,
+        expectedChallenge,
+        expectedOrigin: origin,
+        expectedRPID: rpID,
+      });
+
+      if (!verification.verified || !verification.registrationInfo) {
+        return res.status(400).json({ message: "Verification failed" });
+      }
+
+      const { credential } = verification.registrationInfo;
+
+      await storage.createWebAuthnCredential({
+        profileId: profile.id,
+        credentialId: credential.id,
+        publicKey: Buffer.from(credential.publicKey).toString("base64"),
+        counter: credential.counter,
+        deviceName: req.body.deviceName || "Fingerprint",
+      });
+
+      delete req.session.currentChallenge;
+      res.json({ message: "Fingerprint registered successfully" });
+    } catch (e) {
+      console.error("WebAuthn register verify error:", e);
+      res.status(500).json({ message: "Internal Error" });
+    }
+  });
+
+  app.post("/api/security/webauthn/auth-options", async (req: any, res) => {
+    try {
+      const { email } = req.body;
+      if (!email) return res.status(400).json({ message: "Email is required" });
+
+      const profile = await storage.getProfileByEmail(email);
+      if (!profile) return res.status(400).json({ message: "No account found" });
+
+      const creds = await storage.getWebAuthnCredentials(profile.id);
+      if (creds.length === 0) return res.status(400).json({ message: "No fingerprints registered" });
+
+      const options = await generateAuthenticationOptions({
+        rpID,
+        allowCredentials: creds.map(c => ({
+          id: c.credentialId,
+          transports: ["internal" as AuthenticatorTransportFuture],
+        })),
+        userVerification: "required",
+      });
+
+      req.session.currentChallenge = options.challenge;
+      req.session.webauthnProfileId = profile.id;
+      res.json(options);
+    } catch (e) {
+      console.error("WebAuthn auth options error:", e);
+      res.status(500).json({ message: "Internal Error" });
+    }
+  });
+
+  app.post("/api/security/webauthn/auth-verify", async (req: any, res) => {
+    try {
+      const expectedChallenge = req.session.currentChallenge;
+      const profileId = req.session.webauthnProfileId;
+      if (!expectedChallenge || !profileId) {
+        return res.status(400).json({ message: "No challenge found. Please try again." });
+      }
+
+      const credential = await storage.getWebAuthnCredentialById(req.body.id);
+      if (!credential || credential.profileId !== profileId) {
+        return res.status(400).json({ message: "Unknown credential" });
+      }
+
+      const verification = await verifyAuthenticationResponse({
+        response: req.body,
+        expectedChallenge,
+        expectedOrigin: origin,
+        expectedRPID: rpID,
+        credential: {
+          id: credential.credentialId,
+          publicKey: Buffer.from(credential.publicKey, "base64"),
+          counter: credential.counter,
+          transports: ["internal" as AuthenticatorTransportFuture],
+        },
+      });
+
+      if (!verification.verified) {
+        return res.status(400).json({ message: "Authentication failed" });
+      }
+
+      await storage.updateWebAuthnCounter(credential.credentialId, verification.authenticationInfo.newCounter);
+
+      req.session.profileId = profileId;
+      delete req.session.currentChallenge;
+      delete req.session.webauthnProfileId;
+
+      const profile = await storage.getProfile(profileId);
+      if (!profile) return res.status(401).json({ message: "Unauthorized" });
+      const { passwordHash: _, twoFactorSecret: _s, ...safeProfile } = profile;
+      res.json(safeProfile);
+    } catch (e) {
+      console.error("WebAuthn auth verify error:", e);
+      res.status(500).json({ message: "Internal Error" });
+    }
+  });
+
+  app.delete("/api/security/webauthn/credentials/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const profile = await getProfileFromReq(req);
+      if (!profile) return res.status(401).json({ message: "Unauthorized" });
+      await storage.deleteWebAuthnCredential(Number(req.params.id), profile.id);
+      res.json({ message: "Credential removed" });
+    } catch (e) {
+      console.error("WebAuthn delete error:", e);
+      res.status(500).json({ message: "Internal Error" });
+    }
   });
 
   return httpServer;

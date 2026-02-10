@@ -20,6 +20,18 @@ export const profiles = pgTable("profiles", {
   role: userRoleEnum("role").default("user").notNull(),
   kycStatus: kycStatusEnum("kyc_status").default("not_submitted").notNull(),
   balance: decimal("balance", { precision: 10, scale: 2 }).default("0").notNull(),
+  twoFactorSecret: text("two_factor_secret"),
+  twoFactorEnabled: boolean("two_factor_enabled").default(false).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const webauthnCredentials = pgTable("webauthn_credentials", {
+  id: serial("id").primaryKey(),
+  profileId: integer("profile_id").references(() => profiles.id).notNull(),
+  credentialId: text("credential_id").notNull().unique(),
+  publicKey: text("public_key").notNull(),
+  counter: integer("counter").default(0).notNull(),
+  deviceName: text("device_name").default("Fingerprint").notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -87,5 +99,6 @@ export type InsertDeposit = z.infer<typeof insertDepositSchema>;
 export type Withdrawal = typeof withdrawals.$inferSelect;
 export type InsertWithdrawal = z.infer<typeof insertWithdrawalSchema>;
 export type KycDocument = typeof kycDocuments.$inferSelect;
+export type WebAuthnCredential = typeof webauthnCredentials.$inferSelect;
 export type RegisterInput = z.infer<typeof registerSchema>;
 export type LoginInput = z.infer<typeof loginSchema>;
