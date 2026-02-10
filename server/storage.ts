@@ -1,73 +1,65 @@
-
-import { users, deposits, withdrawals, kycDocuments, otps, type User, type InsertUser, type Deposit, type InsertDeposit, type Withdrawal, type InsertWithdrawal, type KycDocument, type InsertKyc } from "@shared/schema";
+import { profiles, deposits, withdrawals, kycDocuments, otps, type Profile, type Deposit, type InsertDeposit, type Withdrawal, type InsertWithdrawal, type KycDocument } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc } from "drizzle-orm";
 
 export interface IStorage {
-  // User
-  getUser(id: number): Promise<User | undefined>;
-  getUserByEmail(email: string): Promise<User | undefined>;
-  createUser(user: InsertUser): Promise<User>;
-  updateUserBalance(id: number, balance: number): Promise<User>;
+  getProfile(id: number): Promise<Profile | undefined>;
+  getProfileByAuthUserId(authUserId: string): Promise<Profile | undefined>;
+  createProfile(authUserId: string, fullName: string, email: string): Promise<Profile>;
+  updateProfileBalance(id: number, balance: number): Promise<Profile>;
 
-  // OTP
-  createOtp(userId: number, code: string): Promise<void>;
-  getValidOtp(userId: number, code: string): Promise<typeof otps.$inferSelect | undefined>;
+  createOtp(profileId: number, code: string): Promise<void>;
+  getValidOtp(profileId: number, code: string): Promise<typeof otps.$inferSelect | undefined>;
   markOtpVerified(id: number): Promise<void>;
 
-  // Deposits
-  createDeposit(deposit: InsertDeposit & { userId: number }): Promise<Deposit>;
-  getDeposits(userId?: number): Promise<Deposit[]>;
+  createDeposit(deposit: InsertDeposit & { profileId: number }): Promise<Deposit>;
+  getDeposits(profileId?: number): Promise<Deposit[]>;
   updateDepositStatus(id: number, status: "approved" | "rejected"): Promise<Deposit>;
 
-  // Withdrawals
-  createWithdrawal(withdrawal: InsertWithdrawal & { userId: number }): Promise<Withdrawal>;
-  getWithdrawals(userId?: number): Promise<Withdrawal[]>;
+  createWithdrawal(withdrawal: InsertWithdrawal & { profileId: number }): Promise<Withdrawal>;
+  getWithdrawals(profileId?: number): Promise<Withdrawal[]>;
   updateWithdrawalStatus(id: number, status: "approved" | "rejected"): Promise<Withdrawal>;
 
-  // KYC
-  createKyc(kyc: InsertKyc & { userId: number }): Promise<KycDocument>;
-  getKyc(userId: number): Promise<KycDocument | undefined>;
-  getAllKyc(): Promise<(KycDocument & { user: User })[]>;
-  updateKycStatus(userId: number, status: "verified" | "rejected"): Promise<void>;
-  getAllUsers(): Promise<User[]>; // For admin
+  createKyc(kyc: { profileId: number; idDocumentUrl: string; selfieUrl: string }): Promise<KycDocument>;
+  getKyc(profileId: number): Promise<KycDocument | undefined>;
+  getAllKyc(): Promise<(KycDocument & { profile: Profile })[]>;
+  updateKycStatus(profileId: number, status: "verified" | "rejected"): Promise<void>;
+  getAllProfiles(): Promise<Profile[]>;
 }
 
 export class DatabaseStorage implements IStorage {
-  async getUser(id: number): Promise<User | undefined> {
-    const [user] = await db.select().from(users).where(eq(users.id, id));
-    return user;
+  async getProfile(id: number): Promise<Profile | undefined> {
+    const [profile] = await db.select().from(profiles).where(eq(profiles.id, id));
+    return profile;
   }
 
-  async getUserByEmail(email: string): Promise<User | undefined> {
-    const [user] = await db.select().from(users).where(eq(users.email, email));
-    return user;
+  async getProfileByAuthUserId(authUserId: string): Promise<Profile | undefined> {
+    const [profile] = await db.select().from(profiles).where(eq(profiles.authUserId, authUserId));
+    return profile;
   }
 
-  async createUser(insertUser: InsertUser): Promise<User> {
-    const [user] = await db.insert(users).values(insertUser).returning();
-    return user;
-  }
-  
-  async updateUserBalance(id: number, balance: number): Promise<User> {
-      const [user] = await db.update(users).set({ balance: balance.toString() }).where(eq(users.id, id)).returning();
-      return user;
+  async createProfile(authUserId: string, fullName: string, email: string): Promise<Profile> {
+    const [profile] = await db.insert(profiles).values({ authUserId, fullName, email }).returning();
+    return profile;
   }
 
-  async createOtp(userId: number, code: string): Promise<void> {
-    // Expire in 5 minutes
+  async updateProfileBalance(id: number, balance: number): Promise<Profile> {
+    const [profile] = await db.update(profiles).set({ balance: balance.toString() }).where(eq(profiles.id, id)).returning();
+    return profile;
+  }
+
+  async createOtp(profileId: number, code: string): Promise<void> {
     const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
-    await db.insert(otps).values({ userId, code, expiresAt });
+    await db.insert(otps).values({ profileId, code, expiresAt });
   }
 
-  async getValidOtp(userId: number, code: string): Promise<typeof otps.$inferSelect | undefined> {
+  async getValidOtp(profileId: number, code: string): Promise<typeof otps.$inferSelect | undefined> {
     const [otp] = await db.select().from(otps)
-      .where(eq(otps.userId, userId))
+      .where(eq(otps.profileId, profileId))
       .orderBy(desc(otps.createdAt))
       .limit(1);
-
     if (otp && otp.code === code && !otp.verified && otp.expiresAt > new Date()) {
-        return otp;
+      return otp;
     }
     return undefined;
   }
@@ -76,14 +68,14 @@ export class DatabaseStorage implements IStorage {
     await db.update(otps).set({ verified: true }).where(eq(otps.id, id));
   }
 
-  async createDeposit(deposit: InsertDeposit & { userId: number }): Promise<Deposit> {
+  async createDeposit(deposit: InsertDeposit & { profileId: number }): Promise<Deposit> {
     const [newDeposit] = await db.insert(deposits).values(deposit).returning();
     return newDeposit;
   }
 
-  async getDeposits(userId?: number): Promise<Deposit[]> {
-    if (userId) {
-      return db.select().from(deposits).where(eq(deposits.userId, userId)).orderBy(desc(deposits.createdAt));
+  async getDeposits(profileId?: number): Promise<Deposit[]> {
+    if (profileId) {
+      return db.select().from(deposits).where(eq(deposits.profileId, profileId)).orderBy(desc(deposits.createdAt));
     }
     return db.select().from(deposits).orderBy(desc(deposits.createdAt));
   }
@@ -93,14 +85,14 @@ export class DatabaseStorage implements IStorage {
     return deposit;
   }
 
-  async createWithdrawal(withdrawal: InsertWithdrawal & { userId: number }): Promise<Withdrawal> {
+  async createWithdrawal(withdrawal: InsertWithdrawal & { profileId: number }): Promise<Withdrawal> {
     const [newWithdrawal] = await db.insert(withdrawals).values(withdrawal).returning();
     return newWithdrawal;
   }
 
-  async getWithdrawals(userId?: number): Promise<Withdrawal[]> {
-    if (userId) {
-      return db.select().from(withdrawals).where(eq(withdrawals.userId, userId)).orderBy(desc(withdrawals.createdAt));
+  async getWithdrawals(profileId?: number): Promise<Withdrawal[]> {
+    if (profileId) {
+      return db.select().from(withdrawals).where(eq(withdrawals.profileId, profileId)).orderBy(desc(withdrawals.createdAt));
     }
     return db.select().from(withdrawals).orderBy(desc(withdrawals.createdAt));
   }
@@ -110,35 +102,34 @@ export class DatabaseStorage implements IStorage {
     return withdrawal;
   }
 
-  async createKyc(kyc: InsertKyc & { userId: number }): Promise<KycDocument> {
-      // Check if exists
-    const existing = await this.getKyc(kyc.userId);
+  async createKyc(kyc: { profileId: number; idDocumentUrl: string; selfieUrl: string }): Promise<KycDocument> {
+    const existing = await this.getKyc(kyc.profileId);
     if (existing) {
-        const [updated] = await db.update(kycDocuments).set(kyc).where(eq(kycDocuments.userId, kyc.userId)).returning();
-        await db.update(users).set({ kycStatus: "pending" }).where(eq(users.id, kyc.userId));
-        return updated;
+      const [updated] = await db.update(kycDocuments).set(kyc).where(eq(kycDocuments.profileId, kyc.profileId)).returning();
+      await db.update(profiles).set({ kycStatus: "pending" }).where(eq(profiles.id, kyc.profileId));
+      return updated;
     }
     const [newKyc] = await db.insert(kycDocuments).values(kyc).returning();
-    await db.update(users).set({ kycStatus: "pending" }).where(eq(users.id, kyc.userId));
+    await db.update(profiles).set({ kycStatus: "pending" }).where(eq(profiles.id, kyc.profileId));
     return newKyc;
   }
 
-  async getKyc(userId: number): Promise<KycDocument | undefined> {
-    const [kyc] = await db.select().from(kycDocuments).where(eq(kycDocuments.userId, userId));
+  async getKyc(profileId: number): Promise<KycDocument | undefined> {
+    const [kyc] = await db.select().from(kycDocuments).where(eq(kycDocuments.profileId, profileId));
     return kyc;
   }
-  
-  async getAllKyc(): Promise<(KycDocument & { user: User })[]> {
-      const results = await db.select().from(kycDocuments).innerJoin(users, eq(kycDocuments.userId, users.id));
-      return results.map(r => ({ ...r.kyc_documents, user: r.users }));
+
+  async getAllKyc(): Promise<(KycDocument & { profile: Profile })[]> {
+    const results = await db.select().from(kycDocuments).innerJoin(profiles, eq(kycDocuments.profileId, profiles.id));
+    return results.map(r => ({ ...r.kyc_documents, profile: r.profiles }));
   }
 
-  async updateKycStatus(userId: number, status: "verified" | "rejected"): Promise<void> {
-    await db.update(users).set({ kycStatus: status }).where(eq(users.id, userId));
+  async updateKycStatus(profileId: number, status: "verified" | "rejected"): Promise<void> {
+    await db.update(profiles).set({ kycStatus: status }).where(eq(profiles.id, profileId));
   }
-  
-  async getAllUsers(): Promise<User[]> {
-      return db.select().from(users).orderBy(desc(users.createdAt));
+
+  async getAllProfiles(): Promise<Profile[]> {
+    return db.select().from(profiles).orderBy(desc(profiles.createdAt));
   }
 }
 

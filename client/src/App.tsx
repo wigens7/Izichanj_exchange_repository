@@ -7,7 +7,6 @@ import { useUser } from "@/hooks/use-auth";
 import { Loader2 } from "lucide-react";
 
 import LoginPage from "@/pages/login";
-import RegisterPage from "@/pages/register";
 import DashboardPage from "@/pages/dashboard";
 import DepositPage from "@/pages/deposit";
 import WithdrawPage from "@/pages/withdraw";
@@ -22,7 +21,7 @@ function ProtectedRoute({ component: Component, adminOnly = false }: { component
   if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+        <Loader2 className="w-8 h-8 animate-spin text-primary" data-testid="loader-protected" />
       </div>
     );
   }
@@ -46,8 +45,7 @@ function Router() {
   return (
     <Switch>
       <Route path="/login" component={LoginPage} />
-      <Route path="/register" component={RegisterPage} />
-      
+
       <Route path="/">
         <ProtectedRoute component={DashboardPage} />
       </Route>
@@ -63,7 +61,7 @@ function Router() {
       <Route path="/admin">
         <ProtectedRoute component={AdminPage} adminOnly />
       </Route>
-      
+
       <Route component={NotFound} />
     </Switch>
   );

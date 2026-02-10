@@ -65,10 +65,10 @@ export function LayoutShell({ children }: LayoutShellProps) {
       <div className="p-4 mt-auto border-t border-border">
         <div className="flex items-center gap-3 px-4 py-3 mb-2">
             <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold">
-                {user?.fullName.charAt(0)}
+                {(user?.fullName || user?.email || "U").charAt(0).toUpperCase()}
             </div>
             <div className="overflow-hidden">
-                <p className="text-sm font-medium truncate">{user?.fullName}</p>
+                <p className="text-sm font-medium truncate">{user?.fullName || "User"}</p>
                 <p className="text-xs text-muted-foreground truncate">{user?.email}</p>
             </div>
         </div>
