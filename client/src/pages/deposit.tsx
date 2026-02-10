@@ -2,12 +2,15 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useCreateDeposit } from "@/hooks/use-transactions";
+import { useUser } from "@/hooks/use-auth";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Copy, Loader2, QrCode } from "lucide-react";
+import { Copy, Loader2, QrCode, ShieldAlert } from "lucide-react";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { useToast } from "@/hooks/use-toast";
+import { Link } from "wouter";
 
 const depositSchema = z.object({
   amountUsdt: z.string().refine((val) => !isNaN(Number(val)) && Number(val) > 0, "Amount must be greater than 0"),
@@ -15,8 +18,10 @@ const depositSchema = z.object({
 });
 
 export default function DepositPage() {
+  const { data: user } = useUser();
   const { mutate: createDeposit, isPending } = useCreateDeposit();
   const { toast } = useToast();
+  const kycVerified = user?.kycStatus === "verified";
 
   const form = useForm<z.infer<typeof depositSchema>>({
     resolver: zodResolver(depositSchema),
@@ -56,6 +61,17 @@ export default function DepositPage() {
             <p className="text-muted-foreground">Send USDT to one of the addresses below, then submit proof.</p>
         </div>
 
+        {!kycVerified && (
+            <Alert className="bg-amber-500/10 border-amber-200 text-amber-800 dark:text-amber-300" data-testid="alert-kyc-required-deposit">
+                <ShieldAlert className="h-4 w-4" />
+                <AlertTitle>KYC Verification Required</AlertTitle>
+                <AlertDescription>
+                    You must complete identity verification before making deposits.{" "}
+                    <Link href="/profile" className="underline font-medium">Go to Profile & KYC</Link>
+                </AlertDescription>
+            </Alert>
+        )}
+
         <Card className="shadow-lg">
             <CardHeader>
                 <CardTitle className="flex items-center gap-2">
@@ -69,7 +85,7 @@ export default function DepositPage() {
             </CardContent>
         </Card>
 
-        <Card>
+        <Card className={!kycVerified ? "opacity-50 pointer-events-none" : ""}>
             <CardHeader>
                 <CardTitle>Submit Transaction</CardTitle>
                 <CardDescription>We will verify your deposit within minutes.</CardDescription>
@@ -84,7 +100,7 @@ export default function DepositPage() {
                                 <FormItem>
                                     <FormLabel>Amount Sent (USDT)</FormLabel>
                                     <FormControl>
-                                        <Input type="number" step="0.01" placeholder="100.00" {...field} />
+                                        <Input type="number" step="0.01" placeholder="100.00" {...field} data-testid="input-deposit-amount" />
                                     </FormControl>
                                     <FormMessage />
                                 </FormItem>
@@ -97,13 +113,13 @@ export default function DepositPage() {
                                 <FormItem>
                                     <FormLabel>Transaction Hash (TXID)</FormLabel>
                                     <FormControl>
-                                        <Input placeholder="Enter transaction hash..." {...field} />
+                                        <Input placeholder="Enter transaction hash..." {...field} data-testid="input-deposit-txhash" />
                                     </FormControl>
                                     <FormMessage />
                                 </FormItem>
                             )}
                         />
-                        <Button type="submit" className="w-full primary-gradient h-11" disabled={isPending}>
+                        <Button type="submit" className="w-full primary-gradient h-11" disabled={isPending || !kycVerified} data-testid="button-submit-deposit">
                             {isPending ? <Loader2 className="animate-spin mr-2" /> : "Verify Deposit"}
                         </Button>
                     </form>

@@ -3,6 +3,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useCreateWithdrawal, useRequestWithdrawalOtp } from "@/hooks/use-transactions";
+import { useUser } from "@/hooks/use-auth";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
@@ -10,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Loader2, ShieldAlert } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Link } from "wouter";
 
 const withdrawSchema = z.object({
   currency: z.enum(["MonCash", "NatCash"]),
@@ -19,9 +21,11 @@ const withdrawSchema = z.object({
 });
 
 export default function WithdrawPage() {
+  const { data: user } = useUser();
   const { mutate: createWithdrawal, isPending: isWithdrawPending } = useCreateWithdrawal();
   const { mutate: requestOtp, isPending: isOtpPending } = useRequestWithdrawalOtp();
   const [otpSent, setOtpSent] = useState(false);
+  const kycVerified = user?.kycStatus === "verified";
 
   const form = useForm<z.infer<typeof withdrawSchema>>({
     resolver: zodResolver(withdrawSchema),
@@ -55,15 +59,26 @@ export default function WithdrawPage() {
             <p className="text-muted-foreground">Cash out to your local mobile wallet.</p>
         </div>
 
-        <Alert className="bg-amber-500/10 border-amber-200 text-amber-800">
-            <ShieldAlert className="h-4 w-4" />
-            <AlertTitle>Security Verification</AlertTitle>
-            <AlertDescription>
-                Withdrawals are validated within 15–20 minutes after confirmation.
-            </AlertDescription>
-        </Alert>
+        {!kycVerified ? (
+            <Alert className="bg-amber-500/10 border-amber-200 text-amber-800 dark:text-amber-300" data-testid="alert-kyc-required-withdraw">
+                <ShieldAlert className="h-4 w-4" />
+                <AlertTitle>KYC Verification Required</AlertTitle>
+                <AlertDescription>
+                    You must complete identity verification before making withdrawals.{" "}
+                    <Link href="/profile" className="underline font-medium">Go to Profile & KYC</Link>
+                </AlertDescription>
+            </Alert>
+        ) : (
+            <Alert className="bg-amber-500/10 border-amber-200 text-amber-800 dark:text-amber-300">
+                <ShieldAlert className="h-4 w-4" />
+                <AlertTitle>Security Verification</AlertTitle>
+                <AlertDescription>
+                    Withdrawals are validated within 15-20 minutes after confirmation.
+                </AlertDescription>
+            </Alert>
+        )}
 
-        <Card>
+        <Card className={!kycVerified ? "opacity-50 pointer-events-none" : ""}>
             <CardContent className="pt-6">
                 <Form {...form}>
                     <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">

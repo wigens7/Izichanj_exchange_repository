@@ -149,6 +149,7 @@ export async function registerRoutes(
     try {
       const profile = await getProfileFromReq(req);
       if (!profile) return res.status(401).json({ message: "Unauthorized" });
+      if (profile.kycStatus !== "verified") return res.status(403).json({ message: "KYC verification required before making deposits" });
       const input = api.deposits.create.input.parse(req.body);
       const deposit = await storage.createDeposit({ ...input, profileId: profile.id });
       res.status(201).json(deposit);
@@ -161,6 +162,7 @@ export async function registerRoutes(
   app.post(api.withdrawals.requestOtp.path, isAuthenticated, async (req: any, res) => {
     const profile = await getProfileFromReq(req);
     if (!profile) return res.sendStatus(401);
+    if (profile.kycStatus !== "verified") return res.status(403).json({ message: "KYC verification required before making withdrawals" });
     const code = crypto.randomInt(100000, 999999).toString();
     await storage.createOtp(profile.id, code);
     await sendEmailOtp(profile.email || "", code);
@@ -178,6 +180,7 @@ export async function registerRoutes(
     try {
       const profile = await getProfileFromReq(req);
       if (!profile) return res.status(401).json({ message: "Unauthorized" });
+      if (profile.kycStatus !== "verified") return res.status(403).json({ message: "KYC verification required before making withdrawals" });
       const { otp, ...rest } = req.body;
       api.withdrawals.create.input.parse(req.body);
 
