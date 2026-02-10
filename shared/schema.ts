@@ -12,9 +12,9 @@ export const userRoleEnum = pgEnum("user_role", ["user", "admin"]);
 
 export const profiles = pgTable("profiles", {
   id: serial("id").primaryKey(),
-  authUserId: varchar("auth_user_id").notNull().unique(),
-  fullName: text("full_name").notNull().default(""),
-  email: text("email").default(""),
+  fullName: text("full_name").notNull(),
+  email: text("email").notNull().unique(),
+  passwordHash: text("password_hash").notNull(),
   role: userRoleEnum("role").default("user").notNull(),
   kycStatus: kycStatusEnum("kyc_status").default("not_submitted").notNull(),
   balance: decimal("balance", { precision: 10, scale: 2 }).default("0").notNull(),
@@ -61,9 +61,26 @@ export const insertDepositSchema = createInsertSchema(deposits).omit({ id: true,
 export const insertWithdrawalSchema = createInsertSchema(withdrawals).omit({ id: true, profileId: true, status: true, createdAt: true });
 export const insertKycSchema = createInsertSchema(kycDocuments).omit({ id: true, profileId: true, submittedAt: true });
 
+export const registerSchema = z.object({
+  fullName: z.string().min(2, "Full name must be at least 2 characters"),
+  email: z.string().email("Invalid email address"),
+  password: z.string().min(6, "Password must be at least 6 characters"),
+  confirmPassword: z.string(),
+}).refine((data) => data.password === data.confirmPassword, {
+  message: "Passwords do not match",
+  path: ["confirmPassword"],
+});
+
+export const loginSchema = z.object({
+  email: z.string().email("Invalid email address"),
+  password: z.string().min(1, "Password is required"),
+});
+
 export type Profile = typeof profiles.$inferSelect;
 export type Deposit = typeof deposits.$inferSelect;
 export type InsertDeposit = z.infer<typeof insertDepositSchema>;
 export type Withdrawal = typeof withdrawals.$inferSelect;
 export type InsertWithdrawal = z.infer<typeof insertWithdrawalSchema>;
 export type KycDocument = typeof kycDocuments.$inferSelect;
+export type RegisterInput = z.infer<typeof registerSchema>;
+export type LoginInput = z.infer<typeof loginSchema>;

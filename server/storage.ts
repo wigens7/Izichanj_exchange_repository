@@ -4,8 +4,8 @@ import { eq, desc } from "drizzle-orm";
 
 export interface IStorage {
   getProfile(id: number): Promise<Profile | undefined>;
-  getProfileByAuthUserId(authUserId: string): Promise<Profile | undefined>;
-  createProfile(authUserId: string, fullName: string, email: string): Promise<Profile>;
+  getProfileByEmail(email: string): Promise<Profile | undefined>;
+  createProfile(fullName: string, email: string, passwordHash: string): Promise<Profile>;
   updateProfileBalance(id: number, balance: number): Promise<Profile>;
 
   createOtp(profileId: number, code: string): Promise<void>;
@@ -33,13 +33,13 @@ export class DatabaseStorage implements IStorage {
     return profile;
   }
 
-  async getProfileByAuthUserId(authUserId: string): Promise<Profile | undefined> {
-    const [profile] = await db.select().from(profiles).where(eq(profiles.authUserId, authUserId));
+  async getProfileByEmail(email: string): Promise<Profile | undefined> {
+    const [profile] = await db.select().from(profiles).where(eq(profiles.email, email));
     return profile;
   }
 
-  async createProfile(authUserId: string, fullName: string, email: string): Promise<Profile> {
-    const [profile] = await db.insert(profiles).values({ authUserId, fullName, email }).returning();
+  async createProfile(fullName: string, email: string, passwordHash: string): Promise<Profile> {
+    const [profile] = await db.insert(profiles).values({ fullName, email, passwordHash }).returning();
     return profile;
   }
 
