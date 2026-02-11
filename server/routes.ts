@@ -342,6 +342,11 @@ export async function registerRoutes(
     res.json(allProfiles);
   });
 
+  app.get(api.admin.allKyc.path, isAuthenticated, isAdmin, async (req: any, res) => {
+    const allKyc = await storage.getAllKyc();
+    res.json(allKyc);
+  });
+
   app.patch(api.admin.updateBalance.path, isAuthenticated, isAdmin, async (req: any, res) => {
     const balance = req.body.balance;
     const profile = await storage.updateProfileBalance(Number(req.params.id), balance);

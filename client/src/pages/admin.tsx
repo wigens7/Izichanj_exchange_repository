@@ -32,6 +32,9 @@ import {
   Save,
   Send,
   MessageSquare,
+  Eye,
+  X,
+  FileImage,
 } from "lucide-react";
 import { format } from "date-fns";
 import { usdtToHtg, formatHtg, formatUsdt } from "@shared/constants";
@@ -42,7 +45,7 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { Textarea } from "@/components/ui/textarea";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 
 export default function AdminPage() {
   const { data: currentUser } = useUser();
@@ -462,9 +465,13 @@ function WithdrawalsTab() {
 }
 
 function KycTab() {
-  const { data: users, isLoading } = useAdminUsers();
+  const { data: users, isLoading: usersLoading } = useAdminUsers();
+  const { data: kycDocs, isLoading: kycLoading } = useQuery<any[]>({ queryKey: ["/api/admin/kyc"] });
   const { mutate: verify, isPending: isVerifying } = useAdminVerifyKyc();
   const { mutate: rejectKyc, isPending: isRejecting } = useAdminRejectKyc();
+  const [viewingUser, setViewingUser] = useState<any>(null);
+
+  const isLoading = usersLoading || kycLoading;
 
   if (isLoading) {
     return (
@@ -481,84 +488,184 @@ function KycTab() {
   const kycUsers = users?.filter((u: any) => u.kycStatus !== "not_submitted") || [];
   const pendingCount = kycUsers.filter((u: any) => u.kycStatus === "pending").length;
 
+  const getKycDocsForUser = (profileId: number) => {
+    return kycDocs?.find((doc: any) => doc.profileId === profileId);
+  };
+
   return (
-    <Card>
-      <CardHeader className="flex flex-row items-center justify-between gap-2">
-        <CardTitle className="flex items-center gap-2">
-          <ShieldCheck className="w-5 h-5 text-blue-600" />
-          KYC Verification
-        </CardTitle>
-        {pendingCount > 0 && (
-          <Badge variant="destructive" data-testid="badge-pending-kyc">
-            {pendingCount} pending
-          </Badge>
-        )}
-      </CardHeader>
-      <CardContent>
-        <div className="overflow-x-auto">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>User ID</TableHead>
-                <TableHead>Name</TableHead>
-                <TableHead>Email</TableHead>
-                <TableHead>KYC Status</TableHead>
-                <TableHead>Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {kycUsers.map((user: any) => (
-                <TableRow key={user.id} data-testid={`row-kyc-${user.id}`}>
-                  <TableCell className="font-mono text-xs">{user.id}</TableCell>
-                  <TableCell className="font-medium">{user.fullName}</TableCell>
-                  <TableCell className="text-muted-foreground text-sm">{user.email}</TableCell>
-                  <TableCell>
-                    <StatusBadge status={user.kycStatus} />
-                  </TableCell>
-                  <TableCell>
-                    {user.kycStatus === "pending" ? (
-                      <div className="flex items-center gap-2">
-                        <Button
-                          size="sm"
-                          onClick={() => verify(user.id)}
-                          disabled={isVerifying}
-                          className="bg-emerald-600 hover:bg-emerald-700"
-                          data-testid={`button-verify-kyc-${user.id}`}
-                        >
-                          {isVerifying ? <Loader2 className="w-3 h-3 animate-spin" /> : <CheckCircle className="w-3 h-3 mr-1" />}
-                          Verify
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="destructive"
-                          onClick={() => rejectKyc(user.id)}
-                          disabled={isRejecting}
-                          data-testid={`button-reject-kyc-${user.id}`}
-                        >
-                          {isRejecting ? <Loader2 className="w-3 h-3 animate-spin" /> : <XCircle className="w-3 h-3 mr-1" />}
-                          Reject
-                        </Button>
-                      </div>
-                    ) : (
-                      <span className="text-sm text-muted-foreground">
-                        {user.kycStatus === "verified" ? "Verified" : "Rejected"}
-                      </span>
-                    )}
-                  </TableCell>
-                </TableRow>
-              ))}
-              {kycUsers.length === 0 && (
+    <>
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between gap-2">
+          <CardTitle className="flex items-center gap-2">
+            <ShieldCheck className="w-5 h-5 text-blue-600" />
+            KYC Verification
+          </CardTitle>
+          {pendingCount > 0 && (
+            <Badge variant="destructive" data-testid="badge-pending-kyc">
+              {pendingCount} pending
+            </Badge>
+          )}
+        </CardHeader>
+        <CardContent>
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
                 <TableRow>
-                  <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
-                    No KYC submissions yet
-                  </TableCell>
+                  <TableHead>User ID</TableHead>
+                  <TableHead>Name</TableHead>
+                  <TableHead>Email</TableHead>
+                  <TableHead>Documents</TableHead>
+                  <TableHead>KYC Status</TableHead>
+                  <TableHead>Actions</TableHead>
                 </TableRow>
-              )}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {kycUsers.map((user: any) => (
+                  <TableRow key={user.id} data-testid={`row-kyc-${user.id}`}>
+                    <TableCell className="font-mono text-xs">{user.id}</TableCell>
+                    <TableCell className="font-medium">{user.fullName}</TableCell>
+                    <TableCell className="text-muted-foreground text-sm">{user.email}</TableCell>
+                    <TableCell>
+                      {getKycDocsForUser(user.id) ? (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => setViewingUser(user)}
+                          data-testid={`button-view-kyc-${user.id}`}
+                        >
+                          <Eye className="w-3 h-3 mr-1" />
+                          View
+                        </Button>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">No docs</span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <StatusBadge status={user.kycStatus} />
+                    </TableCell>
+                    <TableCell>
+                      {user.kycStatus === "pending" ? (
+                        <div className="flex items-center gap-2">
+                          <Button
+                            size="sm"
+                            onClick={() => verify(user.id)}
+                            disabled={isVerifying}
+                            className="bg-emerald-600 hover:bg-emerald-700"
+                            data-testid={`button-verify-kyc-${user.id}`}
+                          >
+                            {isVerifying ? <Loader2 className="w-3 h-3 animate-spin" /> : <CheckCircle className="w-3 h-3 mr-1" />}
+                            Verify
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="destructive"
+                            onClick={() => rejectKyc(user.id)}
+                            disabled={isRejecting}
+                            data-testid={`button-reject-kyc-${user.id}`}
+                          >
+                            {isRejecting ? <Loader2 className="w-3 h-3 animate-spin" /> : <XCircle className="w-3 h-3 mr-1" />}
+                            Reject
+                          </Button>
+                        </div>
+                      ) : (
+                        <span className="text-sm text-muted-foreground">
+                          {user.kycStatus === "verified" ? "Verified" : "Rejected"}
+                        </span>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))}
+                {kycUsers.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                      No KYC submissions yet
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </div>
+        </CardContent>
+      </Card>
+
+      {viewingUser && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" onClick={() => setViewingUser(null)}>
+          <div
+            className="bg-background rounded-md max-w-3xl w-full max-h-[90vh] overflow-y-auto p-6"
+            onClick={(e) => e.stopPropagation()}
+            data-testid="modal-kyc-documents"
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold flex items-center gap-2">
+                <FileImage className="w-5 h-5" />
+                KYC Documents - {viewingUser.fullName}
+              </h3>
+              <Button size="icon" variant="ghost" onClick={() => setViewingUser(null)} data-testid="button-close-kyc-modal">
+                <X className="w-4 h-4" />
+              </Button>
+            </div>
+            <p className="text-sm text-muted-foreground mb-4">{viewingUser.email}</p>
+            {(() => {
+              const docs = getKycDocsForUser(viewingUser.id);
+              if (!docs) return <p className="text-muted-foreground">No documents found.</p>;
+              return (
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div className="space-y-2">
+                    <p className="text-sm font-medium">ID Card (Front)</p>
+                    <img
+                      src={docs.idDocumentUrl}
+                      alt="ID Front"
+                      className="w-full rounded-md border border-border object-contain max-h-64"
+                      data-testid="img-kyc-id-front"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <p className="text-sm font-medium">ID Card (Back)</p>
+                    <img
+                      src={docs.idDocumentBackUrl}
+                      alt="ID Back"
+                      className="w-full rounded-md border border-border object-contain max-h-64"
+                      data-testid="img-kyc-id-back"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <p className="text-sm font-medium">Selfie</p>
+                    <img
+                      src={docs.selfieUrl}
+                      alt="Selfie"
+                      className="w-full rounded-md border border-border object-contain max-h-64"
+                      data-testid="img-kyc-selfie"
+                    />
+                  </div>
+                </div>
+              );
+            })()}
+            {viewingUser.kycStatus === "pending" && (
+              <div className="flex items-center gap-3 mt-6 pt-4 border-t border-border">
+                <Button
+                  onClick={() => { verify(viewingUser.id); setViewingUser(null); }}
+                  disabled={isVerifying}
+                  className="bg-emerald-600 hover:bg-emerald-700"
+                  data-testid="button-modal-verify-kyc"
+                >
+                  {isVerifying ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <CheckCircle className="w-4 h-4 mr-2" />}
+                  Approve KYC
+                </Button>
+                <Button
+                  variant="destructive"
+                  onClick={() => { rejectKyc(viewingUser.id); setViewingUser(null); }}
+                  disabled={isRejecting}
+                  data-testid="button-modal-reject-kyc"
+                >
+                  {isRejecting ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <XCircle className="w-4 h-4 mr-2" />}
+                  Reject KYC
+                </Button>
+              </div>
+            )}
+          </div>
         </div>
-      </CardContent>
-    </Card>
+      )}
+    </>
   );
 }
 

@@ -123,6 +123,11 @@ export const api = {
       path: '/api/admin/kyc/:id/reject' as const,
       responses: { 200: z.custom<typeof kycDocuments.$inferSelect>() },
     },
+    allKyc: {
+      method: 'GET' as const,
+      path: '/api/admin/kyc' as const,
+      responses: { 200: z.array(z.any()) },
+    },
     allDeposits: {
       method: 'GET' as const,
       path: '/api/admin/deposits' as const,
