@@ -596,6 +596,26 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/support/end-chat", isAuthenticated, async (req: any, res) => {
+    try {
+      const profile = await getProfileFromReq(req);
+      if (!profile) return res.status(401).json({ message: "Unauthorized" });
+      const { rating } = req.body;
+      const conv = await storage.getOrCreateConversation(profile.id);
+      if (conv.status === "closed") return res.status(400).json({ message: "Conversation already closed" });
+      const ratingValue = rating && Number(rating) >= 1 && Number(rating) <= 5 ? Number(rating) : null;
+      await storage.addMessage({
+        conversationId: conv.id,
+        sender: "bot",
+        message: "Thank you for contacting us! Your chat has been ended. You can start a new conversation anytime. Have a great day!",
+      });
+      const updated = await storage.closeConversationWithRating(conv.id, ratingValue!, "user");
+      res.json(updated);
+    } catch (e) {
+      res.status(500).json({ message: "Internal Error" });
+    }
+  });
+
   app.get("/api/admin/support/conversations", isAuthenticated, isAdmin, async (req: any, res) => {
     try {
       const convos = await storage.getAllConversations();
@@ -630,12 +650,36 @@ export async function registerRoutes(
 
   app.patch("/api/admin/support/close/:id", isAuthenticated, isAdmin, async (req: any, res) => {
     try {
-      const conv = await storage.updateConversationStatus(Number(req.params.id), "closed");
-      res.json(conv);
+      const convId = Number(req.params.id);
+      const conv = await storage.getConversation(convId);
+      if (!conv) return res.status(404).json({ message: "Conversation not found" });
+      await storage.addMessage({
+        conversationId: convId,
+        sender: "bot",
+        message: "Thank you for contacting us! This conversation has been closed by our support team. Feel free to reach out anytime you need help. Goodbye!",
+      });
+      const updated = await storage.updateConversationStatus(convId, "closed");
+      res.json(updated);
     } catch (e) {
       res.status(500).json({ message: "Internal Error" });
     }
   });
+
+  setInterval(async () => {
+    try {
+      const inactive = await storage.getInactiveConversations(5);
+      for (const conv of inactive) {
+        await storage.addMessage({
+          conversationId: conv.id,
+          sender: "bot",
+          message: "This conversation has been automatically closed due to inactivity. Thank you for contacting us! Feel free to chat back anytime you need help.",
+        });
+        await storage.updateConversationStatus(conv.id, "closed");
+      }
+    } catch (e) {
+      console.error("Auto-close inactive chats error:", e);
+    }
+  }, 60 * 1000);
 
   // ======= 2FA TOTP Routes =======
   app.post("/api/security/2fa/setup", isAuthenticated, async (req: any, res) => {

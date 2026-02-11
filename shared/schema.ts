@@ -93,6 +93,8 @@ export const supportConversations = pgTable("support_conversations", {
   id: serial("id").primaryKey(),
   profileId: integer("profile_id").references(() => profiles.id).notNull(),
   status: chatStatusEnum("status").default("active").notNull(),
+  rating: integer("rating"),
+  closedBy: text("closed_by"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });

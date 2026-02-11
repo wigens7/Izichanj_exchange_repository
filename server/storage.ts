@@ -48,8 +48,10 @@ export interface IStorage {
   getConversationMessages(conversationId: number): Promise<SupportMessage[]>;
   addMessage(data: { conversationId: number; sender: SupportMessage["sender"]; senderProfileId?: number; message: string }): Promise<SupportMessage>;
   updateConversationStatus(id: number, status: SupportConversation["status"]): Promise<SupportConversation>;
+  closeConversationWithRating(id: number, rating: number, closedBy: string): Promise<SupportConversation>;
   getAllConversations(): Promise<(SupportConversation & { profile: Profile; lastMessage?: string; unreadCount: number })[]>;
   getUnreadSupportCount(profileId: number): Promise<number>;
+  getInactiveConversations(minutesInactive: number): Promise<SupportConversation[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -245,6 +247,23 @@ export class DatabaseStorage implements IStorage {
   async updateConversationStatus(id: number, status: SupportConversation["status"]): Promise<SupportConversation> {
     const [conv] = await db.update(supportConversations).set({ status, updatedAt: new Date() }).where(eq(supportConversations.id, id)).returning();
     return conv;
+  }
+
+  async closeConversationWithRating(id: number, rating: number, closedBy: string): Promise<SupportConversation> {
+    const [conv] = await db.update(supportConversations)
+      .set({ status: "closed", rating, closedBy, updatedAt: new Date() })
+      .where(eq(supportConversations.id, id))
+      .returning();
+    return conv;
+  }
+
+  async getInactiveConversations(minutesInactive: number): Promise<SupportConversation[]> {
+    const cutoff = new Date(Date.now() - minutesInactive * 60 * 1000);
+    return db.select().from(supportConversations)
+      .where(and(
+        sql`${supportConversations.status} != 'closed'`,
+        sql`${supportConversations.updatedAt} < ${cutoff}`
+      ));
   }
 
   async getAllConversations(): Promise<(SupportConversation & { profile: Profile; lastMessage?: string; unreadCount: number })[]> {
