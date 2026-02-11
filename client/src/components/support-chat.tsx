@@ -22,6 +22,22 @@ import {
   Image as ImageIcon,
 } from "lucide-react";
 
+function playChatBeep() {
+  try {
+    const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+    const oscillator = audioCtx.createOscillator();
+    const gainNode = audioCtx.createGain();
+    oscillator.connect(gainNode);
+    gainNode.connect(audioCtx.destination);
+    oscillator.frequency.value = 880;
+    oscillator.type = "sine";
+    gainNode.gain.value = 0.18;
+    gainNode.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.25);
+    oscillator.start(audioCtx.currentTime);
+    oscillator.stop(audioCtx.currentTime + 0.25);
+  } catch (e) {}
+}
+
 function isImageFile(fileName: string) {
   return /\.(jpg|jpeg|png|gif|webp|bmp|svg)$/i.test(fileName);
 }
@@ -68,6 +84,7 @@ export function SupportChat() {
   const [isUploading, setIsUploading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const prevMsgCountRef = useRef(0);
   const queryClient = useQueryClient();
   const { t } = useLanguage();
 
@@ -121,6 +138,17 @@ export function SupportChat() {
       queryClient.invalidateQueries({ queryKey: ["/api/support/conversation"] });
     },
   });
+
+  useEffect(() => {
+    if (messages.length > prevMsgCountRef.current) {
+      const newMessages = messages.slice(prevMsgCountRef.current);
+      const hasAdminReply = newMessages.some((m: any) => m.sender === "admin");
+      if (hasAdminReply) {
+        playChatBeep();
+      }
+    }
+    prevMsgCountRef.current = messages.length;
+  }, [messages]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
