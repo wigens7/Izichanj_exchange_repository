@@ -160,10 +160,12 @@ export async function registerRoutes(
     try {
       const input = loginSchema.parse(req.body);
       const profile = await storage.getProfileByEmail(input.email);
+      console.log(`[LOGIN] Attempt for ${input.email}, found: ${!!profile}, hash starts: ${profile?.passwordHash?.substring(0, 10) || 'N/A'}`);
       if (!profile) {
         return res.status(401).json({ message: "Invalid email or password" });
       }
       const valid = await bcrypt.compare(input.password, profile.passwordHash);
+      console.log(`[LOGIN] Password compare result for ${input.email}: ${valid}`);
       if (!valid) {
         return res.status(401).json({ message: "Invalid email or password" });
       }
