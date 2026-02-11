@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Loader2, LogIn, UserPlus, Eye, EyeOff, Shield, Fingerprint, Wallet, ArrowRightLeft, ShieldCheck, Zap } from "lucide-react";
+import { Loader2, LogIn, UserPlus, Eye, EyeOff, Shield, Fingerprint, Wallet, ArrowRightLeft, ShieldCheck, Zap, Phone } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -193,6 +193,16 @@ function SignInForm() {
           )}
         />
 
+        <div className="flex justify-end">
+          <a
+            href="/forgot-password"
+            className="text-xs text-primary hover:underline"
+            data-testid="link-forgot-password"
+          >
+            {t.login.forgotPassword || "Forgot Password?"}
+          </a>
+        </div>
+
         <Button
           type="submit"
           className="w-full primary-gradient"
@@ -245,7 +255,7 @@ function SignUpForm() {
 
   const form = useForm<RegisterInput>({
     resolver: zodResolver(registerSchema),
-    defaultValues: { fullName: "", email: "", password: "", confirmPassword: "" },
+    defaultValues: { fullName: "", email: "", phone: "", password: "", confirmPassword: "" },
   });
 
   const onSubmit = (data: RegisterInput) => {
@@ -281,6 +291,23 @@ function SignUpForm() {
               <FormLabel>{t.login.email}</FormLabel>
               <FormControl>
                 <Input type="email" placeholder="you@example.com" data-testid="input-register-email" {...field} />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        <FormField
+          control={form.control}
+          name="phone"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>{t.login.whatsappNumber || "WhatsApp Number"}</FormLabel>
+              <FormControl>
+                <div className="relative">
+                  <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                  <Input placeholder="+509XXXXXXXX" className="pl-10" data-testid="input-register-phone" {...field} />
+                </div>
               </FormControl>
               <FormMessage />
             </FormItem>

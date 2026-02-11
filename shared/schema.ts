@@ -15,6 +15,7 @@ export const profiles = pgTable("profiles", {
   id: serial("id").primaryKey(),
   fullName: text("full_name").notNull(),
   email: text("email").notNull().unique(),
+  phone: text("phone"),
   passwordHash: text("password_hash").notNull(),
   emailVerified: boolean("email_verified").default(false).notNull(),
   role: userRoleEnum("role").default("user").notNull(),
@@ -117,9 +118,24 @@ export const insertKycSchema = createInsertSchema(kycDocuments).omit({ id: true,
 export const registerSchema = z.object({
   fullName: z.string().min(2, "Full name must be at least 2 characters"),
   email: z.string().email("Invalid email address"),
+  phone: z.string().min(8, "Phone number must be at least 8 digits").regex(/^\+?[0-9]+$/, "Invalid phone number format"),
   password: z.string().min(6, "Password must be at least 6 characters"),
   confirmPassword: z.string(),
 }).refine((data) => data.password === data.confirmPassword, {
+  message: "Passwords do not match",
+  path: ["confirmPassword"],
+});
+
+export const forgotPasswordSchema = z.object({
+  phone: z.string().min(8, "Phone number must be at least 8 digits"),
+});
+
+export const resetPasswordSchema = z.object({
+  phone: z.string().min(8, "Phone number must be at least 8 digits"),
+  code: z.string().length(6, "Code must be 6 digits"),
+  newPassword: z.string().min(6, "Password must be at least 6 characters"),
+  confirmPassword: z.string(),
+}).refine((data) => data.newPassword === data.confirmPassword, {
   message: "Passwords do not match",
   path: ["confirmPassword"],
 });

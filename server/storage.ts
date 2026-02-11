@@ -5,8 +5,10 @@ import { eq, desc, and, sql } from "drizzle-orm";
 export interface IStorage {
   getProfile(id: number): Promise<Profile | undefined>;
   getProfileByEmail(email: string): Promise<Profile | undefined>;
-  createProfile(fullName: string, email: string, passwordHash: string): Promise<Profile>;
+  getProfileByPhone(phone: string): Promise<Profile | undefined>;
+  createProfile(fullName: string, email: string, passwordHash: string, phone?: string): Promise<Profile>;
   updateProfileBalance(id: number, balance: number): Promise<Profile>;
+  updateProfilePassword(id: number, passwordHash: string): Promise<void>;
   markEmailVerified(id: number): Promise<void>;
 
   createOtp(profileId: number, code: string): Promise<void>;
@@ -65,14 +67,23 @@ export class DatabaseStorage implements IStorage {
     return profile;
   }
 
-  async createProfile(fullName: string, email: string, passwordHash: string): Promise<Profile> {
-    const [profile] = await db.insert(profiles).values({ fullName, email, passwordHash }).returning();
+  async getProfileByPhone(phone: string): Promise<Profile | undefined> {
+    const [profile] = await db.select().from(profiles).where(eq(profiles.phone, phone));
+    return profile;
+  }
+
+  async createProfile(fullName: string, email: string, passwordHash: string, phone?: string): Promise<Profile> {
+    const [profile] = await db.insert(profiles).values({ fullName, email, passwordHash, phone: phone || null }).returning();
     return profile;
   }
 
   async updateProfileBalance(id: number, balance: number): Promise<Profile> {
     const [profile] = await db.update(profiles).set({ balance: balance.toString() }).where(eq(profiles.id, id)).returning();
     return profile;
+  }
+
+  async updateProfilePassword(id: number, passwordHash: string): Promise<void> {
+    await db.update(profiles).set({ passwordHash }).where(eq(profiles.id, id));
   }
 
   async markEmailVerified(id: number): Promise<void> {

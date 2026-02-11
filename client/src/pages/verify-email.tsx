@@ -4,7 +4,7 @@ import { useLanguage } from "@/lib/i18n";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp";
-import { Loader2, Mail, RefreshCw, Wallet } from "lucide-react";
+import { Loader2, MessageCircle, RefreshCw, Wallet } from "lucide-react";
 import { useEffect, useState } from "react";
 
 export default function VerifyEmailPage() {
@@ -65,11 +65,11 @@ export default function VerifyEmailPage() {
         <Card className="border shadow-sm">
           <CardHeader className="text-center pb-2">
             <div className="mx-auto mb-3 w-14 h-14 rounded-xl bg-primary/10 flex items-center justify-center">
-              <Mail className="w-7 h-7 text-primary" />
+              <MessageCircle className="w-7 h-7 text-primary" />
             </div>
             <CardTitle className="text-xl" data-testid="text-verify-title">{t.verifyEmail.title}</CardTitle>
             <CardDescription className="mt-1">
-              {t.verifyEmail.description} <span className="font-medium text-foreground">{user?.email}</span>
+              {t.verifyEmail.description}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6 pt-4">

@@ -9,6 +9,7 @@ import { Loader2 } from "lucide-react";
 
 import LoginPage from "@/pages/login";
 import VerifyEmailPage from "@/pages/verify-email";
+import ForgotPasswordPage from "@/pages/forgot-password";
 import DashboardPage from "@/pages/dashboard";
 import DepositPage from "@/pages/deposit";
 import WithdrawPage from "@/pages/withdraw";
@@ -53,6 +54,7 @@ function Router() {
     <Switch>
       <Route path="/login" component={LoginPage} />
       <Route path="/verify-email" component={VerifyEmailPage} />
+      <Route path="/forgot-password" component={ForgotPasswordPage} />
 
       <Route path="/">
         <ProtectedRoute component={DashboardPage} />

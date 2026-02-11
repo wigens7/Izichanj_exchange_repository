@@ -2,7 +2,7 @@ import type { Express } from "express";
 import type { Server } from "http";
 import { storage } from "./storage";
 import { api } from "@shared/routes";
-import { registerSchema, loginSchema } from "@shared/schema";
+import { registerSchema, loginSchema, forgotPasswordSchema, resetPasswordSchema } from "@shared/schema";
 import { z } from "zod";
 import { setupAuth, isAuthenticated } from "./auth";
 import { registerObjectStorageRoutes } from "./replit_integrations/object_storage";
@@ -24,44 +24,34 @@ if (process.env.SENDGRID_API_KEY) {
   sgMail.setApiKey(process.env.SENDGRID_API_KEY);
 }
 
-const SENDER_EMAIL = "wigens7@gmail.com";
-
 const rpName = "EASYCHANGE";
 const rpID = process.env.REPLIT_DEV_DOMAIN?.replace(/^https?:\/\//, "") || "localhost";
 const origin = process.env.REPLIT_DEV_DOMAIN ? `https://${rpID}` : "http://localhost:5000";
 
-async function sendEmailOtp(email: string, code: string) {
-  if (!process.env.SENDGRID_API_KEY) {
-    console.log(`[MOCK EMAIL] Sending OTP ${code} to ${email}`);
+async function sendWhatsAppOtp(phone: string, code: string) {
+  const instanceId = process.env.ULTRAMSG_INSTANCE_ID;
+  const token = process.env.ULTRAMSG_TOKEN;
+  if (!instanceId || !token) {
+    console.log(`[MOCK WHATSAPP] Sending OTP ${code} to ${phone}`);
     return;
   }
   try {
-    await sgMail.send({
-      to: email,
-      from: SENDER_EMAIL,
-      subject: "EASYCHANGE - Your Verification Code",
-      text: `Your EASYCHANGE verification code is: ${code}\n\nThis code expires in 10 minutes. Do not share it with anyone.`,
-      html: `
-        <div style="font-family: Arial, sans-serif; max-width: 480px; margin: 0 auto; padding: 24px;">
-          <div style="text-align: center; margin-bottom: 24px;">
-            <h1 style="color: #1e293b; font-size: 24px; margin: 0;">EASYCHANGE</h1>
-            <p style="color: #64748b; font-size: 14px; margin-top: 4px;">Crypto to Cash Exchange</p>
-          </div>
-          <div style="background: #f8fafc; border-radius: 8px; padding: 24px; text-align: center; border: 1px solid #e2e8f0;">
-            <p style="color: #475569; font-size: 14px; margin: 0 0 16px 0;">Your verification code is:</p>
-            <div style="font-size: 32px; font-weight: bold; letter-spacing: 8px; color: #4f46e5; margin: 0 0 16px 0;">${code}</div>
-            <p style="color: #94a3b8; font-size: 12px; margin: 0;">This code expires in 10 minutes</p>
-          </div>
-          <p style="color: #94a3b8; font-size: 12px; text-align: center; margin-top: 24px;">
-            If you didn't request this code, please ignore this email.
-          </p>
-        </div>
-      `,
+    const body = `*EASYCHANGE*\n\nYour verification code is: *${code}*\n\nThis code expires in 5 minutes.\nDo not share it with anyone.`;
+    const res = await fetch(`https://api.ultramsg.com/${instanceId}/messages/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ token, to: phone, body }),
     });
-    console.log(`[EMAIL] OTP sent to ${email}`);
+    const data = await res.json();
+    if (data.sent === "true" || data.sent === true) {
+      console.log(`[WHATSAPP] OTP sent to ${phone}`);
+    } else {
+      console.error(`[WHATSAPP ERROR] Response:`, data);
+      console.log(`[FALLBACK] WhatsApp delivery failed. OTP code for ${phone}: ${code}`);
+    }
   } catch (error: any) {
-    console.error(`[EMAIL ERROR] Failed to send OTP to ${email}:`, error?.response?.body || error.message);
-    console.log(`[FALLBACK] Email delivery failed. OTP code for ${email}: ${code}`);
+    console.error(`[WHATSAPP ERROR] Failed to send OTP to ${phone}:`, error.message);
+    console.log(`[FALLBACK] WhatsApp delivery failed. OTP code for ${phone}: ${code}`);
   }
 }
 
@@ -94,7 +84,7 @@ export async function registerRoutes(
         if (!existing.emailVerified) {
           const code = crypto.randomInt(100000, 999999).toString();
           await storage.createOtp(existing.id, code);
-          await sendEmailOtp(existing.email, code);
+          await sendWhatsAppOtp(existing.phone || input.phone, code);
           req.session.profileId = existing.id;
           const { passwordHash: _, ...safeProfile } = existing;
           return res.status(201).json(safeProfile);
@@ -102,10 +92,10 @@ export async function registerRoutes(
         return res.status(400).json({ message: "An account with this email already exists" });
       }
       const passwordHash = await bcrypt.hash(input.password, 12);
-      const profile = await storage.createProfile(input.fullName, input.email, passwordHash);
+      const profile = await storage.createProfile(input.fullName, input.email, passwordHash, input.phone);
       const code = crypto.randomInt(100000, 999999).toString();
       await storage.createOtp(profile.id, code);
-      await sendEmailOtp(profile.email, code);
+      await sendWhatsAppOtp(input.phone, code);
       req.session.profileId = profile.id;
       const { passwordHash: _, ...safeProfile } = profile;
       res.status(201).json(safeProfile);
@@ -148,7 +138,7 @@ export async function registerRoutes(
       if (profile.emailVerified) return res.json({ message: "Email already verified" });
       const code = crypto.randomInt(100000, 999999).toString();
       await storage.createOtp(profile.id, code);
-      await sendEmailOtp(profile.email, code);
+      await sendWhatsAppOtp(profile.phone || "", code);
       res.json({ message: "OTP sent" });
     } catch (e) {
       console.error("Resend OTP error:", e);
@@ -174,7 +164,7 @@ export async function registerRoutes(
         req.session.profileId = profile.id;
         const code = crypto.randomInt(100000, 999999).toString();
         await storage.createOtp(profile.id, code);
-        await sendEmailOtp(profile.email, code);
+        await sendWhatsAppOtp(profile.phone || "", code);
         const { passwordHash: _, twoFactorSecret: _s, ...safeProfile } = profile;
         return res.json({ ...safeProfile, needsVerification: true });
       }
@@ -190,6 +180,46 @@ export async function registerRoutes(
     } catch (e) {
       if (e instanceof z.ZodError) return res.status(400).json({ message: e.errors[0].message });
       console.error("Login error:", e);
+      res.status(500).json({ message: "Internal Error" });
+    }
+  });
+
+  app.post("/api/auth/forgot-password", async (req, res) => {
+    try {
+      const input = forgotPasswordSchema.parse(req.body);
+      const profile = await storage.getProfileByPhone(input.phone);
+      if (!profile) {
+        return res.json({ message: "If an account exists with this number, you will receive a code." });
+      }
+      const code = crypto.randomInt(100000, 999999).toString();
+      await storage.createOtp(profile.id, code);
+      await sendWhatsAppOtp(input.phone, code);
+      res.json({ message: "If an account exists with this number, you will receive a code." });
+    } catch (e) {
+      if (e instanceof z.ZodError) return res.status(400).json({ message: e.errors[0].message });
+      console.error("Forgot password error:", e);
+      res.status(500).json({ message: "Internal Error" });
+    }
+  });
+
+  app.post("/api/auth/reset-password", async (req, res) => {
+    try {
+      const input = resetPasswordSchema.parse(req.body);
+      const profile = await storage.getProfileByPhone(input.phone);
+      if (!profile) {
+        return res.status(400).json({ message: "Invalid phone number or code" });
+      }
+      const validOtp = await storage.getValidOtp(profile.id, input.code);
+      if (!validOtp) {
+        return res.status(400).json({ message: "Invalid or expired code" });
+      }
+      await storage.markOtpVerified(validOtp.id);
+      const passwordHash = await bcrypt.hash(input.newPassword, 12);
+      await storage.updateProfilePassword(profile.id, passwordHash);
+      res.json({ message: "Password reset successfully" });
+    } catch (e) {
+      if (e instanceof z.ZodError) return res.status(400).json({ message: e.errors[0].message });
+      console.error("Reset password error:", e);
       res.status(500).json({ message: "Internal Error" });
     }
   });
@@ -265,7 +295,7 @@ export async function registerRoutes(
     if (profile.kycStatus !== "verified") return res.status(403).json({ message: "KYC verification required before making withdrawals" });
     const code = crypto.randomInt(100000, 999999).toString();
     await storage.createOtp(profile.id, code);
-    await sendEmailOtp(profile.email || "", code);
+    await sendWhatsAppOtp(profile.phone || "", code);
     res.json({ message: "OTP sent" });
   });
 
