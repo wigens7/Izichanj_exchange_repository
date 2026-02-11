@@ -91,6 +91,14 @@ export async function registerRoutes(
       const input = registerSchema.parse(req.body);
       const existing = await storage.getProfileByEmail(input.email);
       if (existing) {
+        if (!existing.emailVerified) {
+          const code = crypto.randomInt(100000, 999999).toString();
+          await storage.createOtp(existing.id, code);
+          await sendEmailOtp(existing.email, code);
+          req.session.profileId = existing.id;
+          const { passwordHash: _, ...safeProfile } = existing;
+          return res.status(201).json(safeProfile);
+        }
         return res.status(400).json({ message: "An account with this email already exists" });
       }
       const passwordHash = await bcrypt.hash(input.password, 12);
@@ -104,7 +112,10 @@ export async function registerRoutes(
     } catch (e) {
       if (e instanceof z.ZodError) return res.status(400).json({ message: e.errors[0].message });
       console.error("Registration error:", e);
-      res.status(500).json({ message: "Internal Error" });
+      const msg = e instanceof Error && e.message.includes("verification email")
+        ? e.message
+        : "Internal Error";
+      res.status(500).json({ message: msg });
     }
   });
 
