@@ -495,6 +495,148 @@ export async function registerRoutes(
     res.json({ message: "All marked as read" });
   });
 
+  // ======= Support Chat Routes =======
+  const BOT_FAQ: { keywords: string[]; answer: string }[] = [
+    { keywords: ["deposit", "how to deposit", "send usdt", "depo"], answer: "To deposit USDT:\n1. Go to the Deposit page\n2. Copy one of our wallet addresses (TRC20 or BEP20)\n3. Send USDT from your crypto wallet\n4. Enter the amount and transaction hash\n5. Submit and wait for admin approval (usually within minutes)" },
+    { keywords: ["withdraw", "cash out", "moncash", "natcash", "retire"], answer: "To withdraw funds:\n1. Go to the Withdraw page\n2. Select your wallet type (MonCash or NatCash)\n3. Enter the amount in USDT\n4. Provide your phone number or QR code\n5. Verify with OTP sent to your email\n6. Wait for admin approval (15-20 minutes)" },
+    { keywords: ["kyc", "verification", "identity", "id card", "document"], answer: "KYC verification requires:\n1. Go to Profile & KYC page\n2. Upload your national ID card (front and back)\n3. Upload a selfie holding your ID\n4. Submit and wait for admin review\nKYC is required before making deposits or withdrawals." },
+    { keywords: ["balance", "money", "funds", "account"], answer: "You can view your current balance on the Dashboard page. Your balance is displayed in HTG (Haitian Gourde). The exchange rate is 1 USDT = 139.50 HTG." },
+    { keywords: ["rate", "exchange rate", "conversion", "htg"], answer: "The current exchange rate is 1 USDT = 139.50 HTG. This rate is used for all conversions on the platform." },
+    { keywords: ["security", "2fa", "password", "fingerprint"], answer: "To secure your account:\n1. Go to Security Settings\n2. Enable Two-Factor Authentication (2FA)\n3. Register fingerprint/biometric login\nAlways use a strong password and never share your verification codes." },
+    { keywords: ["help", "support", "agent", "human", "person", "real person", "talk"], answer: "AGENT_REQUEST" },
+  ];
+
+  function getBotResponse(userMessage: string): string | null {
+    const lower = userMessage.toLowerCase();
+    for (const faq of BOT_FAQ) {
+      if (faq.keywords.some(k => lower.includes(k))) {
+        return faq.answer;
+      }
+    }
+    return null;
+  }
+
+  app.get("/api/support/conversation", isAuthenticated, async (req: any, res) => {
+    try {
+      const profile = await getProfileFromReq(req);
+      if (!profile) return res.status(401).json({ message: "Unauthorized" });
+      const conv = await storage.getOrCreateConversation(profile.id);
+      res.json(conv);
+    } catch (e) {
+      res.status(500).json({ message: "Internal Error" });
+    }
+  });
+
+  app.get("/api/support/messages/:conversationId", isAuthenticated, async (req: any, res) => {
+    try {
+      const profile = await getProfileFromReq(req);
+      if (!profile) return res.status(401).json({ message: "Unauthorized" });
+      const conv = await storage.getConversation(Number(req.params.conversationId));
+      if (!conv) return res.status(404).json({ message: "Conversation not found" });
+      if (conv.profileId !== profile.id && profile.role !== "admin") return res.status(403).json({ message: "Forbidden" });
+      const messages = await storage.getConversationMessages(conv.id);
+      res.json(messages);
+    } catch (e) {
+      res.status(500).json({ message: "Internal Error" });
+    }
+  });
+
+  app.post("/api/support/send", isAuthenticated, async (req: any, res) => {
+    try {
+      const profile = await getProfileFromReq(req);
+      if (!profile) return res.status(401).json({ message: "Unauthorized" });
+      const { message } = req.body;
+      if (!message || !message.trim()) return res.status(400).json({ message: "Message is required" });
+      const conv = await storage.getOrCreateConversation(profile.id);
+      const userMsg = await storage.addMessage({
+        conversationId: conv.id,
+        sender: "user",
+        senderProfileId: profile.id,
+        message: message.trim(),
+      });
+      const botAnswer = getBotResponse(message);
+      const responseMessages = [userMsg];
+      if (botAnswer === "AGENT_REQUEST") {
+        await storage.updateConversationStatus(conv.id, "waiting_agent");
+        const botMsg = await storage.addMessage({
+          conversationId: conv.id,
+          sender: "bot",
+          message: "I understand you'd like to speak with a support agent. Please be patient, an agent will be with you shortly. In the meantime, feel free to describe your issue and we'll get back to you as soon as possible.",
+        });
+        responseMessages.push(botMsg);
+      } else if (botAnswer && conv.status === "active") {
+        const botMsg = await storage.addMessage({
+          conversationId: conv.id,
+          sender: "bot",
+          message: botAnswer,
+        });
+        responseMessages.push(botMsg);
+      }
+      res.json(responseMessages);
+    } catch (e) {
+      console.error("Support send error:", e);
+      res.status(500).json({ message: "Internal Error" });
+    }
+  });
+
+  app.post("/api/support/request-agent", isAuthenticated, async (req: any, res) => {
+    try {
+      const profile = await getProfileFromReq(req);
+      if (!profile) return res.status(401).json({ message: "Unauthorized" });
+      const conv = await storage.getOrCreateConversation(profile.id);
+      await storage.updateConversationStatus(conv.id, "waiting_agent");
+      const botMsg = await storage.addMessage({
+        conversationId: conv.id,
+        sender: "bot",
+        message: "You've been connected to our support queue. Please be patient, an agent will talk to you soon. Feel free to describe your issue while you wait.",
+      });
+      res.json(botMsg);
+    } catch (e) {
+      res.status(500).json({ message: "Internal Error" });
+    }
+  });
+
+  app.get("/api/admin/support/conversations", isAuthenticated, isAdmin, async (req: any, res) => {
+    try {
+      const convos = await storage.getAllConversations();
+      res.json(convos);
+    } catch (e) {
+      res.status(500).json({ message: "Internal Error" });
+    }
+  });
+
+  app.post("/api/admin/support/reply", isAuthenticated, isAdmin, async (req: any, res) => {
+    try {
+      const profile = await getProfileFromReq(req);
+      if (!profile) return res.status(401).json({ message: "Unauthorized" });
+      const { conversationId, message } = req.body;
+      if (!conversationId || !message?.trim()) return res.status(400).json({ message: "Missing fields" });
+      const conv = await storage.getConversation(conversationId);
+      if (!conv) return res.status(404).json({ message: "Conversation not found" });
+      const msg = await storage.addMessage({
+        conversationId,
+        sender: "admin",
+        senderProfileId: profile.id,
+        message: message.trim(),
+      });
+      if (conv.status === "waiting_agent") {
+        await storage.updateConversationStatus(conv.id, "active");
+      }
+      res.json(msg);
+    } catch (e) {
+      res.status(500).json({ message: "Internal Error" });
+    }
+  });
+
+  app.patch("/api/admin/support/close/:id", isAuthenticated, isAdmin, async (req: any, res) => {
+    try {
+      const conv = await storage.updateConversationStatus(Number(req.params.id), "closed");
+      res.json(conv);
+    } catch (e) {
+      res.status(500).json({ message: "Internal Error" });
+    }
+  });
+
   // ======= 2FA TOTP Routes =======
   app.post("/api/security/2fa/setup", isAuthenticated, async (req: any, res) => {
     try {

@@ -86,6 +86,26 @@ export const notifications = pgTable("notifications", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+export const chatStatusEnum = pgEnum("chat_status", ["active", "waiting_agent", "closed"]);
+export const chatSenderEnum = pgEnum("chat_sender", ["user", "bot", "admin"]);
+
+export const supportConversations = pgTable("support_conversations", {
+  id: serial("id").primaryKey(),
+  profileId: integer("profile_id").references(() => profiles.id).notNull(),
+  status: chatStatusEnum("status").default("active").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const supportMessages = pgTable("support_messages", {
+  id: serial("id").primaryKey(),
+  conversationId: integer("conversation_id").references(() => supportConversations.id).notNull(),
+  sender: chatSenderEnum("sender").notNull(),
+  senderProfileId: integer("sender_profile_id").references(() => profiles.id),
+  message: text("message").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
 export const insertDepositSchema = createInsertSchema(deposits).omit({ id: true, profileId: true, status: true, createdAt: true });
 export const insertWithdrawalSchema = createInsertSchema(withdrawals).omit({ id: true, profileId: true, status: true, createdAt: true });
 export const insertKycSchema = createInsertSchema(kycDocuments).omit({ id: true, profileId: true, submittedAt: true });
@@ -113,5 +133,7 @@ export type InsertWithdrawal = z.infer<typeof insertWithdrawalSchema>;
 export type KycDocument = typeof kycDocuments.$inferSelect;
 export type WebAuthnCredential = typeof webauthnCredentials.$inferSelect;
 export type Notification = typeof notifications.$inferSelect;
+export type SupportConversation = typeof supportConversations.$inferSelect;
+export type SupportMessage = typeof supportMessages.$inferSelect;
 export type RegisterInput = z.infer<typeof registerSchema>;
 export type LoginInput = z.infer<typeof loginSchema>;

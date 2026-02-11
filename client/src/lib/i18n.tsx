@@ -131,6 +131,19 @@ const translations = {
       withdrawMessage: "You must complete identity verification before making withdrawals.",
       goToProfile: "Go to Profile & KYC",
     },
+    support: {
+      title: "Support Chat",
+      subtitle: "We're here to help",
+      welcomeTitle: "Hi! How can we help?",
+      welcomeMessage: "Ask a question or request to speak with an agent.",
+      quickDeposit: "How do I deposit?",
+      quickWithdraw: "How do I withdraw?",
+      quickKyc: "KYC verification help",
+      talkToAgent: "Talk to a support agent",
+      placeholder: "Type your message...",
+      waitingAgent: "Waiting for agent",
+      agentLabel: "Support Agent",
+    },
     login: {
       appTitle: "EASYCHANGE",
       appSubtitle: "Secure Crypto to Cash Exchange",
@@ -275,6 +288,19 @@ const translations = {
       depositMessage: "Vous devez compl\u00e9ter la v\u00e9rification d'identit\u00e9 avant de faire des d\u00e9p\u00f4ts.",
       withdrawMessage: "Vous devez compl\u00e9ter la v\u00e9rification d'identit\u00e9 avant de faire des retraits.",
       goToProfile: "Aller au Profil & KYC",
+    },
+    support: {
+      title: "Chat Support",
+      subtitle: "Nous sommes l\u00e0 pour vous aider",
+      welcomeTitle: "Bonjour ! Comment pouvons-nous vous aider ?",
+      welcomeMessage: "Posez une question ou demandez \u00e0 parler avec un agent.",
+      quickDeposit: "Comment d\u00e9poser ?",
+      quickWithdraw: "Comment retirer ?",
+      quickKyc: "Aide v\u00e9rification KYC",
+      talkToAgent: "Parler \u00e0 un agent",
+      placeholder: "Tapez votre message...",
+      waitingAgent: "En attente d'un agent",
+      agentLabel: "Agent de support",
     },
     login: {
       appTitle: "EASYCHANGE",
@@ -421,6 +447,19 @@ const translations = {
       withdrawMessage: "Ou dwe konplete verifikasyon idantite anvan ou f\u00e8 retr\u00e8.",
       goToProfile: "Ale nan Pwofil & KYC",
     },
+    support: {
+      title: "Chat Sip\u00f2",
+      subtitle: "Nou la pou ede w",
+      welcomeTitle: "Bonjou! Kijan nou ka ede w?",
+      welcomeMessage: "Poze yon kesyon oswa mande pale ak yon ajan.",
+      quickDeposit: "Kijan pou m depoze?",
+      quickWithdraw: "Kijan pou m retire?",
+      quickKyc: "\u00c8d verifikasyon KYC",
+      talkToAgent: "Pale ak yon ajan sip\u00f2",
+      placeholder: "Tape mesaj ou...",
+      waitingAgent: "Ap tann yon ajan",
+      agentLabel: "Ajan sip\u00f2",
+    },
     login: {
       appTitle: "EASYCHANGE",
       appSubtitle: "Echanj kripto an lajan kach an sekirite",
@@ -454,6 +493,7 @@ type TranslationSet = {
   profile: { status: string; joined: string; language: string; selectLanguage: string; kycTitle: string; kycDescription: string; verified: string; verifiedDescription: string; underReview: string; underReviewDescription: string; idFront: string; idBack: string; selfie: string; clickToUpload: string; uploaded: string; uploading: string; submitVerification: string };
   security: { title: string; description: string; twoFactorAuth: string; twoFactorDescription: string; twoFactorEnabled: string; twoFactorDisabled: string; enable2FA: string; disable2FA: string; scanQRCode: string; manualKey: string; enterCode: string; verify: string; disableConfirm: string; confirmDisable: string; cancel: string; fingerprint: string; fingerprintDescription: string; registerFingerprint: string; registeredDevices: string; noDevices: string; removeDevice: string; twoFARequired: string; enter2FACode: string; verifyLogin: string; fingerprintLogin: string };
   kyc: { required: string; depositMessage: string; withdrawMessage: string; goToProfile: string };
+  support: { title: string; subtitle: string; welcomeTitle: string; welcomeMessage: string; quickDeposit: string; quickWithdraw: string; quickKyc: string; talkToAgent: string; placeholder: string; waitingAgent: string; agentLabel: string };
   login: { appTitle: string; appSubtitle: string; signIn: string; signUp: string; welcomeBack: string; signInDescription: string; createAccount: string; signUpDescription: string; email: string; password: string; fullName: string; confirmPassword: string };
   verifyEmail: { title: string; description: string; verifyButton: string; didntReceive: string; resendIn: string; resendCode: string };
 };

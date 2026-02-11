@@ -17,6 +17,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { NotificationBell } from "@/components/notification-bell";
+import { SupportChat } from "@/components/support-chat";
 
 interface LayoutShellProps {
   children: ReactNode;
@@ -143,6 +144,7 @@ export function LayoutShell({ children }: LayoutShellProps) {
           {children}
         </div>
       </main>
+      <SupportChat />
     </div>
   );
 }

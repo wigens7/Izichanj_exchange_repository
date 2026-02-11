@@ -1,4 +1,4 @@
-import { profiles, deposits, withdrawals, kycDocuments, otps, webauthnCredentials, notifications, type Profile, type Deposit, type InsertDeposit, type Withdrawal, type InsertWithdrawal, type KycDocument, type WebAuthnCredential, type Notification } from "@shared/schema";
+import { profiles, deposits, withdrawals, kycDocuments, otps, webauthnCredentials, notifications, supportConversations, supportMessages, type Profile, type Deposit, type InsertDeposit, type Withdrawal, type InsertWithdrawal, type KycDocument, type WebAuthnCredential, type Notification, type SupportConversation, type SupportMessage } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, sql } from "drizzle-orm";
 
@@ -42,6 +42,14 @@ export interface IStorage {
   getUnreadNotificationCount(profileId: number): Promise<number>;
   markNotificationRead(id: number, profileId: number): Promise<void>;
   markAllNotificationsRead(profileId: number): Promise<void>;
+
+  getOrCreateConversation(profileId: number): Promise<SupportConversation>;
+  getConversation(id: number): Promise<SupportConversation | undefined>;
+  getConversationMessages(conversationId: number): Promise<SupportMessage[]>;
+  addMessage(data: { conversationId: number; sender: SupportMessage["sender"]; senderProfileId?: number; message: string }): Promise<SupportMessage>;
+  updateConversationStatus(id: number, status: SupportConversation["status"]): Promise<SupportConversation>;
+  getAllConversations(): Promise<(SupportConversation & { profile: Profile; lastMessage?: string; unreadCount: number })[]>;
+  getUnreadSupportCount(profileId: number): Promise<number>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -207,6 +215,77 @@ export class DatabaseStorage implements IStorage {
 
   async markAllNotificationsRead(profileId: number): Promise<void> {
     await db.update(notifications).set({ isRead: true }).where(eq(notifications.profileId, profileId));
+  }
+
+  async getOrCreateConversation(profileId: number): Promise<SupportConversation> {
+    const [existing] = await db.select().from(supportConversations)
+      .where(and(eq(supportConversations.profileId, profileId), sql`${supportConversations.status} != 'closed'`))
+      .orderBy(desc(supportConversations.createdAt))
+      .limit(1);
+    if (existing) return existing;
+    const [conv] = await db.insert(supportConversations).values({ profileId }).returning();
+    return conv;
+  }
+
+  async getConversation(id: number): Promise<SupportConversation | undefined> {
+    const [conv] = await db.select().from(supportConversations).where(eq(supportConversations.id, id));
+    return conv;
+  }
+
+  async getConversationMessages(conversationId: number): Promise<SupportMessage[]> {
+    return db.select().from(supportMessages).where(eq(supportMessages.conversationId, conversationId)).orderBy(supportMessages.createdAt);
+  }
+
+  async addMessage(data: { conversationId: number; sender: SupportMessage["sender"]; senderProfileId?: number; message: string }): Promise<SupportMessage> {
+    const [msg] = await db.insert(supportMessages).values(data).returning();
+    await db.update(supportConversations).set({ updatedAt: new Date() }).where(eq(supportConversations.id, data.conversationId));
+    return msg;
+  }
+
+  async updateConversationStatus(id: number, status: SupportConversation["status"]): Promise<SupportConversation> {
+    const [conv] = await db.update(supportConversations).set({ status, updatedAt: new Date() }).where(eq(supportConversations.id, id)).returning();
+    return conv;
+  }
+
+  async getAllConversations(): Promise<(SupportConversation & { profile: Profile; lastMessage?: string; unreadCount: number })[]> {
+    const results = await db.select().from(supportConversations)
+      .innerJoin(profiles, eq(supportConversations.profileId, profiles.id))
+      .orderBy(desc(supportConversations.updatedAt));
+    const convos = [];
+    for (const r of results) {
+      const [lastMsg] = await db.select().from(supportMessages)
+        .where(eq(supportMessages.conversationId, r.support_conversations.id))
+        .orderBy(desc(supportMessages.createdAt))
+        .limit(1);
+      const [unreadResult] = await db.select({ count: sql<number>`count(*)::int` })
+        .from(supportMessages)
+        .where(and(
+          eq(supportMessages.conversationId, r.support_conversations.id),
+          eq(supportMessages.sender, "user")
+        ));
+      convos.push({
+        ...r.support_conversations,
+        profile: r.profiles,
+        lastMessage: lastMsg?.message,
+        unreadCount: unreadResult?.count || 0,
+      });
+    }
+    return convos;
+  }
+
+  async getUnreadSupportCount(profileId: number): Promise<number> {
+    const [conv] = await db.select().from(supportConversations)
+      .where(and(eq(supportConversations.profileId, profileId), sql`${supportConversations.status} != 'closed'`))
+      .limit(1);
+    if (!conv) return 0;
+    const [result] = await db.select({ count: sql<number>`count(*)::int` })
+      .from(supportMessages)
+      .where(and(
+        eq(supportMessages.conversationId, conv.id),
+        sql`${supportMessages.sender} IN ('bot', 'admin')`,
+        sql`${supportMessages.createdAt} > (SELECT COALESCE(MAX(created_at), '1970-01-01') FROM support_messages WHERE conversation_id = ${conv.id} AND sender = 'user')`
+      ));
+    return result?.count || 0;
   }
 }
 
