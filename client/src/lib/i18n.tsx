@@ -40,6 +40,8 @@ const translations = {
       submitTransaction: "Submit Transaction",
       verifyDescription: "We will verify your deposit within minutes.",
       amountSent: "Amount Sent (USDT)",
+      htgEquivalent: "HTG Equivalent",
+      exchangeRate: "Exchange Rate",
       txHash: "Transaction Hash (TXID)",
       txHashPlaceholder: "Enter transaction hash...",
       verifyDeposit: "Verify Deposit",
@@ -55,7 +57,10 @@ const translations = {
       securityDescription: "Withdrawals are validated within 15-20 minutes after confirmation.",
       walletType: "Wallet Type",
       selectWallet: "Select wallet",
-      amountHtg: "Amount (HTG)",
+      amountUsdt: "Amount (USDT)",
+      htgEquivalent: "HTG Equivalent",
+      exchangeRate: "Exchange Rate",
+      youWillReceive: "You will receive",
       withdrawMethod: "Withdrawal Method",
       phoneMethod: "Phone Number",
       qrCodeMethod: "QR Code",
@@ -180,6 +185,8 @@ const translations = {
       submitTransaction: "Soumettre la transaction",
       verifyDescription: "Nous v\u00e9rifierons votre d\u00e9p\u00f4t en quelques minutes.",
       amountSent: "Montant envoy\u00e9 (USDT)",
+      htgEquivalent: "\u00c9quivalent HTG",
+      exchangeRate: "Taux de change",
       txHash: "Hash de transaction (TXID)",
       txHashPlaceholder: "Entrez le hash de transaction...",
       verifyDeposit: "V\u00e9rifier le d\u00e9p\u00f4t",
@@ -195,7 +202,10 @@ const translations = {
       securityDescription: "Les retraits sont valid\u00e9s dans les 15 \u00e0 20 minutes apr\u00e8s confirmation.",
       walletType: "Type de portefeuille",
       selectWallet: "S\u00e9lectionner le portefeuille",
-      amountHtg: "Montant (HTG)",
+      amountUsdt: "Montant (USDT)",
+      htgEquivalent: "\u00c9quivalent HTG",
+      exchangeRate: "Taux de change",
+      youWillReceive: "Vous recevrez",
       withdrawMethod: "M\u00e9thode de retrait",
       phoneMethod: "Num\u00e9ro de t\u00e9l\u00e9phone",
       qrCodeMethod: "Code QR",
@@ -320,6 +330,8 @@ const translations = {
       submitTransaction: "Soum\u00e8t tranzaksyon",
       verifyDescription: "Nou pral verifye depo w la nan k\u00e8k minit.",
       amountSent: "Montan voye (USDT)",
+      htgEquivalent: "Ekivalan HTG",
+      exchangeRate: "To echanj",
       txHash: "Hash tranzaksyon (TXID)",
       txHashPlaceholder: "Antre hash tranzaksyon an...",
       verifyDeposit: "Verifye depo",
@@ -335,7 +347,10 @@ const translations = {
       securityDescription: "Retr\u00e8 yo valid\u00e9 nan 15-20 minit apr\u00e8 konfimasyon.",
       walletType: "Tip bous",
       selectWallet: "Chwazi bous",
-      amountHtg: "Montan (HTG)",
+      amountUsdt: "Montan (USDT)",
+      htgEquivalent: "Ekivalan HTG",
+      exchangeRate: "To echanj",
+      youWillReceive: "Ou pral resevwa",
       withdrawMethod: "Met\u00f2d retr\u00e8",
       phoneMethod: "Nimer\u00f2 telef\u00f2n",
       qrCodeMethod: "K\u00f2d QR",
@@ -434,8 +449,8 @@ const translations = {
 type TranslationSet = {
   nav: { dashboard: string; deposit: string; withdraw: string; profileKyc: string; adminPanel: string; signOut: string; cryptoToCash: string };
   dashboard: { title: string; welcomeBack: string; currentBalance: string; totalDeposited: string; totalWithdrawn: string; transactionHistory: string; all: string; deposits: string; withdrawals: string; noTransactions: string; usdtDeposit: string; withdrawal: string };
-  deposit: { title: string; subtitle: string; walletAddresses: string; submitTransaction: string; verifyDescription: string; amountSent: string; txHash: string; txHashPlaceholder: string; verifyDeposit: string; copied: string; copiedDescription: string; amountError: string; txHashError: string };
-  withdraw: { title: string; subtitle: string; securityVerification: string; securityDescription: string; walletType: string; selectWallet: string; amountHtg: string; withdrawMethod: string; phoneMethod: string; qrCodeMethod: string; phoneNumber: string; qrCodeUpload: string; qrCodeDescription: string; qrCodeUploaded: string; clickToUploadQr: string; verification: string; sendOtp: string; enterCode: string; codeSent: string; confirmWithdrawal: string; amountError: string; phoneError: string; qrCodeError: string; otpError: string };
+  deposit: { title: string; subtitle: string; walletAddresses: string; submitTransaction: string; verifyDescription: string; amountSent: string; htgEquivalent: string; exchangeRate: string; txHash: string; txHashPlaceholder: string; verifyDeposit: string; copied: string; copiedDescription: string; amountError: string; txHashError: string };
+  withdraw: { title: string; subtitle: string; securityVerification: string; securityDescription: string; walletType: string; selectWallet: string; amountUsdt: string; htgEquivalent: string; exchangeRate: string; youWillReceive: string; withdrawMethod: string; phoneMethod: string; qrCodeMethod: string; phoneNumber: string; qrCodeUpload: string; qrCodeDescription: string; qrCodeUploaded: string; clickToUploadQr: string; verification: string; sendOtp: string; enterCode: string; codeSent: string; confirmWithdrawal: string; amountError: string; phoneError: string; qrCodeError: string; otpError: string };
   profile: { status: string; joined: string; language: string; selectLanguage: string; kycTitle: string; kycDescription: string; verified: string; verifiedDescription: string; underReview: string; underReviewDescription: string; idFront: string; idBack: string; selfie: string; clickToUpload: string; uploaded: string; uploading: string; submitVerification: string };
   security: { title: string; description: string; twoFactorAuth: string; twoFactorDescription: string; twoFactorEnabled: string; twoFactorDisabled: string; enable2FA: string; disable2FA: string; scanQRCode: string; manualKey: string; enterCode: string; verify: string; disableConfirm: string; confirmDisable: string; cancel: string; fingerprint: string; fingerprintDescription: string; registerFingerprint: string; registeredDevices: string; noDevices: string; removeDevice: string; twoFARequired: string; enter2FACode: string; verifyLogin: string; fingerprintLogin: string };
   kyc: { required: string; depositMessage: string; withdrawMessage: string; goToProfile: string };
