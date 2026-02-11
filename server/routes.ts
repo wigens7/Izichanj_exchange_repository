@@ -18,13 +18,51 @@ import {
   verifyAuthenticationResponse,
 } from "@simplewebauthn/server";
 import type { AuthenticatorTransportFuture } from "@simplewebauthn/types";
+import sgMail from "@sendgrid/mail";
+
+if (process.env.SENDGRID_API_KEY) {
+  sgMail.setApiKey(process.env.SENDGRID_API_KEY);
+}
+
+const SENDER_EMAIL = "wigens7@gmail.com";
 
 const rpName = "EASYCHANGE";
 const rpID = process.env.REPLIT_DEV_DOMAIN?.replace(/^https?:\/\//, "") || "localhost";
 const origin = process.env.REPLIT_DEV_DOMAIN ? `https://${rpID}` : "http://localhost:5000";
 
 async function sendEmailOtp(email: string, code: string) {
-  console.log(`[MOCK EMAIL] Sending OTP ${code} to ${email}`);
+  if (!process.env.SENDGRID_API_KEY) {
+    console.log(`[MOCK EMAIL] Sending OTP ${code} to ${email}`);
+    return;
+  }
+  try {
+    await sgMail.send({
+      to: email,
+      from: SENDER_EMAIL,
+      subject: "EASYCHANGE - Your Verification Code",
+      text: `Your EASYCHANGE verification code is: ${code}\n\nThis code expires in 10 minutes. Do not share it with anyone.`,
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 480px; margin: 0 auto; padding: 24px;">
+          <div style="text-align: center; margin-bottom: 24px;">
+            <h1 style="color: #1e293b; font-size: 24px; margin: 0;">EASYCHANGE</h1>
+            <p style="color: #64748b; font-size: 14px; margin-top: 4px;">Crypto to Cash Exchange</p>
+          </div>
+          <div style="background: #f8fafc; border-radius: 8px; padding: 24px; text-align: center; border: 1px solid #e2e8f0;">
+            <p style="color: #475569; font-size: 14px; margin: 0 0 16px 0;">Your verification code is:</p>
+            <div style="font-size: 32px; font-weight: bold; letter-spacing: 8px; color: #4f46e5; margin: 0 0 16px 0;">${code}</div>
+            <p style="color: #94a3b8; font-size: 12px; margin: 0;">This code expires in 10 minutes</p>
+          </div>
+          <p style="color: #94a3b8; font-size: 12px; text-align: center; margin-top: 24px;">
+            If you didn't request this code, please ignore this email.
+          </p>
+        </div>
+      `,
+    });
+    console.log(`[EMAIL] OTP sent to ${email}`);
+  } catch (error: any) {
+    console.error(`[EMAIL ERROR] Failed to send OTP to ${email}:`, error?.response?.body || error.message);
+    throw new Error("Failed to send verification email. Please try again.");
+  }
 }
 
 async function getProfileFromReq(req: any) {
