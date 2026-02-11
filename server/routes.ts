@@ -353,6 +353,19 @@ export async function registerRoutes(
     res.json(profile);
   });
 
+  app.patch("/api/admin/users/:id/disable-2fa", isAuthenticated, isAdmin, async (req: any, res) => {
+    try {
+      const profileId = Number(req.params.id);
+      const profile = await storage.getProfile(profileId);
+      if (!profile) return res.status(404).json({ message: "User not found" });
+      await storage.disableTwoFactor(profileId);
+      res.json({ message: "2FA disabled successfully" });
+    } catch (e) {
+      console.error("Admin disable 2FA error:", e);
+      res.status(500).json({ message: "Internal Error" });
+    }
+  });
+
   app.patch(api.admin.approveDeposit.path, isAuthenticated, isAdmin, async (req: any, res) => {
     const deposit = await storage.updateDepositStatus(Number(req.params.id), "approved");
     const profile = await storage.getProfile(deposit.profileId);

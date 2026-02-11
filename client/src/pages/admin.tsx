@@ -44,6 +44,7 @@ import {
   FileText,
   Download,
   Image as ImageIcon,
+  KeyRound,
 } from "lucide-react";
 import { format } from "date-fns";
 import { usdtToHtg, formatHtg, formatUsdt } from "@shared/constants";
@@ -165,6 +166,7 @@ function UsersTab() {
                 <TableHead>KYC</TableHead>
                 <TableHead>Verified</TableHead>
                 <TableHead>Joined</TableHead>
+                <TableHead>Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -173,7 +175,7 @@ function UsersTab() {
               ))}
               {(!users || users.length === 0) && (
                 <TableRow>
-                  <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
+                  <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
                     No users found
                   </TableCell>
                 </TableRow>
@@ -189,11 +191,27 @@ function UsersTab() {
 function UserRow({ user, onUpdateBalance, isPending }: { user: any; onUpdateBalance: any; isPending: boolean }) {
   const [balance, setBalance] = useState(user.balance);
   const [isEditing, setIsEditing] = useState(false);
+  const { toast } = useToast();
+  const qc = useQueryClient();
 
   const handleSave = () => {
     onUpdateBalance({ id: user.id, balance: Number(balance) });
     setIsEditing(false);
   };
+
+  const disable2faMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("PATCH", `/api/admin/users/${user.id}/disable-2fa`);
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "2FA disabled for " + user.fullName });
+      qc.invalidateQueries({ queryKey: ["/api/admin/users"] });
+    },
+    onError: () => {
+      toast({ title: "Failed to disable 2FA", variant: "destructive" });
+    },
+  });
 
   return (
     <TableRow data-testid={`row-user-${user.id}`}>
@@ -243,6 +261,20 @@ function UserRow({ user, onUpdateBalance, isPending }: { user: any; onUpdateBala
       </TableCell>
       <TableCell className="text-sm text-muted-foreground">
         {format(new Date(user.createdAt), "MMM d, yyyy")}
+      </TableCell>
+      <TableCell>
+        {user.twoFactorEnabled && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => disable2faMutation.mutate()}
+            disabled={disable2faMutation.isPending}
+            data-testid={`button-disable-2fa-${user.id}`}
+          >
+            {disable2faMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <KeyRound className="w-3 h-3 mr-1" />}
+            Disable 2FA
+          </Button>
+        )}
       </TableCell>
     </TableRow>
   );
