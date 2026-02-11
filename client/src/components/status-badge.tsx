@@ -13,15 +13,15 @@ export function StatusBadge({ status, className }: StatusBadgeProps) {
     switch (s.toLowerCase()) {
       case "approved":
       case "verified":
-        return "bg-emerald-500/15 text-emerald-700 hover:bg-emerald-500/25 border-emerald-200";
+        return "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800/50";
       case "pending":
-        return "bg-amber-500/15 text-amber-700 hover:bg-amber-500/25 border-amber-200";
+        return "bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-800/50";
       case "rejected":
-        return "bg-red-500/15 text-red-700 hover:bg-red-500/25 border-red-200";
+        return "bg-red-500/10 text-red-700 dark:text-red-400 border-red-200 dark:border-red-800/50";
       case "admin":
-        return "bg-purple-500/15 text-purple-700 hover:bg-purple-500/25 border-purple-200";
+        return "bg-purple-500/10 text-purple-700 dark:text-purple-400 border-purple-200 dark:border-purple-800/50";
       default:
-        return "bg-slate-100 text-slate-700 border-slate-200";
+        return "bg-muted text-muted-foreground border-border";
     }
   };
 
@@ -31,7 +31,7 @@ export function StatusBadge({ status, className }: StatusBadgeProps) {
   };
 
   return (
-    <Badge variant="outline" className={cn("capitalize font-medium border", getStyles(status), className)}>
+    <Badge variant="outline" className={cn("capitalize font-medium border text-[11px]", getStyles(status), className)}>
       {getLabel(status)}
     </Badge>
   );

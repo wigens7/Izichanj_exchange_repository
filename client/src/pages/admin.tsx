@@ -46,10 +46,10 @@ export default function AdminPage() {
   }
 
   return (
-    <div className="space-y-6 animate-in fade-in duration-500">
+    <div className="space-y-6 animate-in fade-in duration-300">
       <div>
-        <h1 className="text-3xl font-display font-bold" data-testid="text-admin-title">Admin Panel</h1>
-        <p className="text-muted-foreground">Manage users, transactions, and KYC verifications</p>
+        <h1 className="text-2xl font-display font-bold" data-testid="text-admin-title">Admin Panel</h1>
+        <p className="text-sm text-muted-foreground mt-0.5">Manage users, transactions, and KYC verifications</p>
       </div>
 
       <Tabs defaultValue="users" className="w-full">

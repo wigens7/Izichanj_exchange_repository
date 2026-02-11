@@ -2,16 +2,17 @@ import { ReactNode } from "react";
 import { Link, useLocation } from "wouter";
 import { useUser, useLogout } from "@/hooks/use-auth";
 import { useLanguage } from "@/lib/i18n";
+import { usdtToHtg, formatHtg } from "@shared/constants";
 import { 
   LayoutDashboard, 
   ArrowDownCircle, 
   ArrowUpCircle, 
   UserCircle, 
-  ShieldCheck, 
   Shield,
+  ShieldCheck, 
   LogOut,
   Menu,
-  X
+  Wallet
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
@@ -40,16 +41,30 @@ export function LayoutShell({ children }: LayoutShellProps) {
     navItems.push({ href: "/admin", label: t.nav.adminPanel, icon: ShieldCheck });
   }
 
+  const balanceHtg = usdtToHtg(Number(user?.balance || 0));
+
   const NavContent = () => (
-    <div className="flex flex-col h-full">
-      <div className="px-6 py-8">
-        <h1 className="text-2xl font-display font-bold bg-gradient-to-r from-primary to-blue-600 bg-clip-text text-transparent">
-          EASYCHANGE
-        </h1>
-        <p className="text-sm text-muted-foreground mt-1">{t.nav.cryptoToCash}</p>
+    <div className="flex flex-col h-full bg-sidebar text-sidebar-foreground">
+      <div className="px-5 pt-7 pb-5">
+        <div className="flex items-center gap-2.5">
+          <div className="w-9 h-9 rounded-md bg-sidebar-primary flex items-center justify-center">
+            <Wallet className="w-5 h-5 text-white" />
+          </div>
+          <div>
+            <h1 className="text-lg font-display font-bold text-white tracking-tight">
+              EASYCHANGE
+            </h1>
+            <p className="text-[11px] text-sidebar-foreground/50 leading-none">{t.nav.cryptoToCash}</p>
+          </div>
+        </div>
       </div>
 
-      <nav className="flex-1 px-4 space-y-2">
+      <div className="mx-4 mb-5 p-3.5 rounded-md bg-sidebar-accent">
+        <p className="text-[11px] uppercase tracking-wider text-sidebar-foreground/40 font-medium mb-1">{t.dashboard.currentBalance}</p>
+        <p className="text-xl font-display font-bold text-white" data-testid="text-sidebar-balance">{formatHtg(balanceHtg)} <span className="text-sm font-normal text-sidebar-foreground/50">HTG</span></p>
+      </div>
+
+      <nav className="flex-1 px-3 space-y-0.5">
         {navItems.map((item) => {
           const isActive = location === item.href;
           return (
@@ -57,8 +72,9 @@ export function LayoutShell({ children }: LayoutShellProps) {
               <div
                 className={`nav-item cursor-pointer ${isActive ? "active" : ""}`}
                 onClick={() => setIsOpen(false)}
+                data-testid={`nav-${item.href.replace("/", "") || "dashboard"}`}
               >
-                <item.icon className={`w-5 h-5 ${isActive ? "text-primary" : "text-muted-foreground"}`} />
+                <item.icon className={`w-[18px] h-[18px] ${isActive ? "text-sidebar-primary" : "text-sidebar-foreground/40"}`} />
                 <span>{item.label}</span>
               </div>
             </Link>
@@ -66,20 +82,21 @@ export function LayoutShell({ children }: LayoutShellProps) {
         })}
       </nav>
 
-      <div className="p-4 mt-auto border-t border-border">
-        <div className="flex items-center gap-3 px-4 py-3 mb-2">
-            <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold">
+      <div className="p-4 mt-auto border-t border-sidebar-border">
+        <div className="flex items-center gap-3 px-2 py-2 mb-2">
+            <div className="w-9 h-9 rounded-md bg-sidebar-accent flex items-center justify-center text-sidebar-primary font-bold text-sm">
                 {(user?.fullName || user?.email || "U").charAt(0).toUpperCase()}
             </div>
-            <div className="overflow-hidden">
-                <p className="text-sm font-medium truncate">{user?.fullName || "User"}</p>
-                <p className="text-xs text-muted-foreground truncate">{user?.email}</p>
+            <div className="overflow-hidden flex-1 min-w-0">
+                <p className="text-sm font-medium truncate text-white">{user?.fullName || "User"}</p>
+                <p className="text-[11px] text-sidebar-foreground/40 truncate">{user?.email}</p>
             </div>
         </div>
         <Button 
             variant="ghost" 
-            className="w-full justify-start text-destructive hover:text-destructive hover:bg-destructive/10"
+            className="w-full justify-start text-sidebar-foreground/50"
             onClick={() => logout()}
+            data-testid="button-logout"
         >
           <LogOut className="w-4 h-4 mr-2" />
           {t.nav.signOut}
@@ -89,27 +106,32 @@ export function LayoutShell({ children }: LayoutShellProps) {
   );
 
   return (
-    <div className="min-h-screen bg-gray-50/50 dark:bg-slate-950">
-      <header className="lg:hidden fixed top-0 left-0 right-0 h-16 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border-b border-border z-50 flex items-center justify-between px-4">
-        <h1 className="text-xl font-display font-bold text-primary">EASYCHANGE</h1>
+    <div className="min-h-screen bg-background">
+      <header className="lg:hidden fixed top-0 left-0 right-0 h-14 bg-sidebar border-b border-sidebar-border z-50 flex items-center justify-between px-4">
+        <div className="flex items-center gap-2.5">
+          <div className="w-7 h-7 rounded-md bg-sidebar-primary flex items-center justify-center">
+            <Wallet className="w-4 h-4 text-white" />
+          </div>
+          <h1 className="text-base font-display font-bold text-white">EASYCHANGE</h1>
+        </div>
         <Sheet open={isOpen} onOpenChange={setIsOpen}>
           <SheetTrigger asChild>
-            <Button variant="ghost" size="icon">
-              <Menu className="w-6 h-6" />
+            <Button variant="ghost" size="icon" className="text-sidebar-foreground hover:bg-sidebar-accent" data-testid="button-mobile-menu">
+              <Menu className="w-5 h-5" />
             </Button>
           </SheetTrigger>
-          <SheetContent side="left" className="p-0 w-[280px]">
+          <SheetContent side="left" className="p-0 w-[280px] border-none">
             <NavContent />
           </SheetContent>
         </Sheet>
       </header>
 
-      <aside className="hidden lg:block fixed top-0 left-0 bottom-0 w-64 bg-white dark:bg-slate-900 border-r border-border z-40">
+      <aside className="hidden lg:block fixed top-0 left-0 bottom-0 w-[260px] z-40">
         <NavContent />
       </aside>
 
-      <main className="pt-20 lg:pt-8 lg:pl-64 min-h-screen">
-        <div className="container max-w-5xl mx-auto px-4 sm:px-6 pb-20">
+      <main className="pt-14 lg:pt-0 lg:pl-[260px] min-h-screen">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-6 lg:py-8 pb-24">
           {children}
         </div>
       </main>

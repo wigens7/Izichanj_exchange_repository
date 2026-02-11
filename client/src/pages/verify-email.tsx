@@ -4,7 +4,7 @@ import { useLanguage } from "@/lib/i18n";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp";
-import { Loader2, Mail, RefreshCw } from "lucide-react";
+import { Loader2, Mail, RefreshCw, Wallet } from "lucide-react";
 import { useEffect, useState } from "react";
 
 export default function VerifyEmailPage() {
@@ -46,38 +46,33 @@ export default function VerifyEmailPage() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <div className="min-h-screen flex items-center justify-center bg-background">
         <Loader2 className="w-8 h-8 animate-spin text-primary" data-testid="loader-verify" />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4 bg-gray-50 dark:bg-slate-950">
-      <div className="absolute inset-0 overflow-hidden z-0">
-        <div className="absolute -top-[30%] -left-[10%] w-[70%] h-[70%] rounded-full bg-blue-400/10 blur-[100px]" />
-        <div className="absolute -bottom-[20%] -right-[10%] w-[60%] h-[60%] rounded-full bg-emerald-400/10 blur-[100px]" />
-      </div>
-
-      <div className="w-full max-w-md z-10">
-        <div className="text-center mb-8">
-          <h1 className="text-4xl font-display font-bold bg-gradient-to-r from-blue-600 to-emerald-600 bg-clip-text text-transparent">
-            EASYCHANGE
-          </h1>
-          <p className="text-muted-foreground mt-2">{t.login.appSubtitle}</p>
+    <div className="min-h-screen flex items-center justify-center p-4 bg-background">
+      <div className="w-full max-w-md">
+        <div className="flex items-center justify-center gap-2.5 mb-8">
+          <div className="w-9 h-9 rounded-md bg-primary flex items-center justify-center">
+            <Wallet className="w-5 h-5 text-white" />
+          </div>
+          <span className="text-2xl font-display font-bold">EASYCHANGE</span>
         </div>
 
-        <Card className="glass-card border-none shadow-2xl">
-          <CardHeader className="text-center">
-            <div className="mx-auto mb-4 w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center">
-              <Mail className="w-8 h-8 text-primary" />
+        <Card className="border shadow-sm">
+          <CardHeader className="text-center pb-2">
+            <div className="mx-auto mb-3 w-14 h-14 rounded-xl bg-primary/10 flex items-center justify-center">
+              <Mail className="w-7 h-7 text-primary" />
             </div>
-            <CardTitle className="text-2xl" data-testid="text-verify-title">{t.verifyEmail.title}</CardTitle>
-            <CardDescription>
+            <CardTitle className="text-xl" data-testid="text-verify-title">{t.verifyEmail.title}</CardTitle>
+            <CardDescription className="mt-1">
               {t.verifyEmail.description} <span className="font-medium text-foreground">{user?.email}</span>
             </CardDescription>
           </CardHeader>
-          <CardContent className="space-y-6">
+          <CardContent className="space-y-6 pt-4">
             <div className="flex justify-center">
               <InputOTP
                 maxLength={6}

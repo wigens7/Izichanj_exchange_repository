@@ -1,14 +1,13 @@
 import { useUser } from "@/hooks/use-auth";
 import { useDeposits, useWithdrawals } from "@/hooks/use-transactions";
 import { useLanguage } from "@/lib/i18n";
-import { usdtToHtg, formatHtg, formatUsdt } from "@shared/constants";
+import { EXCHANGE_RATE_USDT_HTG, usdtToHtg, formatHtg, formatUsdt } from "@shared/constants";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { ArrowUpRight, ArrowDownLeft, Wallet, Clock, CheckCircle, XCircle } from "lucide-react";
+import { ArrowUpRight, ArrowDownLeft, Wallet, TrendingUp, TrendingDown, ArrowRightLeft } from "lucide-react";
 import { format } from "date-fns";
 import { StatusBadge } from "@/components/status-badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
-import { motion } from "framer-motion";
 
 export default function DashboardPage() {
   const { data: user } = useUser();
@@ -35,56 +34,63 @@ export default function DashboardPage() {
 
   if (!user) return null;
 
-  const StatCard = ({ title, value, icon: Icon, colorClass }: any) => (
-    <Card className="border-none shadow-md overflow-hidden relative">
-      <div className={`absolute top-0 right-0 p-4 opacity-10 ${colorClass}`}>
-        <Icon className="w-24 h-24" />
-      </div>
-      <CardContent className="p-6">
-        <div className="flex items-center gap-4">
-            <div className={`p-3 rounded-xl ${colorClass.replace('text-', 'bg-').replace('600', '100')} ${colorClass}`}>
-                <Icon className="w-6 h-6" />
-            </div>
-            <div>
-                <p className="text-sm font-medium text-muted-foreground">{title}</p>
-                <h3 className="text-2xl font-display font-bold">{value}</h3>
-            </div>
-        </div>
-      </CardContent>
-    </Card>
-  );
-
   return (
-    <div className="space-y-8 animate-in fade-in duration-500">
-      <div className="flex flex-col gap-2">
-        <h1 className="text-3xl font-display font-bold">{t.dashboard.title}</h1>
-        <p className="text-muted-foreground">{t.dashboard.welcomeBack} {user.fullName}</p>
+    <div className="space-y-6 animate-in fade-in duration-300">
+      <div>
+        <h1 className="text-2xl font-display font-bold">{t.dashboard.title}</h1>
+        <p className="text-sm text-muted-foreground mt-0.5">{t.dashboard.welcomeBack} {user.fullName}</p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <StatCard 
-            title={t.dashboard.currentBalance}
-            value={`${formatHtg(balanceHtg)} HTG`} 
-            icon={Wallet} 
-            colorClass="text-blue-600" 
-        />
-        <StatCard 
-            title={t.dashboard.totalDeposited}
-            value={`${formatHtg(totalDepositedHtg)} HTG`} 
-            icon={ArrowDownLeft} 
-            colorClass="text-emerald-600" 
-        />
-        <StatCard 
-            title={t.dashboard.totalWithdrawn}
-            value={`${formatHtg(totalWithdrawnHtg)} HTG`} 
-            icon={ArrowUpRight} 
-            colorClass="text-amber-600" 
-        />
+      <div className="p-3.5 rounded-md bg-muted/60 border border-border flex items-center gap-2 text-sm" data-testid="banner-exchange-rate">
+        <ArrowRightLeft className="w-4 h-4 text-primary flex-shrink-0" />
+        <span className="text-muted-foreground">{t.withdraw.exchangeRate}:</span>
+        <span className="font-semibold">1 USDT = {EXCHANGE_RATE_USDT_HTG.toFixed(2)} HTG</span>
       </div>
 
-      <Card className="border-none shadow-lg">
-        <CardHeader>
-          <CardTitle>{t.dashboard.transactionHistory}</CardTitle>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <Card className="stat-card text-blue-600 dark:text-blue-400">
+          <CardContent className="p-5">
+            <div className="flex items-center justify-between gap-2 mb-3">
+              <p className="text-sm font-medium text-muted-foreground">{t.dashboard.currentBalance}</p>
+              <div className="w-9 h-9 rounded-md bg-blue-500/10 flex items-center justify-center">
+                <Wallet className="w-4 h-4" />
+              </div>
+            </div>
+            <p className="text-2xl font-display font-bold text-foreground" data-testid="text-balance-htg">{formatHtg(balanceHtg)} <span className="text-sm font-normal text-muted-foreground">HTG</span></p>
+            <p className="text-xs text-muted-foreground mt-1">{formatUsdt(Number(user.balance))} USDT</p>
+          </CardContent>
+        </Card>
+
+        <Card className="stat-card text-emerald-600 dark:text-emerald-400">
+          <CardContent className="p-5">
+            <div className="flex items-center justify-between gap-2 mb-3">
+              <p className="text-sm font-medium text-muted-foreground">{t.dashboard.totalDeposited}</p>
+              <div className="w-9 h-9 rounded-md bg-emerald-500/10 flex items-center justify-center">
+                <TrendingUp className="w-4 h-4" />
+              </div>
+            </div>
+            <p className="text-2xl font-display font-bold text-foreground" data-testid="text-deposited-htg">{formatHtg(totalDepositedHtg)} <span className="text-sm font-normal text-muted-foreground">HTG</span></p>
+            <p className="text-xs text-muted-foreground mt-1">{formatUsdt(totalDepositedUsdt)} USDT</p>
+          </CardContent>
+        </Card>
+
+        <Card className="stat-card text-amber-600 dark:text-amber-400">
+          <CardContent className="p-5">
+            <div className="flex items-center justify-between gap-2 mb-3">
+              <p className="text-sm font-medium text-muted-foreground">{t.dashboard.totalWithdrawn}</p>
+              <div className="w-9 h-9 rounded-md bg-amber-500/10 flex items-center justify-center">
+                <TrendingDown className="w-4 h-4" />
+              </div>
+            </div>
+            <p className="text-2xl font-display font-bold text-foreground" data-testid="text-withdrawn-htg">{formatHtg(totalWithdrawnHtg)} <span className="text-sm font-normal text-muted-foreground">HTG</span></p>
+            <p className="text-xs text-muted-foreground mt-1">{formatUsdt(totalWithdrawnUsdt)} USDT</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base">{t.dashboard.transactionHistory}</CardTitle>
         </CardHeader>
         <CardContent>
           <Tabs defaultValue="all" className="w-full">
@@ -94,13 +100,13 @@ export default function DashboardPage() {
               <TabsTrigger value="withdrawals">{t.dashboard.withdrawals}</TabsTrigger>
             </TabsList>
             
-            <TabsContent value="all" className="space-y-4">
+            <TabsContent value="all" className="space-y-2">
               {isDepositsLoading || isWithdrawalsLoading ? (
                 Array.from({ length: 3 }).map((_, i) => (
-                    <Skeleton key={i} className="h-16 w-full rounded-xl" />
+                    <Skeleton key={i} className="h-16 w-full rounded-md" />
                 ))
               ) : allTransactions.length === 0 ? (
-                <div className="text-center py-10 text-muted-foreground">{t.dashboard.noTransactions}</div>
+                <div className="text-center py-12 text-muted-foreground text-sm">{t.dashboard.noTransactions}</div>
               ) : (
                 allTransactions.map((txn) => (
                   <TransactionRow key={`${txn.type}-${txn.id}`} txn={txn} />
@@ -120,17 +126,13 @@ function TransactionRow({ txn }: { txn: any }) {
     const amountUsdt = isDeposit ? Number(txn.amountUsdt) : Number(txn.amount);
     const amountHtg = usdtToHtg(amountUsdt);
     return (
-        <motion.div 
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="flex items-center justify-between p-4 rounded-xl bg-white dark:bg-card border border-border hover:shadow-md transition-shadow"
-        >
-            <div className="flex items-center gap-4">
-                <div className={`p-2 rounded-full ${isDeposit ? 'bg-emerald-100 text-emerald-600' : 'bg-amber-100 text-amber-600'}`}>
-                    {isDeposit ? <ArrowDownLeft className="w-5 h-5" /> : <ArrowUpRight className="w-5 h-5" />}
+        <div className="flex items-center justify-between gap-4 p-3.5 rounded-md border border-border bg-card hover:bg-muted/30 transition-colors" data-testid={`txn-${txn.type}-${txn.id}`}>
+            <div className="flex items-center gap-3 min-w-0">
+                <div className={`w-9 h-9 rounded-md flex items-center justify-center flex-shrink-0 ${isDeposit ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' : 'bg-amber-500/10 text-amber-600 dark:text-amber-400'}`}>
+                    {isDeposit ? <ArrowDownLeft className="w-4 h-4" /> : <ArrowUpRight className="w-4 h-4" />}
                 </div>
-                <div>
-                    <p className="font-semibold text-foreground">
+                <div className="min-w-0">
+                    <p className="text-sm font-medium text-foreground truncate">
                         {isDeposit ? t.dashboard.usdtDeposit : `${txn.currency} ${t.dashboard.withdrawal}`}
                     </p>
                     <p className="text-xs text-muted-foreground">
@@ -138,15 +140,15 @@ function TransactionRow({ txn }: { txn: any }) {
                     </p>
                 </div>
             </div>
-            <div className="text-right">
-                <p className={`font-bold ${isDeposit ? 'text-emerald-600' : 'text-amber-600'}`}>
+            <div className="text-right flex-shrink-0">
+                <p className={`text-sm font-semibold ${isDeposit ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`}>
                     {isDeposit ? '+' : '-'}{formatHtg(amountHtg)} HTG
                 </p>
-                <p className="text-xs text-muted-foreground">
-                    {isDeposit ? '+' : '-'}{formatUsdt(amountUsdt)} USDT
+                <p className="text-[11px] text-muted-foreground">
+                    {formatUsdt(amountUsdt)} USDT
                 </p>
-                <StatusBadge status={txn.status} className="ml-auto mt-1 text-[10px]" />
+                <StatusBadge status={txn.status} className="mt-1 text-[10px]" />
             </div>
-        </motion.div>
+        </div>
     )
 }

@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Loader2, LogIn, UserPlus, Eye, EyeOff, Shield, Fingerprint } from "lucide-react";
+import { Loader2, LogIn, UserPlus, Eye, EyeOff, Shield, Fingerprint, Wallet, ArrowRightLeft, ShieldCheck, Zap } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -41,12 +41,14 @@ function TwoFAStep({ onSuccess }: { onSuccess: (profile: any) => void }) {
   };
 
   return (
-    <div className="space-y-4 text-center">
-      <div className="w-16 h-16 mx-auto bg-primary/10 rounded-full flex items-center justify-center">
-        <Shield className="w-8 h-8 text-primary" />
+    <div className="space-y-5 text-center">
+      <div className="w-14 h-14 mx-auto bg-primary/10 rounded-xl flex items-center justify-center">
+        <Shield className="w-7 h-7 text-primary" />
       </div>
-      <h3 className="text-lg font-bold" data-testid="text-2fa-title">{t.security.twoFARequired}</h3>
-      <p className="text-sm text-muted-foreground">{t.security.enter2FACode}</p>
+      <div>
+        <h3 className="text-lg font-bold" data-testid="text-2fa-title">{t.security.twoFARequired}</h3>
+        <p className="text-sm text-muted-foreground mt-1">{t.security.enter2FACode}</p>
+      </div>
       <Input
         placeholder="000000"
         maxLength={6}
@@ -205,7 +207,7 @@ function SignInForm() {
           {t.login.signIn}
         </Button>
 
-        <div className="relative">
+        <div className="relative my-2">
           <div className="absolute inset-0 flex items-center">
             <span className="w-full border-t" />
           </div>
@@ -264,11 +266,7 @@ function SignUpForm() {
             <FormItem>
               <FormLabel>{t.login.fullName}</FormLabel>
               <FormControl>
-                <Input
-                  placeholder="John Doe"
-                  data-testid="input-register-fullname"
-                  {...field}
-                />
+                <Input placeholder="John Doe" data-testid="input-register-fullname" {...field} />
               </FormControl>
               <FormMessage />
             </FormItem>
@@ -282,12 +280,7 @@ function SignUpForm() {
             <FormItem>
               <FormLabel>{t.login.email}</FormLabel>
               <FormControl>
-                <Input
-                  type="email"
-                  placeholder="you@example.com"
-                  data-testid="input-register-email"
-                  {...field}
-                />
+                <Input type="email" placeholder="you@example.com" data-testid="input-register-email" {...field} />
               </FormControl>
               <FormMessage />
             </FormItem>
@@ -309,9 +302,7 @@ function SignUpForm() {
                     {...field}
                   />
                   <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
+                    type="button" variant="ghost" size="icon"
                     className="absolute right-0 top-0"
                     onClick={() => setShowPassword(!showPassword)}
                     data-testid="button-toggle-register-password"
@@ -340,9 +331,7 @@ function SignUpForm() {
                     {...field}
                   />
                   <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
+                    type="button" variant="ghost" size="icon"
                     className="absolute right-0 top-0"
                     onClick={() => setShowConfirm(!showConfirm)}
                     data-testid="button-toggle-register-confirm"
@@ -374,6 +363,20 @@ function SignUpForm() {
   );
 }
 
+function FeatureItem({ icon: Icon, title, description }: { icon: any; title: string; description: string }) {
+  return (
+    <div className="flex items-start gap-3">
+      <div className="w-10 h-10 rounded-md bg-white/10 flex items-center justify-center flex-shrink-0">
+        <Icon className="w-5 h-5 text-white/80" />
+      </div>
+      <div>
+        <p className="text-sm font-semibold text-white">{title}</p>
+        <p className="text-xs text-white/50 mt-0.5">{description}</p>
+      </div>
+    </div>
+  );
+}
+
 export default function LoginPage() {
   const { data: user, isLoading } = useUser();
   const [, setLocation] = useLocation();
@@ -391,55 +394,90 @@ export default function LoginPage() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <div className="min-h-screen flex items-center justify-center bg-background">
         <Loader2 className="w-8 h-8 animate-spin text-primary" data-testid="loader-auth" />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4 bg-gray-50 dark:bg-slate-950">
-      <div className="absolute inset-0 overflow-hidden z-0">
-        <div className="absolute -top-[30%] -left-[10%] w-[70%] h-[70%] rounded-full bg-blue-400/10 blur-[100px]" />
-        <div className="absolute -bottom-[20%] -right-[10%] w-[60%] h-[60%] rounded-full bg-emerald-400/10 blur-[100px]" />
-      </div>
-
-      <div className="w-full max-w-md z-10">
-        <div className="text-center mb-8">
-          <h1 className="text-4xl font-display font-bold bg-gradient-to-r from-blue-600 to-emerald-600 bg-clip-text text-transparent">
-            {t.login.appTitle}
-          </h1>
-          <p className="text-muted-foreground mt-2">{t.login.appSubtitle}</p>
+    <div className="min-h-screen flex">
+      <div className="hidden lg:flex lg:w-[45%] bg-[hsl(228,33%,10%)] relative overflow-hidden">
+        <div className="absolute inset-0">
+          <div className="absolute top-[-20%] left-[-10%] w-[60%] h-[60%] rounded-full bg-[hsl(230,75%,57%)]/10 blur-[120px]" />
+          <div className="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] rounded-full bg-[hsl(160,84%,39%)]/8 blur-[100px]" />
         </div>
 
-        <Card className="glass-card border-none shadow-2xl">
-          <Tabs defaultValue="signin" className="w-full">
-            <CardHeader className="pb-2">
-              <TabsList className="grid w-full grid-cols-2" data-testid="tabs-auth">
-                <TabsTrigger value="signin" data-testid="tab-signin">{t.login.signIn}</TabsTrigger>
-                <TabsTrigger value="signup" data-testid="tab-signup">{t.login.signUp}</TabsTrigger>
-              </TabsList>
-            </CardHeader>
+        <div className="relative z-10 flex flex-col justify-between p-10 w-full">
+          <div className="flex items-center gap-2.5">
+            <div className="w-10 h-10 rounded-md bg-[hsl(230,75%,57%)] flex items-center justify-center">
+              <Wallet className="w-5 h-5 text-white" />
+            </div>
+            <span className="text-xl font-display font-bold text-white">EASYCHANGE</span>
+          </div>
 
-            <CardContent>
-              <TabsContent value="signin" className="mt-0">
-                <div className="text-center mb-4">
-                  <CardTitle className="text-xl" data-testid="text-signin-title">{t.login.welcomeBack}</CardTitle>
-                  <CardDescription>{t.login.signInDescription}</CardDescription>
-                </div>
-                <SignInForm />
-              </TabsContent>
+          <div className="space-y-8">
+            <div>
+              <h2 className="text-3xl font-display font-bold text-white leading-tight text-balance">
+                Convert USDT to local cash instantly
+              </h2>
+              <p className="text-white/40 mt-3 text-sm max-w-sm">
+                The fastest and most secure way to exchange cryptocurrency for MonCash and NatCash in Haiti.
+              </p>
+            </div>
 
-              <TabsContent value="signup" className="mt-0">
-                <div className="text-center mb-4">
-                  <CardTitle className="text-xl" data-testid="text-signup-title">{t.login.createAccount}</CardTitle>
-                  <CardDescription>{t.login.signUpDescription}</CardDescription>
-                </div>
-                <SignUpForm />
-              </TabsContent>
-            </CardContent>
-          </Tabs>
-        </Card>
+            <div className="space-y-5">
+              <FeatureItem icon={ArrowRightLeft} title="Instant Exchange" description="Convert USDT (TRC20/BEP20) to HTG at competitive rates" />
+              <FeatureItem icon={ShieldCheck} title="Bank-Level Security" description="2FA, biometric login, and encrypted transactions" />
+              <FeatureItem icon={Zap} title="Fast Withdrawals" description="Receive funds to MonCash or NatCash in 15-20 minutes" />
+            </div>
+          </div>
+
+          <p className="text-white/20 text-xs">Secured by industry-standard encryption</p>
+        </div>
+      </div>
+
+      <div className="flex-1 flex items-center justify-center p-6 bg-background">
+        <div className="w-full max-w-[420px]">
+          <div className="lg:hidden text-center mb-8">
+            <div className="flex items-center justify-center gap-2.5 mb-2">
+              <div className="w-9 h-9 rounded-md bg-primary flex items-center justify-center">
+                <Wallet className="w-5 h-5 text-white" />
+              </div>
+              <span className="text-2xl font-display font-bold">{t.login.appTitle}</span>
+            </div>
+            <p className="text-sm text-muted-foreground">{t.login.appSubtitle}</p>
+          </div>
+
+          <Card className="border shadow-sm">
+            <Tabs defaultValue="signin" className="w-full">
+              <CardHeader className="pb-3">
+                <TabsList className="grid w-full grid-cols-2" data-testid="tabs-auth">
+                  <TabsTrigger value="signin" data-testid="tab-signin">{t.login.signIn}</TabsTrigger>
+                  <TabsTrigger value="signup" data-testid="tab-signup">{t.login.signUp}</TabsTrigger>
+                </TabsList>
+              </CardHeader>
+
+              <CardContent>
+                <TabsContent value="signin" className="mt-0">
+                  <div className="mb-5">
+                    <CardTitle className="text-xl" data-testid="text-signin-title">{t.login.welcomeBack}</CardTitle>
+                    <CardDescription className="mt-1">{t.login.signInDescription}</CardDescription>
+                  </div>
+                  <SignInForm />
+                </TabsContent>
+
+                <TabsContent value="signup" className="mt-0">
+                  <div className="mb-5">
+                    <CardTitle className="text-xl" data-testid="text-signup-title">{t.login.createAccount}</CardTitle>
+                    <CardDescription className="mt-1">{t.login.signUpDescription}</CardDescription>
+                  </div>
+                  <SignUpForm />
+                </TabsContent>
+              </CardContent>
+            </Tabs>
+          </Card>
+        </div>
       </div>
     </div>
   );

@@ -107,21 +107,21 @@ export default function SecurityPage() {
   if (!user) return null;
 
   return (
-    <div className="space-y-6 animate-in fade-in duration-500">
+    <div className="space-y-6 animate-in fade-in duration-300 max-w-2xl">
       <div>
-        <h1 className="text-2xl font-bold" data-testid="text-security-title">{t.security.title}</h1>
-        <p className="text-muted-foreground mt-1">{t.security.description}</p>
+        <h1 className="text-2xl font-display font-bold" data-testid="text-security-title">{t.security.title}</h1>
+        <p className="text-sm text-muted-foreground mt-0.5">{t.security.description}</p>
       </div>
 
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between gap-2">
+        <CardHeader className="flex flex-row items-center justify-between gap-2 pb-3">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
-              <Shield className="w-5 h-5 text-primary" />
+            <div className="w-9 h-9 rounded-md bg-primary/10 flex items-center justify-center">
+              <Shield className="w-4 h-4 text-primary" />
             </div>
             <div>
-              <CardTitle className="text-lg">{t.security.twoFactorAuth}</CardTitle>
-              <CardDescription>{t.security.twoFactorDescription}</CardDescription>
+              <CardTitle className="text-base">{t.security.twoFactorAuth}</CardTitle>
+              <CardDescription className="text-xs">{t.security.twoFactorDescription}</CardDescription>
             </div>
           </div>
           <Badge variant={user.twoFactorEnabled ? "default" : "secondary"} data-testid="badge-2fa-status">
@@ -134,7 +134,7 @@ export default function SecurityPage() {
         </CardHeader>
         <CardContent>
           {user.twoFactorEnabled ? (
-            <div className="space-y-4">
+            <div className="space-y-3">
               {showDisable ? (
                 <div className="space-y-3">
                   <p className="text-sm text-muted-foreground">{t.security.disableConfirm}</p>
@@ -170,11 +170,11 @@ export default function SecurityPage() {
             <div className="space-y-4">
               <p className="text-sm text-muted-foreground">{t.security.scanQRCode}</p>
               <div className="flex justify-center">
-                <img src={setupData.qrCode} alt="2FA QR Code" className="w-48 h-48 rounded-lg border" data-testid="img-2fa-qrcode" />
+                <img src={setupData.qrCode} alt="2FA QR Code" className="w-44 h-44 rounded-md border" data-testid="img-2fa-qrcode" />
               </div>
               <div className="text-center">
                 <p className="text-xs text-muted-foreground mb-1">{t.security.manualKey}</p>
-                <code className="text-xs bg-muted px-2 py-1 rounded font-mono select-all" data-testid="text-2fa-secret">{setupData.secret}</code>
+                <code className="text-xs bg-muted px-2 py-1 rounded-md font-mono select-all" data-testid="text-2fa-secret">{setupData.secret}</code>
               </div>
               <div className="space-y-2">
                 <p className="text-sm font-medium">{t.security.enterCode}</p>
@@ -210,14 +210,14 @@ export default function SecurityPage() {
       </Card>
 
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between gap-2">
+        <CardHeader className="flex flex-row items-center justify-between gap-2 pb-3">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
-              <Fingerprint className="w-5 h-5 text-primary" />
+            <div className="w-9 h-9 rounded-md bg-primary/10 flex items-center justify-center">
+              <Fingerprint className="w-4 h-4 text-primary" />
             </div>
             <div>
-              <CardTitle className="text-lg">{t.security.fingerprint}</CardTitle>
-              <CardDescription>{t.security.fingerprintDescription}</CardDescription>
+              <CardTitle className="text-base">{t.security.fingerprint}</CardTitle>
+              <CardDescription className="text-xs">{t.security.fingerprintDescription}</CardDescription>
             </div>
           </div>
         </CardHeader>
@@ -238,22 +238,22 @@ export default function SecurityPage() {
             ) : webauthnCreds && webauthnCreds.length > 0 ? (
               <div className="space-y-2">
                 {webauthnCreds.map((cred) => (
-                  <div key={cred.id} className="flex items-center justify-between p-3 rounded-lg border" data-testid={`device-${cred.id}`}>
-                    <div className="flex items-center gap-2">
-                      <Fingerprint className="w-4 h-4 text-muted-foreground" />
-                      <span className="text-sm font-medium">{cred.deviceName}</span>
-                      <span className="text-xs text-muted-foreground">
+                  <div key={cred.id} className="flex items-center justify-between gap-2 p-3 rounded-md border border-border" data-testid={`device-${cred.id}`}>
+                    <div className="flex items-center gap-2 min-w-0">
+                      <Fingerprint className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                      <span className="text-sm font-medium truncate">{cred.deviceName}</span>
+                      <span className="text-xs text-muted-foreground flex-shrink-0">
                         {new Date(cred.createdAt).toLocaleDateString()}
                       </span>
                     </div>
                     <Button
-                      size="sm"
+                      size="icon"
                       variant="ghost"
                       onClick={() => removeWebAuthn.mutate(cred.id)}
                       disabled={removeWebAuthn.isPending}
                       data-testid={`button-remove-device-${cred.id}`}
                     >
-                      <Trash2 className="w-3 h-3" />
+                      <Trash2 className="w-3.5 h-3.5" />
                     </Button>
                   </div>
                 ))}
