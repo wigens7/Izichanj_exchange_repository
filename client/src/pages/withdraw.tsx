@@ -6,13 +6,14 @@ import { useCreateWithdrawal, useRequestWithdrawalOtp } from "@/hooks/use-transa
 import { useUser } from "@/hooks/use-auth";
 import { useUpload } from "@/hooks/use-upload";
 import { useLanguage } from "@/lib/i18n";
+import { EXCHANGE_RATE_USDT_HTG, usdtToHtg, formatHtg, formatUsdt } from "@shared/constants";
 import { Card, CardContent } from "@/components/ui/card";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
-import { Loader2, ShieldAlert, Phone, QrCode, UploadCloud, CheckCircle2 } from "lucide-react";
+import { Loader2, ShieldAlert, Phone, QrCode, UploadCloud, CheckCircle2, ArrowRight } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Link } from "wouter";
 
@@ -48,6 +49,9 @@ export default function WithdrawPage() {
   });
 
   const withdrawMethod = form.watch("withdrawMethod");
+  const watchedAmount = form.watch("amount");
+  const amountUsdt = parseFloat(watchedAmount) || 0;
+  const amountHtg = usdtToHtg(amountUsdt);
 
   const handleRequestOtp = () => {
     requestOtp(undefined, {
@@ -139,15 +143,32 @@ export default function WithdrawPage() {
                                 name="amount"
                                 render={({ field }) => (
                                     <FormItem>
-                                        <FormLabel>{t.withdraw.amountHtg}</FormLabel>
+                                        <FormLabel>{t.withdraw.amountUsdt}</FormLabel>
                                         <FormControl>
-                                            <Input type="number" placeholder="500" data-testid="input-amount" {...field} />
+                                            <Input type="number" step="0.01" placeholder="10.00" data-testid="input-amount" {...field} />
                                         </FormControl>
                                         <FormMessage />
                                     </FormItem>
                                 )}
                             />
                         </div>
+
+                        {amountUsdt > 0 && (
+                            <div className="p-4 bg-muted/50 rounded-md space-y-2 border border-border" data-testid="conversion-preview">
+                                <div className="flex items-center justify-between flex-wrap gap-2 text-sm">
+                                    <span className="text-muted-foreground">{t.withdraw.exchangeRate}</span>
+                                    <span className="font-medium">1 USDT = {EXCHANGE_RATE_USDT_HTG.toFixed(2)} HTG</span>
+                                </div>
+                                <div className="flex items-center justify-between flex-wrap gap-2">
+                                    <span className="text-sm text-muted-foreground">{t.withdraw.youWillReceive}</span>
+                                    <div className="flex items-center gap-2">
+                                        <span className="font-bold text-lg" data-testid="text-usdt-amount">{formatUsdt(amountUsdt)} USDT</span>
+                                        <ArrowRight className="w-4 h-4 text-muted-foreground" />
+                                        <span className="font-bold text-lg text-emerald-600 dark:text-emerald-400" data-testid="text-htg-amount">{formatHtg(amountHtg)} HTG</span>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
 
                         <div className="space-y-3">
                             <Label>{t.withdraw.withdrawMethod}</Label>

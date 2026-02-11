@@ -1,6 +1,7 @@
 import { useUser } from "@/hooks/use-auth";
 import { useDeposits, useWithdrawals } from "@/hooks/use-transactions";
 import { useLanguage } from "@/lib/i18n";
+import { usdtToHtg, formatHtg, formatUsdt } from "@shared/constants";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ArrowUpRight, ArrowDownLeft, Wallet, Clock, CheckCircle, XCircle } from "lucide-react";
 import { format } from "date-fns";
@@ -15,13 +16,17 @@ export default function DashboardPage() {
   const { data: withdrawals, isLoading: isWithdrawalsLoading } = useWithdrawals();
   const { t } = useLanguage();
 
-  const totalDeposited = deposits 
+  const totalDepositedUsdt = deposits 
     ?.filter(d => d.status === 'approved')
     .reduce((acc, curr) => acc + Number(curr.amountUsdt), 0) || 0;
 
-  const totalWithdrawn = withdrawals
+  const totalWithdrawnUsdt = withdrawals
     ?.filter(w => w.status === 'approved')
     .reduce((acc, curr) => acc + Number(curr.amount), 0) || 0;
+
+  const balanceHtg = usdtToHtg(Number(user?.balance || 0));
+  const totalDepositedHtg = usdtToHtg(totalDepositedUsdt);
+  const totalWithdrawnHtg = usdtToHtg(totalWithdrawnUsdt);
 
   const allTransactions = [
     ...(deposits?.map(d => ({ ...d, type: 'deposit' as const })) || []),
@@ -59,19 +64,19 @@ export default function DashboardPage() {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <StatCard 
             title={t.dashboard.currentBalance}
-            value={`${user.balance} HTG`} 
+            value={`${formatHtg(balanceHtg)} HTG`} 
             icon={Wallet} 
             colorClass="text-blue-600" 
         />
         <StatCard 
             title={t.dashboard.totalDeposited}
-            value={`$${totalDeposited.toFixed(2)}`} 
+            value={`${formatHtg(totalDepositedHtg)} HTG`} 
             icon={ArrowDownLeft} 
             colorClass="text-emerald-600" 
         />
         <StatCard 
             title={t.dashboard.totalWithdrawn}
-            value={`${totalWithdrawn.toFixed(2)} HTG`} 
+            value={`${formatHtg(totalWithdrawnHtg)} HTG`} 
             icon={ArrowUpRight} 
             colorClass="text-amber-600" 
         />
@@ -112,11 +117,13 @@ export default function DashboardPage() {
 function TransactionRow({ txn }: { txn: any }) {
     const isDeposit = txn.type === 'deposit';
     const { t } = useLanguage();
+    const amountUsdt = isDeposit ? Number(txn.amountUsdt) : Number(txn.amount);
+    const amountHtg = usdtToHtg(amountUsdt);
     return (
         <motion.div 
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
-            className="flex items-center justify-between p-4 rounded-xl bg-white border border-border hover:shadow-md transition-shadow"
+            className="flex items-center justify-between p-4 rounded-xl bg-white dark:bg-card border border-border hover:shadow-md transition-shadow"
         >
             <div className="flex items-center gap-4">
                 <div className={`p-2 rounded-full ${isDeposit ? 'bg-emerald-100 text-emerald-600' : 'bg-amber-100 text-amber-600'}`}>
@@ -133,7 +140,10 @@ function TransactionRow({ txn }: { txn: any }) {
             </div>
             <div className="text-right">
                 <p className={`font-bold ${isDeposit ? 'text-emerald-600' : 'text-amber-600'}`}>
-                    {isDeposit ? '+' : '-'}{isDeposit ? `$${Number(txn.amountUsdt).toFixed(2)}` : `${Number(txn.amount).toFixed(2)}`}
+                    {isDeposit ? '+' : '-'}{formatHtg(amountHtg)} HTG
+                </p>
+                <p className="text-xs text-muted-foreground">
+                    {isDeposit ? '+' : '-'}{formatUsdt(amountUsdt)} USDT
                 </p>
                 <StatusBadge status={txn.status} className="ml-auto mt-1 text-[10px]" />
             </div>

@@ -4,11 +4,12 @@ import { z } from "zod";
 import { useCreateDeposit } from "@/hooks/use-transactions";
 import { useUser } from "@/hooks/use-auth";
 import { useLanguage } from "@/lib/i18n";
+import { EXCHANGE_RATE_USDT_HTG, usdtToHtg, formatHtg } from "@shared/constants";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Copy, Loader2, QrCode, ShieldAlert } from "lucide-react";
+import { Copy, Loader2, QrCode, ShieldAlert, ArrowRight } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { useToast } from "@/hooks/use-toast";
 import { Link } from "wouter";
@@ -29,6 +30,10 @@ export default function DepositPage() {
     resolver: zodResolver(depositSchema),
     defaultValues: { amountUsdt: "", txHash: "" },
   });
+
+  const watchedAmount = form.watch("amountUsdt");
+  const amountUsdt = parseFloat(watchedAmount) || 0;
+  const amountHtg = usdtToHtg(amountUsdt);
 
   const onSubmit = (data: z.infer<typeof depositSchema>) => {
     createDeposit({
@@ -108,6 +113,18 @@ export default function DepositPage() {
                                 </FormItem>
                             )}
                         />
+                        {amountUsdt > 0 && (
+                            <div className="p-3 bg-muted/50 rounded-md border border-border" data-testid="deposit-conversion-preview">
+                                <div className="flex items-center justify-between flex-wrap gap-2 text-sm">
+                                    <span className="text-muted-foreground">{t.deposit.exchangeRate}: 1 USDT = {EXCHANGE_RATE_USDT_HTG.toFixed(2)} HTG</span>
+                                    <div className="flex items-center gap-2">
+                                        <span className="font-medium">{amountUsdt.toFixed(2)} USDT</span>
+                                        <ArrowRight className="w-3 h-3 text-muted-foreground" />
+                                        <span className="font-bold text-emerald-600 dark:text-emerald-400" data-testid="text-deposit-htg">{formatHtg(amountHtg)} HTG</span>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
                         <FormField
                             control={form.control}
                             name="txHash"

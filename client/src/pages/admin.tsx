@@ -32,6 +32,7 @@ import {
   Save,
 } from "lucide-react";
 import { format } from "date-fns";
+import { usdtToHtg, formatHtg, formatUsdt } from "@shared/constants";
 
 export default function AdminPage() {
   const { data: currentUser } = useUser();
@@ -124,7 +125,7 @@ function UsersTab() {
                 <TableHead>Name</TableHead>
                 <TableHead>Email</TableHead>
                 <TableHead>Role</TableHead>
-                <TableHead>Balance (HTG)</TableHead>
+                <TableHead>Balance (USDT)</TableHead>
                 <TableHead>KYC</TableHead>
                 <TableHead>Verified</TableHead>
                 <TableHead>Joined</TableHead>
@@ -251,6 +252,7 @@ function DepositsTab() {
                 <TableHead>ID</TableHead>
                 <TableHead>User ID</TableHead>
                 <TableHead>Amount (USDT)</TableHead>
+                <TableHead>HTG Value</TableHead>
                 <TableHead>Tx Hash</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Date</TableHead>
@@ -263,6 +265,7 @@ function DepositsTab() {
                   <TableCell className="font-mono text-xs">{deposit.id}</TableCell>
                   <TableCell>{deposit.profileId}</TableCell>
                   <TableCell className="font-medium">${Number(deposit.amountUsdt).toFixed(2)}</TableCell>
+                  <TableCell className="text-muted-foreground">{formatHtg(usdtToHtg(Number(deposit.amountUsdt)))} HTG</TableCell>
                   <TableCell>
                     <span className="font-mono text-xs break-all max-w-[200px] block truncate" title={deposit.txHash}>
                       {deposit.txHash}
@@ -306,7 +309,7 @@ function DepositsTab() {
               ))}
               {(!deposits || deposits.length === 0) && (
                 <TableRow>
-                  <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                  <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
                     No deposits found
                   </TableCell>
                 </TableRow>
@@ -358,7 +361,8 @@ function WithdrawalsTab() {
               <TableRow>
                 <TableHead>ID</TableHead>
                 <TableHead>User ID</TableHead>
-                <TableHead>Amount (HTG)</TableHead>
+                <TableHead>Amount (USDT)</TableHead>
+                <TableHead>HTG Value</TableHead>
                 <TableHead>Wallet</TableHead>
                 <TableHead>Method</TableHead>
                 <TableHead>Details</TableHead>
@@ -372,7 +376,8 @@ function WithdrawalsTab() {
                 <TableRow key={w.id} data-testid={`row-withdrawal-${w.id}`}>
                   <TableCell className="font-mono text-xs">{w.id}</TableCell>
                   <TableCell>{w.profileId}</TableCell>
-                  <TableCell className="font-medium">{Number(w.amount).toLocaleString()}</TableCell>
+                  <TableCell className="font-medium">{formatUsdt(Number(w.amount))} USDT</TableCell>
+                  <TableCell className="text-muted-foreground">{formatHtg(usdtToHtg(Number(w.amount)))} HTG</TableCell>
                   <TableCell>
                     <Badge variant="outline">{w.currency}</Badge>
                   </TableCell>
@@ -426,7 +431,7 @@ function WithdrawalsTab() {
               ))}
               {(!withdrawals || withdrawals.length === 0) && (
                 <TableRow>
-                  <TableCell colSpan={10} className="text-center py-8 text-muted-foreground">
+                  <TableCell colSpan={11} className="text-center py-8 text-muted-foreground">
                     No withdrawals found
                   </TableCell>
                 </TableRow>

@@ -4,6 +4,7 @@
 A secure fintech mobile web app for converting USDT (TRC20/BEP20) to MonCash/NatCash. Users register with email/password, complete KYC verification, submit deposits with transaction hashes, and request withdrawals to local mobile money accounts.
 
 ## Recent Changes
+- **Feb 11, 2026**: Added exchange rate system (1 USDT = 139.50 HTG). Created shared/constants.ts with EXCHANGE_RATE_USDT_HTG and conversion utilities (usdtToHtg, htgToUsdt, formatHtg, formatUsdt). Dashboard shows balance and totals in HTG. Withdrawal form accepts USDT amounts with live HTG conversion preview. Deposit page shows HTG equivalent. Admin panel shows USDT amounts with HTG value columns. Transaction history shows both USDT and HTG. Updated i18n for all 3 languages.
 - **Feb 10, 2026**: Added 2FA (TOTP) and WebAuthn fingerprint/biometric authentication. New /security page for managing 2FA and registered biometric devices. Login flow handles 2FA verification step. Fingerprint login option on login page.
 - **Feb 10, 2026**: Added withdrawal method choice: users can withdraw via phone number or QR code. QR code method requires uploading a QR code image. Updated schema (withdrawMethod, qrCodeUrl columns), backend validation, frontend UI with method toggle, and admin panel display.
 - **Feb 10, 2026**: Added multi-language support (English, French, Haitian Creole). Language selector on profile page with localStorage persistence. All pages translated. Added KYC enforcement on deposit/withdrawal endpoints and pages.
