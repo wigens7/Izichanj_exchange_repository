@@ -301,11 +301,19 @@ export async function registerRoutes(
 
   app.patch(api.admin.approveDeposit.path, isAuthenticated, isAdmin, async (req: any, res) => {
     const deposit = await storage.updateDepositStatus(Number(req.params.id), "approved");
+    const profile = await storage.getProfile(deposit.profileId);
+    if (profile) {
+      const currentBalance = parseFloat(profile.balance || "0");
+      const depositAmount = parseFloat(deposit.amountUsdt);
+      const newBalance = currentBalance + depositAmount;
+      await storage.updateProfileBalance(deposit.profileId, newBalance);
+    }
+    const htgAmount = formatHtg(usdtToHtg(Number(deposit.amountUsdt)));
     await storage.createNotification({
       profileId: deposit.profileId,
       type: "deposit_approved",
       title: "Deposit Approved",
-      message: `Your deposit of ${Number(deposit.amountUsdt).toFixed(2)} USDT has been approved and added to your balance.`,
+      message: `Your deposit of ${Number(deposit.amountUsdt).toFixed(2)} USDT (${htgAmount} HTG) has been approved and added to your balance.`,
     });
     res.json(deposit);
   });
@@ -323,11 +331,19 @@ export async function registerRoutes(
 
   app.patch(api.admin.approveWithdrawal.path, isAuthenticated, isAdmin, async (req: any, res) => {
     const withdrawal = await storage.updateWithdrawalStatus(Number(req.params.id), "approved");
+    const profile = await storage.getProfile(withdrawal.profileId);
+    if (profile) {
+      const currentBalance = parseFloat(profile.balance || "0");
+      const withdrawalAmount = parseFloat(withdrawal.amount);
+      const newBalance = Math.max(0, currentBalance - withdrawalAmount);
+      await storage.updateProfileBalance(withdrawal.profileId, newBalance);
+    }
+    const htgAmount = formatHtg(usdtToHtg(Number(withdrawal.amount)));
     await storage.createNotification({
       profileId: withdrawal.profileId,
       type: "withdrawal_approved",
       title: "Withdrawal Approved",
-      message: `Your withdrawal of ${Number(withdrawal.amount).toFixed(2)} USDT to ${withdrawal.currency} has been approved and is being processed.`,
+      message: `Your withdrawal of ${Number(withdrawal.amount).toFixed(2)} USDT (${htgAmount} HTG) to ${withdrawal.currency} has been approved and is being processed.`,
     });
     res.json(withdrawal);
   });
