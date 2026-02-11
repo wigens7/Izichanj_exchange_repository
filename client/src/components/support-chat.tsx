@@ -14,16 +14,21 @@ import {
   Headphones,
   Loader2,
   ShieldCheck,
+  LogOut,
+  Star,
 } from "lucide-react";
 
 export function SupportChat() {
   const [isOpen, setIsOpen] = useState(false);
   const [message, setMessage] = useState("");
+  const [showRating, setShowRating] = useState(false);
+  const [selectedRating, setSelectedRating] = useState(0);
+  const [hoveredRating, setHoveredRating] = useState(0);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const queryClient = useQueryClient();
   const { t } = useLanguage();
 
-  const { data: conversation } = useQuery<any>({
+  const { data: conversation, refetch: refetchConversation } = useQuery<any>({
     queryKey: ["/api/support/conversation"],
     enabled: isOpen,
   });
@@ -61,9 +66,28 @@ export function SupportChat() {
     },
   });
 
+  const endChatMutation = useMutation({
+    mutationFn: async (rating: number) => {
+      const res = await apiRequest("POST", "/api/support/end-chat", { rating });
+      return res.json();
+    },
+    onSuccess: () => {
+      setShowRating(false);
+      setSelectedRating(0);
+      queryClient.invalidateQueries({ queryKey: ["/api/support/messages", conversation?.id] });
+      queryClient.invalidateQueries({ queryKey: ["/api/support/conversation"] });
+    },
+  });
+
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  useEffect(() => {
+    if (conversation?.status === "closed") {
+      setShowRating(false);
+    }
+  }, [conversation?.status]);
 
   const handleSend = () => {
     if (!message.trim() || sendMutation.isPending) return;
@@ -78,7 +102,24 @@ export function SupportChat() {
     }
   };
 
+  const handleEndChat = () => {
+    setShowRating(true);
+  };
+
+  const handleSubmitRating = () => {
+    endChatMutation.mutate(selectedRating);
+  };
+
+  const handleNewChat = () => {
+    queryClient.removeQueries({ queryKey: ["/api/support/conversation"] });
+    queryClient.removeQueries({ queryKey: ["/api/support/messages"] });
+    setShowRating(false);
+    setSelectedRating(0);
+    refetchConversation();
+  };
+
   const isWaitingAgent = conversation?.status === "waiting_agent";
+  const isClosed = conversation?.status === "closed";
 
   return (
     <>
@@ -101,11 +142,25 @@ export function SupportChat() {
                   <p className="text-xs opacity-80">{t.support?.subtitle || "We're here to help"}</p>
                 </div>
               </div>
-              {isWaitingAgent && (
-                <Badge variant="secondary" className="text-xs">
-                  {t.support?.waitingAgent || "Waiting for agent"}
-                </Badge>
-              )}
+              <div className="flex items-center gap-1.5">
+                {isWaitingAgent && (
+                  <Badge variant="secondary" className="text-xs">
+                    {t.support?.waitingAgent || "Waiting for agent"}
+                  </Badge>
+                )}
+                {!isClosed && messages.length > 0 && !showRating && (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    className="text-xs h-7 px-2"
+                    onClick={handleEndChat}
+                    data-testid="button-end-chat"
+                  >
+                    <LogOut className="w-3 h-3 mr-1" />
+                    {t.support?.endChat || "End Chat"}
+                  </Button>
+                )}
+              </div>
             </div>
           </div>
 
@@ -180,43 +235,125 @@ export function SupportChat() {
             <div ref={messagesEndRef} />
           </div>
 
-          {!isWaitingAgent && messages.length > 0 && (
-            <div className="px-3 pb-2">
+          {showRating && !isClosed && (
+            <div className="px-3 py-4 border-t border-border bg-muted/30">
+              <p className="text-sm font-medium text-center mb-2">{t.support?.rateTitle || "Rate your experience"}</p>
+              <p className="text-xs text-muted-foreground text-center mb-3">{t.support?.rateMessage || "How was your support experience?"}</p>
+              <div className="flex justify-center gap-1 mb-3">
+                {[1, 2, 3, 4, 5].map((star) => (
+                  <button
+                    key={star}
+                    onClick={() => setSelectedRating(star)}
+                    onMouseEnter={() => setHoveredRating(star)}
+                    onMouseLeave={() => setHoveredRating(0)}
+                    className="p-1 transition-transform"
+                    data-testid={`button-star-${star}`}
+                  >
+                    <Star
+                      className={`w-7 h-7 transition-colors ${
+                        star <= (hoveredRating || selectedRating)
+                          ? "fill-yellow-400 text-yellow-400"
+                          : "text-muted-foreground/30"
+                      }`}
+                    />
+                  </button>
+                ))}
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="flex-1 text-xs"
+                  onClick={() => setShowRating(false)}
+                  data-testid="button-cancel-rating"
+                >
+                  {t.support?.cancelRating || "Cancel"}
+                </Button>
+                <Button
+                  size="sm"
+                  className="flex-1 text-xs"
+                  onClick={handleSubmitRating}
+                  disabled={selectedRating === 0 || endChatMutation.isPending}
+                  data-testid="button-submit-rating"
+                >
+                  {endChatMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : null}
+                  {t.support?.submitRating || "End Chat"}
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {isClosed && (
+            <div className="px-3 py-4 border-t border-border bg-muted/30 text-center">
+              <p className="text-sm text-muted-foreground mb-2">{t.support?.chatEnded || "This conversation has ended"}</p>
+              {conversation?.rating && (
+                <div className="flex justify-center gap-0.5 mb-2">
+                  {[1, 2, 3, 4, 5].map((star) => (
+                    <Star
+                      key={star}
+                      className={`w-4 h-4 ${
+                        star <= conversation.rating
+                          ? "fill-yellow-400 text-yellow-400"
+                          : "text-muted-foreground/30"
+                      }`}
+                    />
+                  ))}
+                </div>
+              )}
               <Button
                 variant="outline"
                 size="sm"
-                className="w-full text-xs"
-                onClick={() => requestAgentMutation.mutate()}
-                disabled={requestAgentMutation.isPending}
-                data-testid="button-request-agent"
+                className="text-xs"
+                onClick={handleNewChat}
+                data-testid="button-new-chat"
               >
-                <Headphones className="w-3 h-3 mr-1.5" />
-                {t.support?.talkToAgent || "Talk to a support agent"}
+                <MessageCircle className="w-3 h-3 mr-1.5" />
+                {t.support?.startNewChat || "Start New Chat"}
               </Button>
             </div>
           )}
 
-          <div className="px-3 pb-3 pt-2 border-t border-border">
-            <div className="flex items-center gap-2">
-              <Input
-                value={message}
-                onChange={(e) => setMessage(e.target.value)}
-                onKeyDown={handleKeyDown}
-                placeholder={t.support?.placeholder || "Type your message..."}
-                className="flex-1 text-sm"
-                disabled={sendMutation.isPending}
-                data-testid="input-support-message"
-              />
-              <Button
-                size="icon"
-                onClick={handleSend}
-                disabled={!message.trim() || sendMutation.isPending}
-                data-testid="button-send-support"
-              >
-                {sendMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-              </Button>
-            </div>
-          </div>
+          {!isClosed && !showRating && (
+            <>
+              {!isWaitingAgent && messages.length > 0 && (
+                <div className="px-3 pb-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-full text-xs"
+                    onClick={() => requestAgentMutation.mutate()}
+                    disabled={requestAgentMutation.isPending}
+                    data-testid="button-request-agent"
+                  >
+                    <Headphones className="w-3 h-3 mr-1.5" />
+                    {t.support?.talkToAgent || "Talk to a support agent"}
+                  </Button>
+                </div>
+              )}
+
+              <div className="px-3 pb-3 pt-2 border-t border-border">
+                <div className="flex items-center gap-2">
+                  <Input
+                    value={message}
+                    onChange={(e) => setMessage(e.target.value)}
+                    onKeyDown={handleKeyDown}
+                    placeholder={t.support?.placeholder || "Type your message..."}
+                    className="flex-1 text-sm"
+                    disabled={sendMutation.isPending}
+                    data-testid="input-support-message"
+                  />
+                  <Button
+                    size="icon"
+                    onClick={handleSend}
+                    disabled={!message.trim() || sendMutation.isPending}
+                    data-testid="button-send-support"
+                  >
+                    {sendMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                  </Button>
+                </div>
+              </div>
+            </>
+          )}
         </div>
       )}
     </>

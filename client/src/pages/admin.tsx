@@ -39,6 +39,7 @@ import {
   MessageCircle,
   User,
   Bot,
+  Star,
 } from "lucide-react";
 import { format } from "date-fns";
 import { usdtToHtg, formatHtg, formatUsdt } from "@shared/constants";
@@ -943,6 +944,13 @@ function SupportTab() {
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium truncate">{convo.profile?.fullName}</p>
                       <p className="text-xs text-muted-foreground truncate">{convo.lastMessage || "No messages"}</p>
+                      {convo.rating && (
+                        <div className="flex gap-0.5 mt-0.5">
+                          {[1, 2, 3, 4, 5].map((s) => (
+                            <Star key={s} className={`w-3 h-3 ${s <= convo.rating ? "fill-yellow-400 text-yellow-400" : "text-muted-foreground/30"}`} />
+                          ))}
+                        </div>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -973,6 +981,16 @@ function SupportTab() {
               <div className="flex items-center gap-2">
                 {selectedConvo.status === "waiting_agent" && (
                   <Badge variant="destructive">Waiting for agent</Badge>
+                )}
+                {selectedConvo.status === "closed" && selectedConvo.rating && (
+                  <div className="flex items-center gap-1">
+                    {[1, 2, 3, 4, 5].map((s) => (
+                      <Star key={s} className={`w-4 h-4 ${s <= selectedConvo.rating ? "fill-yellow-400 text-yellow-400" : "text-muted-foreground/30"}`} />
+                    ))}
+                  </div>
+                )}
+                {selectedConvo.status === "closed" && (
+                  <Badge variant="secondary">Closed</Badge>
                 )}
                 {selectedConvo.status !== "closed" && (
                   <Button

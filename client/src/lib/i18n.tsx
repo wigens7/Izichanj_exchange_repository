@@ -143,6 +143,13 @@ const translations = {
       placeholder: "Type your message...",
       waitingAgent: "Waiting for agent",
       agentLabel: "Support Agent",
+      endChat: "End Chat",
+      rateTitle: "Rate your experience",
+      rateMessage: "How was your support experience?",
+      cancelRating: "Cancel",
+      submitRating: "End Chat",
+      chatEnded: "This conversation has ended",
+      startNewChat: "Start New Chat",
     },
     login: {
       appTitle: "EASYCHANGE",
@@ -301,6 +308,13 @@ const translations = {
       placeholder: "Tapez votre message...",
       waitingAgent: "En attente d'un agent",
       agentLabel: "Agent de support",
+      endChat: "Terminer",
+      rateTitle: "\u00c9valuez votre exp\u00e9rience",
+      rateMessage: "Comment \u00e9tait votre exp\u00e9rience de support ?",
+      cancelRating: "Annuler",
+      submitRating: "Terminer le chat",
+      chatEnded: "Cette conversation est termin\u00e9e",
+      startNewChat: "Nouveau chat",
     },
     login: {
       appTitle: "EASYCHANGE",
@@ -459,6 +473,13 @@ const translations = {
       placeholder: "Tape mesaj ou...",
       waitingAgent: "Ap tann yon ajan",
       agentLabel: "Ajan sip\u00f2",
+      endChat: "Fini Chat",
+      rateTitle: "Bay eksperyans ou not",
+      rateMessage: "Kijan eksperyans sip\u00f2 ou te ye?",
+      cancelRating: "Anile",
+      submitRating: "Fini Chat",
+      chatEnded: "Konv\u00e8sasyon sa a fini",
+      startNewChat: "Nouvo Chat",
     },
     login: {
       appTitle: "EASYCHANGE",
@@ -493,7 +514,7 @@ type TranslationSet = {
   profile: { status: string; joined: string; language: string; selectLanguage: string; kycTitle: string; kycDescription: string; verified: string; verifiedDescription: string; underReview: string; underReviewDescription: string; idFront: string; idBack: string; selfie: string; clickToUpload: string; uploaded: string; uploading: string; submitVerification: string };
   security: { title: string; description: string; twoFactorAuth: string; twoFactorDescription: string; twoFactorEnabled: string; twoFactorDisabled: string; enable2FA: string; disable2FA: string; scanQRCode: string; manualKey: string; enterCode: string; verify: string; disableConfirm: string; confirmDisable: string; cancel: string; fingerprint: string; fingerprintDescription: string; registerFingerprint: string; registeredDevices: string; noDevices: string; removeDevice: string; twoFARequired: string; enter2FACode: string; verifyLogin: string; fingerprintLogin: string };
   kyc: { required: string; depositMessage: string; withdrawMessage: string; goToProfile: string };
-  support: { title: string; subtitle: string; welcomeTitle: string; welcomeMessage: string; quickDeposit: string; quickWithdraw: string; quickKyc: string; talkToAgent: string; placeholder: string; waitingAgent: string; agentLabel: string };
+  support: { title: string; subtitle: string; welcomeTitle: string; welcomeMessage: string; quickDeposit: string; quickWithdraw: string; quickKyc: string; talkToAgent: string; placeholder: string; waitingAgent: string; agentLabel: string; endChat: string; rateTitle: string; rateMessage: string; cancelRating: string; submitRating: string; chatEnded: string; startNewChat: string };
   login: { appTitle: string; appSubtitle: string; signIn: string; signUp: string; welcomeBack: string; signInDescription: string; createAccount: string; signUpDescription: string; email: string; password: string; fullName: string; confirmPassword: string };
   verifyEmail: { title: string; description: string; verifyButton: string; didntReceive: string; resendIn: string; resendCode: string };
 };
