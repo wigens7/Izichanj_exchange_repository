@@ -1,4 +1,4 @@
-import { ReactNode } from "react";
+import { ReactNode, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { useUser, useLogout } from "@/hooks/use-auth";
 import { useLanguage } from "@/lib/i18n";
@@ -16,7 +16,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
-import { useState } from "react";
+import { NotificationBell } from "@/components/notification-bell";
 
 interface LayoutShellProps {
   children: ReactNode;
@@ -114,16 +114,21 @@ export function LayoutShell({ children }: LayoutShellProps) {
           </div>
           <h1 className="text-base font-display font-bold text-white">EASYCHANGE</h1>
         </div>
-        <Sheet open={isOpen} onOpenChange={setIsOpen}>
-          <SheetTrigger asChild>
-            <Button variant="ghost" size="icon" className="text-sidebar-foreground hover:bg-sidebar-accent" data-testid="button-mobile-menu">
-              <Menu className="w-5 h-5" />
-            </Button>
-          </SheetTrigger>
-          <SheetContent side="left" className="p-0 w-[280px] border-none">
-            <NavContent />
-          </SheetContent>
-        </Sheet>
+        <div className="flex items-center gap-1">
+          <div className="text-sidebar-foreground">
+            <NotificationBell />
+          </div>
+          <Sheet open={isOpen} onOpenChange={setIsOpen}>
+            <SheetTrigger asChild>
+              <Button variant="ghost" size="icon" className="text-sidebar-foreground" data-testid="button-mobile-menu">
+                <Menu className="w-5 h-5" />
+              </Button>
+            </SheetTrigger>
+            <SheetContent side="left" className="p-0 w-[280px] border-none">
+              <NavContent />
+            </SheetContent>
+          </Sheet>
+        </div>
       </header>
 
       <aside className="hidden lg:block fixed top-0 left-0 bottom-0 w-[260px] z-40">
@@ -131,6 +136,9 @@ export function LayoutShell({ children }: LayoutShellProps) {
       </aside>
 
       <main className="pt-14 lg:pt-0 lg:pl-[260px] min-h-screen">
+        <div className="hidden lg:flex items-center justify-end px-6 py-3 border-b border-border">
+          <NotificationBell />
+        </div>
         <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-6 lg:py-8 pb-24">
           {children}
         </div>

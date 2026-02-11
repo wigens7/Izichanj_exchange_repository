@@ -74,6 +74,18 @@ export const kycDocuments = pgTable("kyc_documents", {
   submittedAt: timestamp("submitted_at").defaultNow().notNull(),
 });
 
+export const notificationTypeEnum = pgEnum("notification_type", ["deposit_approved", "deposit_rejected", "withdrawal_approved", "withdrawal_rejected", "kyc_verified", "kyc_rejected", "custom_message"]);
+
+export const notifications = pgTable("notifications", {
+  id: serial("id").primaryKey(),
+  profileId: integer("profile_id").references(() => profiles.id).notNull(),
+  type: notificationTypeEnum("type").notNull(),
+  title: text("title").notNull(),
+  message: text("message").notNull(),
+  isRead: boolean("is_read").default(false).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
 export const insertDepositSchema = createInsertSchema(deposits).omit({ id: true, profileId: true, status: true, createdAt: true });
 export const insertWithdrawalSchema = createInsertSchema(withdrawals).omit({ id: true, profileId: true, status: true, createdAt: true });
 export const insertKycSchema = createInsertSchema(kycDocuments).omit({ id: true, profileId: true, submittedAt: true });
@@ -100,5 +112,6 @@ export type Withdrawal = typeof withdrawals.$inferSelect;
 export type InsertWithdrawal = z.infer<typeof insertWithdrawalSchema>;
 export type KycDocument = typeof kycDocuments.$inferSelect;
 export type WebAuthnCredential = typeof webauthnCredentials.$inferSelect;
+export type Notification = typeof notifications.$inferSelect;
 export type RegisterInput = z.infer<typeof registerSchema>;
 export type LoginInput = z.infer<typeof loginSchema>;

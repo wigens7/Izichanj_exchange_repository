@@ -30,9 +30,19 @@ import {
   Loader2,
   Pencil,
   Save,
+  Send,
+  MessageSquare,
 } from "lucide-react";
 import { format } from "date-fns";
 import { usdtToHtg, formatHtg, formatUsdt } from "@shared/constants";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { Textarea } from "@/components/ui/textarea";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
+import { useMutation } from "@tanstack/react-query";
 
 export default function AdminPage() {
   const { data: currentUser } = useUser();
@@ -53,7 +63,7 @@ export default function AdminPage() {
       </div>
 
       <Tabs defaultValue="users" className="w-full">
-        <TabsList className="mb-4 grid w-full grid-cols-4 gap-2">
+        <TabsList className="mb-4 grid w-full grid-cols-5 gap-2">
           <TabsTrigger value="users" className="gap-2" data-testid="tab-admin-users">
             <Users className="w-4 h-4" />
             <span className="hidden sm:inline">Users</span>
@@ -70,6 +80,10 @@ export default function AdminPage() {
             <ShieldCheck className="w-4 h-4" />
             <span className="hidden sm:inline">KYC</span>
           </TabsTrigger>
+          <TabsTrigger value="messages" className="gap-2" data-testid="tab-admin-messages">
+            <MessageSquare className="w-4 h-4" />
+            <span className="hidden sm:inline">Messages</span>
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="users">
@@ -83,6 +97,9 @@ export default function AdminPage() {
         </TabsContent>
         <TabsContent value="kyc">
           <KycTab />
+        </TabsContent>
+        <TabsContent value="messages">
+          <MessagesTab />
         </TabsContent>
       </Tabs>
     </div>
@@ -540,6 +557,142 @@ function KycTab() {
             </TableBody>
           </Table>
         </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+const sendMessageSchema = z.object({
+  userId: z.string().min(1, "Please select a user"),
+  title: z.string().min(1, "Title is required").max(100, "Title must be under 100 characters"),
+  message: z.string().min(1, "Message is required").max(500, "Message must be under 500 characters"),
+});
+
+function MessagesTab() {
+  const { data: users, isLoading } = useAdminUsers();
+  const { toast } = useToast();
+
+  const form = useForm<z.infer<typeof sendMessageSchema>>({
+    resolver: zodResolver(sendMessageSchema),
+    defaultValues: {
+      userId: "",
+      title: "",
+      message: "",
+    },
+  });
+
+  const sendMessage = useMutation({
+    mutationFn: async (data: z.infer<typeof sendMessageSchema>) => {
+      await apiRequest("POST", "/api/admin/notifications/send", {
+        profileId: parseInt(data.userId),
+        title: data.title,
+        message: data.message,
+      });
+    },
+    onSuccess: () => {
+      toast({ title: "Message sent", description: "The notification has been sent to the user." });
+      form.reset();
+    },
+    onError: (error: Error) => {
+      toast({ title: "Failed to send", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const onSubmit = (data: z.infer<typeof sendMessageSchema>) => {
+    sendMessage.mutate(data);
+  };
+
+  if (isLoading) {
+    return (
+      <Card>
+        <CardContent className="p-6">
+          <Skeleton className="h-40 w-full" />
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Send className="w-5 h-5" />
+          Send Notification
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <Form {...form}>
+          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+            <FormField
+              control={form.control}
+              name="userId"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Select User</FormLabel>
+                  <FormControl>
+                    <select
+                      {...field}
+                      className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      data-testid="select-message-user"
+                    >
+                      <option value="">Choose a user...</option>
+                      {users?.map((user: any) => (
+                        <option key={user.id} value={user.id.toString()}>
+                          {user.fullName} ({user.email})
+                        </option>
+                      ))}
+                    </select>
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="title"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Title</FormLabel>
+                  <FormControl>
+                    <Input
+                      {...field}
+                      placeholder="Notification title..."
+                      data-testid="input-message-title"
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="message"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Message</FormLabel>
+                  <FormControl>
+                    <Textarea
+                      {...field}
+                      placeholder="Type your notification message..."
+                      className="resize-none"
+                      rows={4}
+                      data-testid="input-message-text"
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <Button type="submit" disabled={sendMessage.isPending} data-testid="button-send-message">
+              {sendMessage.isPending ? (
+                <Loader2 className="w-4 h-4 animate-spin mr-2" />
+              ) : (
+                <Send className="w-4 h-4 mr-2" />
+              )}
+              Send Notification
+            </Button>
+          </form>
+        </Form>
       </CardContent>
     </Card>
   );

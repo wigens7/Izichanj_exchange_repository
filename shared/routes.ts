@@ -1,7 +1,7 @@
 import { z } from 'zod';
-import { insertDepositSchema, insertWithdrawalSchema, profiles, deposits, withdrawals, kycDocuments } from './schema';
+import { insertDepositSchema, insertWithdrawalSchema, profiles, deposits, withdrawals, kycDocuments, notifications } from './schema';
 
-export type { Profile, Deposit, InsertDeposit, Withdrawal, InsertWithdrawal, KycDocument } from './schema';
+export type { Profile, Deposit, InsertDeposit, Withdrawal, InsertWithdrawal, KycDocument, Notification } from './schema';
 
 export const errorSchemas = {
   validation: z.object({ message: z.string(), field: z.string().optional() }),
@@ -132,6 +132,41 @@ export const api = {
       method: 'GET' as const,
       path: '/api/admin/withdrawals' as const,
       responses: { 200: z.array(z.custom<typeof withdrawals.$inferSelect>()) },
+    },
+    sendNotification: {
+      method: 'POST' as const,
+      path: '/api/admin/notifications/send' as const,
+      input: z.object({
+        profileId: z.number(),
+        title: z.string().min(1),
+        message: z.string().min(1),
+      }),
+      responses: {
+        201: z.custom<typeof notifications.$inferSelect>(),
+        400: errorSchemas.validation,
+      },
+    },
+  },
+  notifications: {
+    list: {
+      method: 'GET' as const,
+      path: '/api/notifications' as const,
+      responses: { 200: z.array(z.custom<typeof notifications.$inferSelect>()) },
+    },
+    unreadCount: {
+      method: 'GET' as const,
+      path: '/api/notifications/unread-count' as const,
+      responses: { 200: z.object({ count: z.number() }) },
+    },
+    markRead: {
+      method: 'PATCH' as const,
+      path: '/api/notifications/:id/read' as const,
+      responses: { 200: z.object({ message: z.string() }) },
+    },
+    markAllRead: {
+      method: 'PATCH' as const,
+      path: '/api/notifications/read-all' as const,
+      responses: { 200: z.object({ message: z.string() }) },
     },
   },
 };

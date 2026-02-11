@@ -301,27 +301,57 @@ export async function registerRoutes(
 
   app.patch(api.admin.approveDeposit.path, isAuthenticated, isAdmin, async (req: any, res) => {
     const deposit = await storage.updateDepositStatus(Number(req.params.id), "approved");
+    await storage.createNotification({
+      profileId: deposit.profileId,
+      type: "deposit_approved",
+      title: "Deposit Approved",
+      message: `Your deposit of ${Number(deposit.amountUsdt).toFixed(2)} USDT has been approved and added to your balance.`,
+    });
     res.json(deposit);
   });
 
   app.patch(api.admin.rejectDeposit.path, isAuthenticated, isAdmin, async (req: any, res) => {
     const deposit = await storage.updateDepositStatus(Number(req.params.id), "rejected");
+    await storage.createNotification({
+      profileId: deposit.profileId,
+      type: "deposit_rejected",
+      title: "Deposit Rejected",
+      message: `Your deposit of ${Number(deposit.amountUsdt).toFixed(2)} USDT has been rejected. Please contact support for more information.`,
+    });
     res.json(deposit);
   });
 
   app.patch(api.admin.approveWithdrawal.path, isAuthenticated, isAdmin, async (req: any, res) => {
     const withdrawal = await storage.updateWithdrawalStatus(Number(req.params.id), "approved");
+    await storage.createNotification({
+      profileId: withdrawal.profileId,
+      type: "withdrawal_approved",
+      title: "Withdrawal Approved",
+      message: `Your withdrawal of ${Number(withdrawal.amount).toFixed(2)} USDT to ${withdrawal.currency} has been approved and is being processed.`,
+    });
     res.json(withdrawal);
   });
 
   app.patch(api.admin.rejectWithdrawal.path, isAuthenticated, isAdmin, async (req: any, res) => {
     const withdrawal = await storage.updateWithdrawalStatus(Number(req.params.id), "rejected");
+    await storage.createNotification({
+      profileId: withdrawal.profileId,
+      type: "withdrawal_rejected",
+      title: "Withdrawal Rejected",
+      message: `Your withdrawal of ${Number(withdrawal.amount).toFixed(2)} USDT to ${withdrawal.currency} has been rejected. Please contact support.`,
+    });
     res.json(withdrawal);
   });
 
   app.patch(api.admin.verifyKyc.path, isAuthenticated, isAdmin, async (req: any, res) => {
     const profileId = Number(req.params.id);
     await storage.updateKycStatus(profileId, "verified");
+    await storage.createNotification({
+      profileId,
+      type: "kyc_verified",
+      title: "KYC Verified",
+      message: "Your identity has been verified. You can now make deposits and withdrawals.",
+    });
     const kyc = await storage.getKyc(profileId);
     res.json(kyc);
   });
@@ -329,6 +359,12 @@ export async function registerRoutes(
   app.patch(api.admin.rejectKyc.path, isAuthenticated, isAdmin, async (req: any, res) => {
     const profileId = Number(req.params.id);
     await storage.updateKycStatus(profileId, "rejected");
+    await storage.createNotification({
+      profileId,
+      type: "kyc_rejected",
+      title: "KYC Rejected",
+      message: "Your identity verification was rejected. Please resubmit your documents.",
+    });
     const kyc = await storage.getKyc(profileId);
     res.json(kyc);
   });
@@ -341,6 +377,52 @@ export async function registerRoutes(
   app.get(api.admin.allWithdrawals.path, isAuthenticated, isAdmin, async (req: any, res) => {
     const allWithdrawals = await storage.getWithdrawals();
     res.json(allWithdrawals);
+  });
+
+  app.post(api.admin.sendNotification.path, isAuthenticated, isAdmin, async (req: any, res) => {
+    try {
+      const parsed = api.admin.sendNotification.input.parse(req.body);
+      const targetProfile = await storage.getProfile(parsed.profileId);
+      if (!targetProfile) return res.status(404).json({ message: "User not found" });
+      const notification = await storage.createNotification({
+        profileId: parsed.profileId,
+        type: "custom_message",
+        title: parsed.title,
+        message: parsed.message,
+      });
+      res.status(201).json(notification);
+    } catch (e) {
+      if (e instanceof z.ZodError) return res.status(400).json({ message: e.errors[0].message });
+      res.status(500).json({ message: "Internal Error" });
+    }
+  });
+
+  app.get(api.notifications.list.path, isAuthenticated, async (req: any, res) => {
+    const profile = await getProfileFromReq(req);
+    if (!profile) return res.status(401).json({ message: "Unauthorized" });
+    const notifs = await storage.getNotifications(profile.id);
+    res.json(notifs);
+  });
+
+  app.get(api.notifications.unreadCount.path, isAuthenticated, async (req: any, res) => {
+    const profile = await getProfileFromReq(req);
+    if (!profile) return res.status(401).json({ message: "Unauthorized" });
+    const count = await storage.getUnreadNotificationCount(profile.id);
+    res.json({ count });
+  });
+
+  app.patch(api.notifications.markRead.path, isAuthenticated, async (req: any, res) => {
+    const profile = await getProfileFromReq(req);
+    if (!profile) return res.status(401).json({ message: "Unauthorized" });
+    await storage.markNotificationRead(Number(req.params.id), profile.id);
+    res.json({ message: "Marked as read" });
+  });
+
+  app.patch(api.notifications.markAllRead.path, isAuthenticated, async (req: any, res) => {
+    const profile = await getProfileFromReq(req);
+    if (!profile) return res.status(401).json({ message: "Unauthorized" });
+    await storage.markAllNotificationsRead(profile.id);
+    res.json({ message: "All marked as read" });
   });
 
   // ======= 2FA TOTP Routes =======

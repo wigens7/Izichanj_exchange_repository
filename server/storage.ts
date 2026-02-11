@@ -1,6 +1,6 @@
-import { profiles, deposits, withdrawals, kycDocuments, otps, webauthnCredentials, type Profile, type Deposit, type InsertDeposit, type Withdrawal, type InsertWithdrawal, type KycDocument, type WebAuthnCredential } from "@shared/schema";
+import { profiles, deposits, withdrawals, kycDocuments, otps, webauthnCredentials, notifications, type Profile, type Deposit, type InsertDeposit, type Withdrawal, type InsertWithdrawal, type KycDocument, type WebAuthnCredential, type Notification } from "@shared/schema";
 import { db } from "./db";
-import { eq, desc, and } from "drizzle-orm";
+import { eq, desc, and, sql } from "drizzle-orm";
 
 export interface IStorage {
   getProfile(id: number): Promise<Profile | undefined>;
@@ -36,6 +36,12 @@ export interface IStorage {
   getWebAuthnCredentialById(credentialId: string): Promise<WebAuthnCredential | undefined>;
   updateWebAuthnCounter(credentialId: string, counter: number): Promise<void>;
   deleteWebAuthnCredential(id: number, profileId: number): Promise<void>;
+
+  createNotification(data: { profileId: number; type: Notification["type"]; title: string; message: string }): Promise<Notification>;
+  getNotifications(profileId: number): Promise<Notification[]>;
+  getUnreadNotificationCount(profileId: number): Promise<number>;
+  markNotificationRead(id: number, profileId: number): Promise<void>;
+  markAllNotificationsRead(profileId: number): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -179,6 +185,28 @@ export class DatabaseStorage implements IStorage {
 
   async deleteWebAuthnCredential(id: number, profileId: number): Promise<void> {
     await db.delete(webauthnCredentials).where(and(eq(webauthnCredentials.id, id), eq(webauthnCredentials.profileId, profileId)));
+  }
+
+  async createNotification(data: { profileId: number; type: Notification["type"]; title: string; message: string }): Promise<Notification> {
+    const [notification] = await db.insert(notifications).values(data).returning();
+    return notification;
+  }
+
+  async getNotifications(profileId: number): Promise<Notification[]> {
+    return db.select().from(notifications).where(eq(notifications.profileId, profileId)).orderBy(desc(notifications.createdAt)).limit(50);
+  }
+
+  async getUnreadNotificationCount(profileId: number): Promise<number> {
+    const [result] = await db.select({ count: sql<number>`count(*)::int` }).from(notifications).where(and(eq(notifications.profileId, profileId), eq(notifications.isRead, false)));
+    return result?.count || 0;
+  }
+
+  async markNotificationRead(id: number, profileId: number): Promise<void> {
+    await db.update(notifications).set({ isRead: true }).where(and(eq(notifications.id, id), eq(notifications.profileId, profileId)));
+  }
+
+  async markAllNotificationsRead(profileId: number): Promise<void> {
+    await db.update(notifications).set({ isRead: true }).where(eq(notifications.profileId, profileId));
   }
 }
 
