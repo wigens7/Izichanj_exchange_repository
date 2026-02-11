@@ -8,6 +8,7 @@ import { setupAuth, isAuthenticated } from "./auth";
 import { registerObjectStorageRoutes } from "./replit_integrations/object_storage";
 import crypto from "crypto";
 import bcrypt from "bcryptjs";
+import { WITHDRAWAL_MIN_USDT, WITHDRAWAL_MAX_USDT, usdtToHtg, formatHtg, WITHDRAWAL_MIN_HTG, WITHDRAWAL_MAX_HTG } from "@shared/constants";
 import * as otplibModule from "otplib";
 import QRCode from "qrcode";
 import {
@@ -236,6 +237,24 @@ export async function registerRoutes(
       }
       if (parsed.withdrawMethod === "qrcode" && !parsed.qrCodeUrl) {
         return res.status(400).json({ message: "QR code image is required for QR code withdrawal" });
+      }
+
+      const amountUsdt = parseFloat(parsed.amount);
+      if (isNaN(amountUsdt) || amountUsdt <= 0) {
+        return res.status(400).json({ message: "Invalid amount" });
+      }
+
+      const amountHtg = usdtToHtg(amountUsdt);
+      if (amountHtg < WITHDRAWAL_MIN_HTG) {
+        return res.status(400).json({ message: `Minimum withdrawal is ${formatHtg(WITHDRAWAL_MIN_HTG)} HTG (${WITHDRAWAL_MIN_USDT.toFixed(2)} USDT)` });
+      }
+      if (amountHtg > WITHDRAWAL_MAX_HTG) {
+        return res.status(400).json({ message: `Maximum withdrawal is ${formatHtg(WITHDRAWAL_MAX_HTG)} HTG (${WITHDRAWAL_MAX_USDT.toFixed(2)} USDT)` });
+      }
+
+      const currentBalance = parseFloat(profile.balance || "0");
+      if (amountUsdt > currentBalance) {
+        return res.status(400).json({ message: `Insufficient balance. Your current balance is ${currentBalance.toFixed(2)} USDT` });
       }
 
       const validOtp = await storage.getValidOtp(profile.id, parsed.otp);

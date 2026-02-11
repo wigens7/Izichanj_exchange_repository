@@ -69,8 +69,8 @@ export default function DashboardPage() {
                 <TrendingUp className="w-4 h-4" />
               </div>
             </div>
-            <p className="text-2xl font-display font-bold text-foreground" data-testid="text-deposited-htg">{formatHtg(totalDepositedHtg)} <span className="text-sm font-normal text-muted-foreground">HTG</span></p>
-            <p className="text-xs text-muted-foreground mt-1">{formatUsdt(totalDepositedUsdt)} USDT</p>
+            <p className="text-2xl font-display font-bold text-foreground" data-testid="text-deposited-usdt">{formatUsdt(totalDepositedUsdt)} <span className="text-sm font-normal text-muted-foreground">USDT</span></p>
+            <p className="text-xs text-muted-foreground mt-1">{formatHtg(totalDepositedHtg)} HTG</p>
           </CardContent>
         </Card>
 

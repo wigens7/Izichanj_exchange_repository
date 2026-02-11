@@ -6,7 +6,7 @@ import { useCreateWithdrawal, useRequestWithdrawalOtp } from "@/hooks/use-transa
 import { useUser } from "@/hooks/use-auth";
 import { useUpload } from "@/hooks/use-upload";
 import { useLanguage } from "@/lib/i18n";
-import { EXCHANGE_RATE_USDT_HTG, usdtToHtg, formatHtg, formatUsdt } from "@shared/constants";
+import { EXCHANGE_RATE_USDT_HTG, usdtToHtg, formatHtg, formatUsdt, WITHDRAWAL_MIN_HTG, WITHDRAWAL_MAX_HTG, WITHDRAWAL_MIN_USDT, WITHDRAWAL_MAX_USDT } from "@shared/constants";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
@@ -19,7 +19,16 @@ import { Link } from "wouter";
 
 const withdrawSchema = z.object({
   currency: z.enum(["MonCash", "NatCash"]),
-  amount: z.string().refine((val) => !isNaN(Number(val)) && Number(val) > 0, "Amount must be greater than 0"),
+  amount: z.string()
+    .refine((val) => !isNaN(Number(val)) && Number(val) > 0, "Amount must be greater than 0")
+    .refine((val) => {
+      const htg = usdtToHtg(Number(val));
+      return htg >= WITHDRAWAL_MIN_HTG;
+    }, `Minimum withdrawal is ${formatHtg(WITHDRAWAL_MIN_HTG)} HTG (~${WITHDRAWAL_MIN_USDT.toFixed(2)} USDT)`)
+    .refine((val) => {
+      const htg = usdtToHtg(Number(val));
+      return htg <= WITHDRAWAL_MAX_HTG;
+    }, `Maximum withdrawal is ${formatHtg(WITHDRAWAL_MAX_HTG)} HTG (~${WITHDRAWAL_MAX_USDT.toFixed(2)} USDT)`),
   withdrawMethod: z.enum(["phone", "qrcode"]),
   phoneNumber: z.string().optional(),
   qrCodeUrl: z.string().optional(),
@@ -52,6 +61,8 @@ export default function WithdrawPage() {
   const watchedAmount = form.watch("amount");
   const amountUsdt = parseFloat(watchedAmount) || 0;
   const amountHtg = usdtToHtg(amountUsdt);
+  const userBalance = parseFloat(user?.balance || "0");
+  const exceedsBalance = amountUsdt > 0 && amountUsdt > userBalance;
 
   const handleRequestOtp = () => {
     requestOtp(undefined, {
@@ -155,6 +166,11 @@ export default function WithdrawPage() {
                 />
               </div>
 
+              <div className="p-2.5 bg-muted/40 rounded-md text-xs text-muted-foreground flex items-center justify-between flex-wrap gap-2" data-testid="withdrawal-limits-info">
+                <span>Min: {formatHtg(WITHDRAWAL_MIN_HTG)} HTG (~{WITHDRAWAL_MIN_USDT.toFixed(2)} USDT)</span>
+                <span>Max: {formatHtg(WITHDRAWAL_MAX_HTG)} HTG (~{WITHDRAWAL_MAX_USDT.toFixed(2)} USDT)</span>
+              </div>
+
               {amountUsdt > 0 && (
                 <div className="p-3 bg-emerald-500/5 dark:bg-emerald-500/8 rounded-md border border-emerald-200 dark:border-emerald-800/40" data-testid="conversion-preview">
                   <div className="flex items-center justify-between flex-wrap gap-2 text-sm mb-1">
@@ -169,6 +185,12 @@ export default function WithdrawPage() {
                       <span className="font-bold text-emerald-600 dark:text-emerald-400" data-testid="text-htg-amount">{formatHtg(amountHtg)} HTG</span>
                     </div>
                   </div>
+                </div>
+              )}
+
+              {exceedsBalance && (
+                <div className="p-2.5 bg-destructive/8 dark:bg-destructive/15 rounded-md border border-destructive/30 text-sm text-destructive dark:text-red-400" data-testid="alert-insufficient-balance">
+                  Insufficient balance. Your available balance is {formatUsdt(userBalance)} USDT ({formatHtg(usdtToHtg(userBalance))} HTG).
                 </div>
               )}
 
@@ -303,7 +325,7 @@ export default function WithdrawPage() {
               <Button 
                 type="submit" 
                 className="w-full primary-gradient" 
-                disabled={isWithdrawPending || !otpSent || (withdrawMethod === "qrcode" && !qrUploaded)}
+                disabled={isWithdrawPending || !otpSent || exceedsBalance || (withdrawMethod === "qrcode" && !qrUploaded)}
                 data-testid="button-confirm-withdrawal"
               >
                 {isWithdrawPending ? <Loader2 className="animate-spin mr-2" /> : t.withdraw.confirmWithdrawal}
