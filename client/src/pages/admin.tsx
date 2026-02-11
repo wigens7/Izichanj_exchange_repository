@@ -40,6 +40,10 @@ import {
   User,
   Bot,
   Star,
+  Paperclip,
+  FileText,
+  Download,
+  Image as ImageIcon,
 } from "lucide-react";
 import { format } from "date-fns";
 import { usdtToHtg, formatHtg, formatUsdt } from "@shared/constants";
@@ -817,6 +821,35 @@ function MessagesTab() {
   );
 }
 
+function isImageFile(fileName: string) {
+  return /\.(jpg|jpeg|png|gif|webp|bmp|svg)$/i.test(fileName);
+}
+
+function AdminFileAttachment({ fileUrl, fileName, isAdmin }: { fileUrl: string; fileName: string; isAdmin: boolean }) {
+  const isImage = isImageFile(fileName);
+  return (
+    <div className="mt-1.5">
+      {isImage ? (
+        <a href={fileUrl} target="_blank" rel="noopener noreferrer" data-testid="link-admin-file-attachment">
+          <img src={fileUrl} alt={fileName} className="max-w-full max-h-32 rounded-md border border-border/30 cursor-pointer" data-testid="img-admin-file-attachment" />
+        </a>
+      ) : (
+        <a
+          href={fileUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className={`flex items-center gap-1.5 px-2 py-1.5 rounded-md text-xs ${isAdmin ? "bg-primary-foreground/10" : "bg-muted-foreground/10"}`}
+          data-testid="link-admin-file-attachment"
+        >
+          <FileText className="w-3.5 h-3.5 flex-shrink-0" />
+          <span className="truncate max-w-[140px]">{fileName}</span>
+          <Download className="w-3 h-3 flex-shrink-0" />
+        </a>
+      )}
+    </div>
+  );
+}
+
 function SupportTab() {
   const { data: conversations = [], isLoading } = useQuery<any[]>({
     queryKey: ["/api/admin/support/conversations"],
@@ -824,6 +857,9 @@ function SupportTab() {
   });
   const [selectedConvo, setSelectedConvo] = useState<any>(null);
   const [replyText, setReplyText] = useState("");
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const fileInputRef2 = useRef<HTMLInputElement>(null);
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
@@ -840,19 +876,70 @@ function SupportTab() {
   });
 
   const replyMutation = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (payload: { message?: string; fileUrl?: string; fileName?: string }) => {
       const res = await apiRequest("POST", "/api/admin/support/reply", {
         conversationId: selectedConvo.id,
-        message: replyText.trim(),
+        ...payload,
       });
       return res.json();
     },
     onSuccess: () => {
       setReplyText("");
+      setPendingFile(null);
       queryClient.invalidateQueries({ queryKey: ["/api/support/messages", selectedConvo?.id] });
       queryClient.invalidateQueries({ queryKey: ["/api/admin/support/conversations"] });
     },
   });
+
+  const uploadAndSendAdmin = async (file: File, textMessage?: string) => {
+    setIsUploading(true);
+    try {
+      const uploadRes = await apiRequest("POST", "/api/admin/support/upload", {
+        name: file.name,
+        size: file.size,
+        contentType: file.type,
+      });
+      const { uploadURL, objectPath } = await uploadRes.json();
+      await fetch(uploadURL, {
+        method: "PUT",
+        body: file,
+        headers: { "Content-Type": file.type || "application/octet-stream" },
+      });
+      await replyMutation.mutateAsync({
+        message: textMessage || undefined,
+        fileUrl: objectPath,
+        fileName: file.name,
+      });
+    } catch (e) {
+      console.error("Admin file upload error:", e);
+    } finally {
+      setIsUploading(false);
+      setPendingFile(null);
+    }
+  };
+
+  const handleAdminSend = () => {
+    if (isUploading || replyMutation.isPending) return;
+    if (pendingFile) {
+      uploadAndSendAdmin(pendingFile, replyText.trim() || undefined);
+      setReplyText("");
+      return;
+    }
+    if (!replyText.trim()) return;
+    replyMutation.mutate({ message: replyText.trim() });
+    setReplyText("");
+  };
+
+  const handleAdminFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 10 * 1024 * 1024) {
+      alert("File too large (max 10MB)");
+      return;
+    }
+    setPendingFile(file);
+    if (fileInputRef2.current) fileInputRef2.current.value = "";
+  };
 
   const closeMutation = useMutation({
     mutationFn: async (id: number) => {
@@ -1038,7 +1125,10 @@ function SupportTab() {
                       {msg.sender === "admin" && (
                         <p className="text-[10px] font-medium opacity-70 mb-1">You (Admin)</p>
                       )}
-                      {msg.message}
+                      {(!msg.fileUrl || (msg.message && !msg.message.startsWith("Sent a file:"))) && msg.message}
+                      {msg.fileUrl && (
+                        <AdminFileAttachment fileUrl={msg.fileUrl} fileName={msg.fileName || "file"} isAdmin={msg.sender === "admin"} />
+                      )}
                     </div>
                     {msg.sender !== "user" && (
                       <div className={`w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 ${msg.sender === "bot" ? "bg-muted" : "bg-primary/10"}`}>
@@ -1050,29 +1140,63 @@ function SupportTab() {
                 <div ref={messagesEndRef} />
               </div>
               {selectedConvo.status !== "closed" && (
-                <div className="px-4 pb-4 pt-2 border-t border-border">
+                <div className="px-4 pb-4 pt-2 border-t border-border space-y-2">
+                  {pendingFile && (
+                    <div className="flex items-center gap-2 px-2 py-1.5 bg-muted rounded-md text-xs">
+                      {isImageFile(pendingFile.name) ? (
+                        <ImageIcon className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
+                      ) : (
+                        <FileText className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
+                      )}
+                      <span className="truncate flex-1">{pendingFile.name}</span>
+                      <button
+                        onClick={() => setPendingFile(null)}
+                        className="text-muted-foreground"
+                        data-testid="button-admin-remove-file"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  )}
                   <div className="flex items-center gap-2">
+                    <input
+                      type="file"
+                      ref={fileInputRef2}
+                      className="hidden"
+                      onChange={handleAdminFileSelect}
+                      accept="image/*,.pdf,.doc,.docx,.txt,.zip"
+                      data-testid="input-admin-file-upload"
+                    />
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      onClick={() => fileInputRef2.current?.click()}
+                      disabled={isUploading || replyMutation.isPending}
+                      data-testid="button-admin-attach-file"
+                    >
+                      <Paperclip className="w-4 h-4" />
+                    </Button>
                     <Input
                       value={replyText}
                       onChange={(e: any) => setReplyText(e.target.value)}
                       onKeyDown={(e: any) => {
-                        if (e.key === "Enter" && !e.shiftKey && replyText.trim()) {
+                        if (e.key === "Enter" && !e.shiftKey && (replyText.trim() || pendingFile)) {
                           e.preventDefault();
-                          replyMutation.mutate();
+                          handleAdminSend();
                         }
                       }}
                       placeholder="Type your reply..."
                       className="flex-1 text-sm"
-                      disabled={replyMutation.isPending}
+                      disabled={isUploading || replyMutation.isPending}
                       data-testid="input-admin-reply"
                     />
                     <Button
                       size="icon"
-                      onClick={() => replyMutation.mutate()}
-                      disabled={!replyText.trim() || replyMutation.isPending}
+                      onClick={handleAdminSend}
+                      disabled={(!replyText.trim() && !pendingFile) || isUploading || replyMutation.isPending}
                       data-testid="button-admin-send-reply"
                     >
-                      {replyMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                      {isUploading || replyMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
                     </Button>
                   </div>
                 </div>

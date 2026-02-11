@@ -16,7 +16,47 @@ import {
   ShieldCheck,
   LogOut,
   Star,
+  Paperclip,
+  FileText,
+  Download,
+  Image as ImageIcon,
 } from "lucide-react";
+
+function isImageFile(fileName: string) {
+  return /\.(jpg|jpeg|png|gif|webp|bmp|svg)$/i.test(fileName);
+}
+
+function FileAttachment({ fileUrl, fileName, isUser }: { fileUrl: string; fileName: string; isUser: boolean }) {
+  const isImage = isImageFile(fileName);
+  return (
+    <div className="mt-1.5">
+      {isImage ? (
+        <a href={fileUrl} target="_blank" rel="noopener noreferrer" data-testid="link-file-attachment">
+          <img
+            src={fileUrl}
+            alt={fileName}
+            className="max-w-full max-h-32 rounded-md border border-border/30 cursor-pointer"
+            data-testid="img-file-attachment"
+          />
+        </a>
+      ) : (
+        <a
+          href={fileUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className={`flex items-center gap-1.5 px-2 py-1.5 rounded-md text-xs ${
+            isUser ? "bg-primary-foreground/10" : "bg-muted-foreground/10"
+          }`}
+          data-testid="link-file-attachment"
+        >
+          <FileText className="w-3.5 h-3.5 flex-shrink-0" />
+          <span className="truncate max-w-[140px]">{fileName}</span>
+          <Download className="w-3 h-3 flex-shrink-0" />
+        </a>
+      )}
+    </div>
+  );
+}
 
 export function SupportChat() {
   const [isOpen, setIsOpen] = useState(false);
@@ -24,7 +64,10 @@ export function SupportChat() {
   const [showRating, setShowRating] = useState(false);
   const [selectedRating, setSelectedRating] = useState(0);
   const [hoveredRating, setHoveredRating] = useState(0);
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const queryClient = useQueryClient();
   const { t } = useLanguage();
 
@@ -46,8 +89,8 @@ export function SupportChat() {
   });
 
   const sendMutation = useMutation({
-    mutationFn: async (msg: string) => {
-      const res = await apiRequest("POST", "/api/support/send", { message: msg });
+    mutationFn: async (payload: { message?: string; fileUrl?: string; fileName?: string }) => {
+      const res = await apiRequest("POST", "/api/support/send", payload);
       return res.json();
     },
     onSuccess: () => {
@@ -89,9 +132,42 @@ export function SupportChat() {
     }
   }, [conversation?.status]);
 
+  const uploadAndSend = async (file: File, textMessage?: string) => {
+    setIsUploading(true);
+    try {
+      const uploadRes = await apiRequest("POST", "/api/support/upload", {
+        name: file.name,
+        size: file.size,
+        contentType: file.type,
+      });
+      const { uploadURL, objectPath } = await uploadRes.json();
+      await fetch(uploadURL, {
+        method: "PUT",
+        body: file,
+        headers: { "Content-Type": file.type || "application/octet-stream" },
+      });
+      await sendMutation.mutateAsync({
+        message: textMessage || undefined,
+        fileUrl: objectPath,
+        fileName: file.name,
+      });
+    } catch (e) {
+      console.error("File upload error:", e);
+    } finally {
+      setIsUploading(false);
+      setPendingFile(null);
+    }
+  };
+
   const handleSend = () => {
-    if (!message.trim() || sendMutation.isPending) return;
-    sendMutation.mutate(message.trim());
+    if (isUploading || sendMutation.isPending) return;
+    if (pendingFile) {
+      uploadAndSend(pendingFile, message.trim() || undefined);
+      setMessage("");
+      return;
+    }
+    if (!message.trim()) return;
+    sendMutation.mutate({ message: message.trim() });
     setMessage("");
   };
 
@@ -100,6 +176,17 @@ export function SupportChat() {
       e.preventDefault();
       handleSend();
     }
+  };
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 10 * 1024 * 1024) {
+      alert("File too large (max 10MB)");
+      return;
+    }
+    setPendingFile(file);
+    if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
   const handleEndChat = () => {
@@ -120,6 +207,7 @@ export function SupportChat() {
 
   const isWaitingAgent = conversation?.status === "waiting_agent";
   const isClosed = conversation?.status === "closed";
+  const isBusy = sendMutation.isPending || isUploading;
 
   return (
     <>
@@ -183,8 +271,8 @@ export function SupportChat() {
                       variant="outline"
                       size="sm"
                       className="text-xs justify-start"
-                      onClick={() => { sendMutation.mutate(q.msg); }}
-                      disabled={sendMutation.isPending}
+                      onClick={() => { sendMutation.mutate({ message: q.msg }); }}
+                      disabled={isBusy}
                       data-testid={`button-quick-${i}`}
                     >
                       {q.text}
@@ -223,7 +311,10 @@ export function SupportChat() {
                   {msg.sender === "admin" && (
                     <p className="text-[10px] font-medium text-primary mb-1">{t.support?.agentLabel || "Support Agent"}</p>
                   )}
-                  {msg.message}
+                  {(!msg.fileUrl || (msg.message && !msg.message.startsWith("Sent a file:"))) && msg.message}
+                  {msg.fileUrl && (
+                    <FileAttachment fileUrl={msg.fileUrl} fileName={msg.fileName || "file"} isUser={msg.sender === "user"} />
+                  )}
                 </div>
                 {msg.sender === "user" && (
                   <div className="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
@@ -331,24 +422,61 @@ export function SupportChat() {
                 </div>
               )}
 
+              {pendingFile && (
+                <div className="px-3 pb-1">
+                  <div className="flex items-center gap-2 px-2 py-1.5 bg-muted rounded-md text-xs">
+                    {isImageFile(pendingFile.name) ? (
+                      <ImageIcon className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
+                    ) : (
+                      <FileText className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
+                    )}
+                    <span className="truncate flex-1">{pendingFile.name}</span>
+                    <button
+                      onClick={() => setPendingFile(null)}
+                      className="text-muted-foreground"
+                      data-testid="button-remove-file"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+              )}
+
               <div className="px-3 pb-3 pt-2 border-t border-border">
                 <div className="flex items-center gap-2">
+                  <input
+                    type="file"
+                    ref={fileInputRef}
+                    className="hidden"
+                    onChange={handleFileSelect}
+                    accept="image/*,.pdf,.doc,.docx,.txt,.zip"
+                    data-testid="input-file-upload"
+                  />
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={isBusy}
+                    data-testid="button-attach-file"
+                  >
+                    <Paperclip className="w-4 h-4" />
+                  </Button>
                   <Input
                     value={message}
                     onChange={(e) => setMessage(e.target.value)}
                     onKeyDown={handleKeyDown}
                     placeholder={t.support?.placeholder || "Type your message..."}
                     className="flex-1 text-sm"
-                    disabled={sendMutation.isPending}
+                    disabled={isBusy}
                     data-testid="input-support-message"
                   />
                   <Button
                     size="icon"
                     onClick={handleSend}
-                    disabled={!message.trim() || sendMutation.isPending}
+                    disabled={(!message.trim() && !pendingFile) || isBusy}
                     data-testid="button-send-support"
                   >
-                    {sendMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                    {isBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
                   </Button>
                 </div>
               </div>
