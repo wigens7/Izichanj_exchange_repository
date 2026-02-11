@@ -541,18 +541,39 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/support/upload", isAuthenticated, async (req: any, res) => {
+    try {
+      const profile = await getProfileFromReq(req);
+      if (!profile) return res.status(401).json({ message: "Unauthorized" });
+      const { name, size, contentType } = req.body;
+      if (!name) return res.status(400).json({ message: "File name is required" });
+      const maxSize = 10 * 1024 * 1024;
+      if (size && size > maxSize) return res.status(400).json({ message: "File too large (max 10MB)" });
+      const { ObjectStorageService } = await import("./replit_integrations/object_storage");
+      const objectStorage = new ObjectStorageService();
+      const uploadURL = await objectStorage.getObjectEntityUploadURL();
+      const objectPath = objectStorage.normalizeObjectEntityPath(uploadURL);
+      res.json({ uploadURL, objectPath, metadata: { name, size, contentType } });
+    } catch (e) {
+      console.error("Support upload error:", e);
+      res.status(500).json({ message: "Failed to generate upload URL" });
+    }
+  });
+
   app.post("/api/support/send", isAuthenticated, async (req: any, res) => {
     try {
       const profile = await getProfileFromReq(req);
       if (!profile) return res.status(401).json({ message: "Unauthorized" });
-      const { message } = req.body;
-      if (!message || !message.trim()) return res.status(400).json({ message: "Message is required" });
+      const { message, fileUrl, fileName } = req.body;
+      if ((!message || !message.trim()) && !fileUrl) return res.status(400).json({ message: "Message or file is required" });
       const conv = await storage.getOrCreateConversation(profile.id);
       const userMsg = await storage.addMessage({
         conversationId: conv.id,
         sender: "user",
         senderProfileId: profile.id,
-        message: message.trim(),
+        message: (message || "").trim() || (fileName ? `Sent a file: ${fileName}` : "Sent a file"),
+        fileUrl: fileUrl || undefined,
+        fileName: fileName || undefined,
       });
       const botAnswer = getBotResponse(message);
       const responseMessages = [userMsg];
@@ -625,19 +646,38 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/admin/support/upload", isAuthenticated, isAdmin, async (req: any, res) => {
+    try {
+      const { name, size, contentType } = req.body;
+      if (!name) return res.status(400).json({ message: "File name is required" });
+      const maxSize = 10 * 1024 * 1024;
+      if (size && size > maxSize) return res.status(400).json({ message: "File too large (max 10MB)" });
+      const { ObjectStorageService } = await import("./replit_integrations/object_storage");
+      const objectStorage = new ObjectStorageService();
+      const uploadURL = await objectStorage.getObjectEntityUploadURL();
+      const objectPath = objectStorage.normalizeObjectEntityPath(uploadURL);
+      res.json({ uploadURL, objectPath, metadata: { name, size, contentType } });
+    } catch (e) {
+      console.error("Admin support upload error:", e);
+      res.status(500).json({ message: "Failed to generate upload URL" });
+    }
+  });
+
   app.post("/api/admin/support/reply", isAuthenticated, isAdmin, async (req: any, res) => {
     try {
       const profile = await getProfileFromReq(req);
       if (!profile) return res.status(401).json({ message: "Unauthorized" });
-      const { conversationId, message } = req.body;
-      if (!conversationId || !message?.trim()) return res.status(400).json({ message: "Missing fields" });
+      const { conversationId, message, fileUrl, fileName } = req.body;
+      if (!conversationId || (!message?.trim() && !fileUrl)) return res.status(400).json({ message: "Missing fields" });
       const conv = await storage.getConversation(conversationId);
       if (!conv) return res.status(404).json({ message: "Conversation not found" });
       const msg = await storage.addMessage({
         conversationId,
         sender: "admin",
         senderProfileId: profile.id,
-        message: message.trim(),
+        message: (message || "").trim() || (fileName ? `Sent a file: ${fileName}` : "Sent a file"),
+        fileUrl: fileUrl || undefined,
+        fileName: fileName || undefined,
       });
       if (conv.status === "waiting_agent") {
         await storage.updateConversationStatus(conv.id, "active");

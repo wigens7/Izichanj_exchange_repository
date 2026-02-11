@@ -46,7 +46,7 @@ export interface IStorage {
   getOrCreateConversation(profileId: number): Promise<SupportConversation>;
   getConversation(id: number): Promise<SupportConversation | undefined>;
   getConversationMessages(conversationId: number): Promise<SupportMessage[]>;
-  addMessage(data: { conversationId: number; sender: SupportMessage["sender"]; senderProfileId?: number; message: string }): Promise<SupportMessage>;
+  addMessage(data: { conversationId: number; sender: SupportMessage["sender"]; senderProfileId?: number; message: string; fileUrl?: string; fileName?: string }): Promise<SupportMessage>;
   updateConversationStatus(id: number, status: SupportConversation["status"]): Promise<SupportConversation>;
   closeConversationWithRating(id: number, rating: number, closedBy: string): Promise<SupportConversation>;
   getAllConversations(): Promise<(SupportConversation & { profile: Profile; lastMessage?: string; unreadCount: number })[]>;
@@ -238,7 +238,7 @@ export class DatabaseStorage implements IStorage {
     return db.select().from(supportMessages).where(eq(supportMessages.conversationId, conversationId)).orderBy(supportMessages.createdAt);
   }
 
-  async addMessage(data: { conversationId: number; sender: SupportMessage["sender"]; senderProfileId?: number; message: string }): Promise<SupportMessage> {
+  async addMessage(data: { conversationId: number; sender: SupportMessage["sender"]; senderProfileId?: number; message: string; fileUrl?: string; fileName?: string }): Promise<SupportMessage> {
     const [msg] = await db.insert(supportMessages).values(data).returning();
     await db.update(supportConversations).set({ updatedAt: new Date() }).where(eq(supportConversations.id, data.conversationId));
     return msg;

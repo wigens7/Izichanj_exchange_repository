@@ -105,6 +105,8 @@ export const supportMessages = pgTable("support_messages", {
   sender: chatSenderEnum("sender").notNull(),
   senderProfileId: integer("sender_profile_id").references(() => profiles.id),
   message: text("message").notNull(),
+  fileUrl: text("file_url"),
+  fileName: text("file_name"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
