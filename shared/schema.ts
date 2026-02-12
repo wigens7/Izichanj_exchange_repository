@@ -13,6 +13,7 @@ export const userRoleEnum = pgEnum("user_role", ["user", "admin"]);
 
 export const profiles = pgTable("profiles", {
   id: serial("id").primaryKey(),
+  referenceId: text("reference_id").unique(),
   fullName: text("full_name").notNull(),
   firstName: text("first_name"),
   lastName: text("last_name"),
@@ -29,6 +30,24 @@ export const profiles = pgTable("profiles", {
   twoFactorSecret: text("two_factor_secret"),
   twoFactorEnabled: boolean("two_factor_enabled").default(false).notNull(),
   isBanned: boolean("is_banned").default(false).notNull(),
+  isDeleted: boolean("is_deleted").default(false).notNull(),
+  deletedAt: timestamp("deleted_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const blacklistedUsers = pgTable("blacklisted_users", {
+  id: serial("id").primaryKey(),
+  email: text("email"),
+  phone: text("phone"),
+  firstName: text("first_name"),
+  lastName: text("last_name"),
+  dateOfBirth: text("date_of_birth"),
+  idDocumentUrl: text("id_document_url"),
+  idDocumentBackUrl: text("id_document_back_url"),
+  selfieUrl: text("selfie_url"),
+  reason: text("reason").default("Account deleted").notNull(),
+  originalProfileId: integer("original_profile_id"),
+  referenceId: text("reference_id"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -161,6 +180,7 @@ export type WebAuthnCredential = typeof webauthnCredentials.$inferSelect;
 export type Notification = typeof notifications.$inferSelect;
 export type SupportConversation = typeof supportConversations.$inferSelect;
 export type SupportMessage = typeof supportMessages.$inferSelect;
+export type BlacklistedUser = typeof blacklistedUsers.$inferSelect;
 export const cardStatusEnum = pgEnum("card_status", ["pending", "active", "frozen", "terminated"]);
 
 export const virtualCards = pgTable("virtual_cards", {

@@ -17,6 +17,7 @@ import ProfilePage from "@/pages/profile";
 import SecurityPage from "@/pages/security";
 import AdminPage from "@/pages/admin";
 import FAQPage from "@/pages/faq";
+import VirtualCardsPage from "@/pages/virtual-cards";
 import NotFound from "@/pages/not-found";
 import { LayoutShell } from "@/components/layout-shell";
 
@@ -77,6 +78,9 @@ function Router() {
       </Route>
       <Route path="/faq">
         <ProtectedRoute component={FAQPage} />
+      </Route>
+      <Route path="/virtual-cards">
+        <ProtectedRoute component={VirtualCardsPage} />
       </Route>
 
       <Route component={NotFound} />

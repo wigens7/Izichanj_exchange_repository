@@ -47,6 +47,15 @@ import {
   KeyRound,
   Ban,
   Unlock,
+  Search,
+  Trash2,
+  ChevronDown,
+  ChevronUp,
+  Hash,
+  Calendar,
+  Phone,
+  MapPin,
+  Mail,
 } from "lucide-react";
 import { format } from "date-fns";
 import { usdtToHtg, formatHtg, formatUsdt } from "@shared/constants";
@@ -129,10 +138,31 @@ export default function AdminPage() {
 }
 
 function UsersTab() {
-  const { data: users, isLoading } = useAdminUsers();
+  const [searchQuery, setSearchQuery] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const { mutate: updateBalance, isPending } = useAdminUpdateBalance();
 
-  if (isLoading) {
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(searchQuery), 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  const { data: users, isLoading } = useQuery<any[]>({
+    queryKey: ["/api/admin/users", debouncedSearch],
+    queryFn: async () => {
+      const url = debouncedSearch
+        ? `/api/admin/users?search=${encodeURIComponent(debouncedSearch)}`
+        : "/api/admin/users";
+      const res = await fetch(url, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch users");
+      return res.json();
+    },
+  });
+
+  const activeUsers = users?.filter((u: any) => !u.isDeleted) || [];
+  const deletedUsers = users?.filter((u: any) => u.isDeleted) || [];
+
+  if (isLoading && !users) {
     return (
       <Card>
         <CardContent className="p-6 space-y-3">
@@ -146,45 +176,84 @@ function UsersTab() {
 
   return (
     <Card>
-      <CardHeader className="flex flex-row items-center justify-between gap-2">
-        <CardTitle className="flex items-center gap-2">
-          <Users className="w-5 h-5 text-primary" />
-          User Management
-        </CardTitle>
-        <Badge variant="secondary" data-testid="badge-user-count">
-          {users?.length || 0} users
-        </Badge>
+      <CardHeader className="space-y-3">
+        <div className="flex flex-row items-center justify-between gap-2 flex-wrap">
+          <CardTitle className="flex items-center gap-2">
+            <Users className="w-5 h-5 text-primary" />
+            User Management
+          </CardTitle>
+          <Badge variant="secondary" data-testid="badge-user-count">
+            {activeUsers.length} active users
+          </Badge>
+        </div>
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+          <Input
+            placeholder="Search by Reference ID, name, email, or phone..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="pl-9"
+            data-testid="input-search-users"
+          />
+        </div>
       </CardHeader>
       <CardContent>
         <div className="overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>ID</TableHead>
+                <TableHead>Ref ID</TableHead>
                 <TableHead>Name</TableHead>
                 <TableHead>Email</TableHead>
                 <TableHead>Role</TableHead>
                 <TableHead>Balance (USDT)</TableHead>
                 <TableHead>KYC</TableHead>
                 <TableHead>Verified</TableHead>
-                <TableHead>Joined</TableHead>
+                <TableHead>Signed Up</TableHead>
                 <TableHead>Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {users?.map((user: any) => (
+              {activeUsers.map((user: any) => (
                 <UserRow key={user.id} user={user} onUpdateBalance={updateBalance} isPending={isPending} />
               ))}
-              {(!users || users.length === 0) && (
+              {activeUsers.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
-                    No users found
+                    {searchQuery ? "No users found matching your search" : "No users found"}
                   </TableCell>
                 </TableRow>
               )}
             </TableBody>
           </Table>
         </div>
+        {deletedUsers.length > 0 && (
+          <div className="mt-6 border-t pt-4">
+            <p className="text-sm font-medium text-muted-foreground mb-2">Deleted Accounts ({deletedUsers.length})</p>
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Ref ID</TableHead>
+                    <TableHead>Name</TableHead>
+                    <TableHead>Email</TableHead>
+                    <TableHead>Deleted</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {deletedUsers.map((user: any) => (
+                    <TableRow key={user.id} className="opacity-50" data-testid={`row-deleted-user-${user.id}`}>
+                      <TableCell className="font-mono text-xs">{user.referenceId || "—"}</TableCell>
+                      <TableCell>{user.fullName}</TableCell>
+                      <TableCell className="text-sm">{user.email}</TableCell>
+                      <TableCell className="text-sm">{user.deletedAt ? format(new Date(user.deletedAt), "MMM d, yyyy h:mm a") : "—"}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          </div>
+        )}
       </CardContent>
     </Card>
   );
@@ -193,6 +262,7 @@ function UsersTab() {
 function UserRow({ user, onUpdateBalance, isPending }: { user: any; onUpdateBalance: any; isPending: boolean }) {
   const [balance, setBalance] = useState(user.balance);
   const [isEditing, setIsEditing] = useState(false);
+  const [expanded, setExpanded] = useState(false);
   const { toast } = useToast();
   const qc = useQueryClient();
 
@@ -228,102 +298,203 @@ function UserRow({ user, onUpdateBalance, isPending }: { user: any; onUpdateBala
       qc.invalidateQueries({ queryKey: ["/api/admin/users"] });
     },
     onError: (error: Error) => {
-      toast({ 
-        title: "Error", 
-        description: error.message,
-        variant: "destructive" 
-      });
+      toast({ title: "Error", description: error.message, variant: "destructive" });
     },
   });
 
+  const deleteMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("DELETE", `/api/admin/users/${user.id}`);
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Account deleted", description: `${user.fullName}'s account has been permanently deleted and blacklisted.` });
+      qc.invalidateQueries({ queryKey: ["/api/admin/users"] });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const [confirmDelete, setConfirmDelete] = useState(false);
+
   return (
-    <TableRow data-testid={`row-user-${user.id}`}>
-      <TableCell className="font-mono text-xs">{user.id}</TableCell>
-      <TableCell className="font-medium">
-        {user.fullName}
-        {user.isBanned && (
-          <Badge variant="destructive" className="ml-2 text-[10px] h-4 px-1 uppercase">Banned</Badge>
-        )}
-      </TableCell>
-      <TableCell className="text-muted-foreground text-sm">{user.email}</TableCell>
-      <TableCell>
-        <StatusBadge status={user.role} />
-      </TableCell>
-      <TableCell>
-        {isEditing ? (
-          <div className="flex items-center gap-2">
-            <Input
-              type="number"
-              value={balance}
-              onChange={(e) => setBalance(e.target.value)}
-              className="w-28"
-              data-testid={`input-balance-${user.id}`}
-            />
-            <Button size="icon" onClick={handleSave} disabled={isPending} data-testid={`button-save-balance-${user.id}`}>
-              {isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-            </Button>
+    <>
+      <TableRow data-testid={`row-user-${user.id}`} className="cursor-pointer" onClick={() => setExpanded(!expanded)}>
+        <TableCell className="font-mono text-xs">
+          <div className="flex items-center gap-1">
+            <Hash className="w-3 h-3 text-muted-foreground" />
+            {user.referenceId || "—"}
           </div>
-        ) : (
-          <div className="flex items-center gap-2">
-            <span className="font-medium">{Number(user.balance).toLocaleString()}</span>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => setIsEditing(true)}
-              data-testid={`button-edit-balance-${user.id}`}
-            >
-              <Pencil className="w-3 h-3" />
-            </Button>
-          </div>
-        )}
-      </TableCell>
-      <TableCell>
-        <StatusBadge status={user.kycStatus} />
-      </TableCell>
-      <TableCell>
-        {user.emailVerified ? (
-          <CheckCircle className="w-4 h-4 text-emerald-600" />
-        ) : (
-          <XCircle className="w-4 h-4 text-red-400" />
-        )}
-      </TableCell>
-      <TableCell className="text-sm text-muted-foreground">
-        {format(new Date(user.createdAt), "MMM d, yyyy")}
-      </TableCell>
-      <TableCell>
-        <div className="flex items-center gap-2">
-          {user.twoFactorEnabled && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => disable2faMutation.mutate()}
-              disabled={disable2faMutation.isPending}
-              data-testid={`button-disable-2fa-${user.id}`}
-            >
-              {disable2faMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <KeyRound className="w-3 h-3 mr-1" />}
-              Disable 2FA
-            </Button>
-          )}
-          <Button
-            variant={user.isBanned ? "default" : "outline"}
-            size="sm"
-            onClick={() => banMutation.mutate(!user.isBanned)}
-            disabled={banMutation.isPending}
-            className={user.isBanned ? "bg-red-600 hover:bg-red-700" : "text-red-600 hover:text-red-700 border-red-200"}
-            data-testid={`button-ban-user-${user.id}`}
-          >
-            {banMutation.isPending ? (
-              <Loader2 className="w-3 h-3 animate-spin mr-1" />
-            ) : user.isBanned ? (
-              <Unlock className="w-3 h-3 mr-1" />
-            ) : (
-              <Ban className="w-3 h-3 mr-1" />
+        </TableCell>
+        <TableCell className="font-medium">
+          <div className="flex items-center gap-1 flex-wrap">
+            {user.fullName}
+            {user.isBanned && (
+              <Badge variant="destructive" className="text-[10px] uppercase">Banned</Badge>
             )}
-            {user.isBanned ? "Unban User" : "Ban User"}
-          </Button>
-        </div>
-      </TableCell>
-    </TableRow>
+            {expanded ? <ChevronUp className="w-3 h-3 ml-1 text-muted-foreground" /> : <ChevronDown className="w-3 h-3 ml-1 text-muted-foreground" />}
+          </div>
+        </TableCell>
+        <TableCell className="text-muted-foreground text-sm">{user.email}</TableCell>
+        <TableCell>
+          <StatusBadge status={user.role} />
+        </TableCell>
+        <TableCell onClick={(e) => e.stopPropagation()}>
+          {isEditing ? (
+            <div className="flex items-center gap-2">
+              <Input
+                type="number"
+                value={balance}
+                onChange={(e) => setBalance(e.target.value)}
+                className="w-28"
+                data-testid={`input-balance-${user.id}`}
+              />
+              <Button size="icon" onClick={handleSave} disabled={isPending} data-testid={`button-save-balance-${user.id}`}>
+                {isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+              </Button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2">
+              <span className="font-medium">{Number(user.balance).toLocaleString()}</span>
+              <Button variant="ghost" size="icon" onClick={() => setIsEditing(true)} data-testid={`button-edit-balance-${user.id}`}>
+                <Pencil className="w-3 h-3" />
+              </Button>
+            </div>
+          )}
+        </TableCell>
+        <TableCell>
+          <StatusBadge status={user.kycStatus} />
+        </TableCell>
+        <TableCell>
+          {user.emailVerified ? (
+            <CheckCircle className="w-4 h-4 text-emerald-600" />
+          ) : (
+            <XCircle className="w-4 h-4 text-red-400" />
+          )}
+        </TableCell>
+        <TableCell className="text-sm text-muted-foreground">
+          {format(new Date(user.createdAt), "MMM d, yyyy h:mm a")}
+        </TableCell>
+        <TableCell onClick={(e) => e.stopPropagation()}>
+          <div className="flex items-center gap-1 flex-wrap">
+            {user.twoFactorEnabled && (
+              <Button variant="outline" size="sm" onClick={() => disable2faMutation.mutate()} disabled={disable2faMutation.isPending} data-testid={`button-disable-2fa-${user.id}`}>
+                {disable2faMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <KeyRound className="w-3 h-3 mr-1" />}
+                Disable 2FA
+              </Button>
+            )}
+            <Button
+              variant={user.isBanned ? "default" : "outline"}
+              size="sm"
+              onClick={() => banMutation.mutate(!user.isBanned)}
+              disabled={banMutation.isPending}
+              data-testid={`button-ban-user-${user.id}`}
+            >
+              {banMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : user.isBanned ? <Unlock className="w-3 h-3 mr-1" /> : <Ban className="w-3 h-3 mr-1" />}
+              {user.isBanned ? "Unban" : "Ban"}
+            </Button>
+            {!confirmDelete ? (
+              <Button variant="destructive" size="sm" onClick={() => setConfirmDelete(true)} disabled={user.role === "admin"} data-testid={`button-delete-user-${user.id}`}>
+                <Trash2 className="w-3 h-3 mr-1" />
+                Delete
+              </Button>
+            ) : (
+              <div className="flex items-center gap-1">
+                <Button variant="destructive" size="sm" onClick={() => { deleteMutation.mutate(); setConfirmDelete(false); }} disabled={deleteMutation.isPending} data-testid={`button-confirm-delete-${user.id}`}>
+                  {deleteMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : null}
+                  Confirm
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => setConfirmDelete(false)} data-testid={`button-cancel-delete-${user.id}`}>
+                  Cancel
+                </Button>
+              </div>
+            )}
+          </div>
+        </TableCell>
+      </TableRow>
+      {expanded && (
+        <TableRow>
+          <TableCell colSpan={9}>
+            <div className="p-4 bg-muted/30 rounded-md space-y-3">
+              <p className="text-sm font-medium">Personal Information</p>
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 text-sm">
+                <div className="flex items-center gap-2">
+                  <Hash className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
+                  <div>
+                    <p className="text-muted-foreground text-xs">Reference ID</p>
+                    <p className="font-mono font-medium">{user.referenceId || "Not assigned"}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <User className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
+                  <div>
+                    <p className="text-muted-foreground text-xs">First Name</p>
+                    <p className="font-medium">{user.firstName || "—"}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <User className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
+                  <div>
+                    <p className="text-muted-foreground text-xs">Last Name</p>
+                    <p className="font-medium">{user.lastName || "—"}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Calendar className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
+                  <div>
+                    <p className="text-muted-foreground text-xs">Date of Birth</p>
+                    <p className="font-medium">{user.dateOfBirth || "—"}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <MapPin className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
+                  <div>
+                    <p className="text-muted-foreground text-xs">Country</p>
+                    <p className="font-medium">{user.country || "—"}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <MapPin className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
+                  <div>
+                    <p className="text-muted-foreground text-xs">City</p>
+                    <p className="font-medium">{user.city || "—"}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Phone className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
+                  <div>
+                    <p className="text-muted-foreground text-xs">Phone</p>
+                    <p className="font-medium">{user.phone || "—"}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Mail className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
+                  <div>
+                    <p className="text-muted-foreground text-xs">Email</p>
+                    <p className="font-medium">{user.email}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Calendar className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
+                  <div>
+                    <p className="text-muted-foreground text-xs">Signed Up</p>
+                    <p className="font-medium">{format(new Date(user.createdAt), "MMM d, yyyy 'at' h:mm:ss a")}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <ShieldCheck className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
+                  <div>
+                    <p className="text-muted-foreground text-xs">2FA Enabled</p>
+                    <p className="font-medium">{user.twoFactorEnabled ? "Yes" : "No"}</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </TableCell>
+        </TableRow>
+      )}
+    </>
   );
 }
 

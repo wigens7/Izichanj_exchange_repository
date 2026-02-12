@@ -79,6 +79,16 @@ export async function registerRoutes(
   app.post("/api/auth/register", async (req, res) => {
     try {
       const input = registerSchema.parse(req.body);
+      const isBlacklisted = await storage.isBlacklisted(input.email, input.phone);
+      if (isBlacklisted) {
+        return res.status(403).json({ message: "This account cannot be created. Contact support for more information." });
+      }
+
+      const existingByPhone = await storage.getProfileByPhone(input.phone);
+      if (existingByPhone && existingByPhone.emailVerified) {
+        return res.status(400).json({ message: "An account with this phone number already exists" });
+      }
+
       const existing = await storage.getProfileByEmail(input.email);
       if (existing) {
         if (!existing.emailVerified) {
@@ -157,7 +167,7 @@ export async function registerRoutes(
       }
 
       console.log(`[LOGIN] Attempt for ${input.identifier}, found: ${!!profile}, hash starts: ${profile?.passwordHash?.substring(0, 10) || 'N/A'}`);
-      if (!profile) {
+      if (!profile || profile.isDeleted) {
         return res.status(401).json({ message: "Invalid email/phone or password" });
       }
       const valid = await bcrypt.compare(input.password, profile.passwordHash);
@@ -411,6 +421,11 @@ export async function registerRoutes(
       return res.status(400).json({ message: "All fields are required" });
     }
 
+    const isBlacklisted = await storage.isBlacklisted(profile.email, phone, firstName, lastName, dateOfBirth);
+    if (isBlacklisted) {
+      return res.status(403).json({ message: "This information matches a restricted account. Contact support for more information." });
+    }
+
     try {
       const updatedUser = await storage.updateProfile(profile.id, {
         firstName,
@@ -455,8 +470,44 @@ export async function registerRoutes(
   });
 
   app.get(api.admin.users.path, isAuthenticated, isAdmin, async (req: any, res) => {
+    const search = req.query.search as string | undefined;
+    if (search && search.trim()) {
+      const results = await storage.searchProfiles(search.trim());
+      return res.json(results);
+    }
     const allProfiles = await storage.getAllProfiles();
     res.json(allProfiles);
+  });
+
+  app.delete("/api/admin/users/:id", isAuthenticated, isAdmin, async (req: any, res) => {
+    try {
+      const profileId = Number(req.params.id);
+      const profile = await storage.getProfile(profileId);
+      if (!profile) return res.status(404).json({ message: "User not found" });
+      if (profile.role === "admin") return res.status(400).json({ message: "Cannot delete admin accounts" });
+
+      const kyc = await storage.getKyc(profileId);
+
+      await storage.addToBlacklist({
+        email: profile.email,
+        phone: profile.phone || undefined,
+        firstName: profile.firstName || undefined,
+        lastName: profile.lastName || undefined,
+        dateOfBirth: profile.dateOfBirth || undefined,
+        idDocumentUrl: kyc?.idDocumentUrl || undefined,
+        idDocumentBackUrl: kyc?.idDocumentBackUrl || undefined,
+        selfieUrl: kyc?.selfieUrl || undefined,
+        reason: "Account deleted by admin",
+        originalProfileId: profile.id,
+        referenceId: profile.referenceId || undefined,
+      });
+
+      await storage.softDeleteProfile(profileId);
+      res.json({ message: "Account deleted and blacklisted" });
+    } catch (e) {
+      console.error("Delete user error:", e);
+      res.status(500).json({ message: "Internal Error" });
+    }
   });
 
   app.get(api.admin.allKyc.path, isAuthenticated, isAdmin, async (req: any, res) => {

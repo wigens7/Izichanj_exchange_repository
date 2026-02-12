@@ -1,6 +1,7 @@
-import { profiles, deposits, withdrawals, kycDocuments, otps, webauthnCredentials, notifications, supportConversations, supportMessages, virtualCards, type Profile, type Deposit, type InsertDeposit, type Withdrawal, type InsertWithdrawal, type KycDocument, type WebAuthnCredential, type Notification, type SupportConversation, type SupportMessage, type VirtualCard } from "@shared/schema";
+import { profiles, deposits, withdrawals, kycDocuments, otps, webauthnCredentials, notifications, supportConversations, supportMessages, virtualCards, blacklistedUsers, type Profile, type Deposit, type InsertDeposit, type Withdrawal, type InsertWithdrawal, type KycDocument, type WebAuthnCredential, type Notification, type SupportConversation, type SupportMessage, type VirtualCard, type BlacklistedUser } from "@shared/schema";
 import { db } from "./db";
-import { eq, desc, and, sql } from "drizzle-orm";
+import { eq, desc, and, sql, or, ilike } from "drizzle-orm";
+import crypto from "crypto";
 
 export interface IStorage {
   getProfile(id: number): Promise<Profile | undefined>;
@@ -62,6 +63,12 @@ export interface IStorage {
   getVirtualCard(id: number, profileId: number): Promise<VirtualCard | undefined>;
   getVirtualCardByCardId(cardId: string): Promise<VirtualCard | undefined>;
   updateVirtualCard(id: number, data: Partial<VirtualCard>): Promise<VirtualCard>;
+
+  getProfileByReferenceId(referenceId: string): Promise<Profile | undefined>;
+  searchProfiles(query: string): Promise<Profile[]>;
+  softDeleteProfile(id: number): Promise<void>;
+  addToBlacklist(data: { email?: string; phone?: string; firstName?: string; lastName?: string; dateOfBirth?: string; idDocumentUrl?: string; idDocumentBackUrl?: string; selfieUrl?: string; reason?: string; originalProfileId?: number; referenceId?: string }): Promise<BlacklistedUser>;
+  isBlacklisted(email: string, phone?: string, firstName?: string, lastName?: string, dateOfBirth?: string): Promise<boolean>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -80,8 +87,13 @@ export class DatabaseStorage implements IStorage {
     return profile;
   }
 
+  private generateReferenceId(): string {
+    return crypto.randomInt(1000000000, 9999999999).toString();
+  }
+
   async createProfile(fullName: string, email: string, passwordHash: string, phone?: string): Promise<Profile> {
-    const [profile] = await db.insert(profiles).values({ fullName, email, passwordHash, phone: phone || null }).returning();
+    const referenceId = this.generateReferenceId();
+    const [profile] = await db.insert(profiles).values({ fullName, email, passwordHash, phone: phone || null, referenceId }).returning();
     return profile;
   }
 
@@ -360,6 +372,53 @@ export class DatabaseStorage implements IStorage {
   async updateVirtualCard(id: number, data: Partial<VirtualCard>): Promise<VirtualCard> {
     const [card] = await db.update(virtualCards).set(data).where(eq(virtualCards.id, id)).returning();
     return card;
+  }
+
+  async getProfileByReferenceId(referenceId: string): Promise<Profile | undefined> {
+    const [profile] = await db.select().from(profiles).where(eq(profiles.referenceId, referenceId));
+    return profile;
+  }
+
+  async searchProfiles(query: string): Promise<Profile[]> {
+    return db.select().from(profiles).where(
+      or(
+        ilike(profiles.referenceId, `%${query}%`),
+        ilike(profiles.fullName, `%${query}%`),
+        ilike(profiles.email, `%${query}%`),
+        ilike(profiles.phone, `%${query}%`),
+        ilike(profiles.firstName, `%${query}%`),
+        ilike(profiles.lastName, `%${query}%`)
+      )
+    ).orderBy(desc(profiles.createdAt));
+  }
+
+  async softDeleteProfile(id: number): Promise<void> {
+    await db.update(profiles).set({ isDeleted: true, deletedAt: new Date() }).where(eq(profiles.id, id));
+  }
+
+  async addToBlacklist(data: { email?: string; phone?: string; firstName?: string; lastName?: string; dateOfBirth?: string; idDocumentUrl?: string; idDocumentBackUrl?: string; selfieUrl?: string; reason?: string; originalProfileId?: number; referenceId?: string }): Promise<BlacklistedUser> {
+    const [entry] = await db.insert(blacklistedUsers).values(data).returning();
+    return entry;
+  }
+
+  async isBlacklisted(email: string, phone?: string, firstName?: string, lastName?: string, dateOfBirth?: string): Promise<boolean> {
+    const conditions = [eq(blacklistedUsers.email, email)];
+    if (phone) conditions.push(eq(blacklistedUsers.phone, phone));
+    const [result] = await db.select({ count: sql<number>`count(*)::int` }).from(blacklistedUsers).where(or(...conditions));
+    if (result?.count > 0) return true;
+
+    if (firstName && lastName && dateOfBirth) {
+      const [nameMatch] = await db.select({ count: sql<number>`count(*)::int` }).from(blacklistedUsers).where(
+        and(
+          ilike(blacklistedUsers.firstName, firstName),
+          ilike(blacklistedUsers.lastName, lastName),
+          eq(blacklistedUsers.dateOfBirth, dateOfBirth)
+        )
+      );
+      if (nameMatch?.count > 0) return true;
+    }
+
+    return false;
   }
 }
 
