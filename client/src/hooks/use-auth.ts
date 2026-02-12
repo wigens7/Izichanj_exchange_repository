@@ -1,6 +1,8 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { useLanguage } from "@/lib/i18n";
+import { type ProfileInfoInput } from "@shared/schema";
 
 export function useUser() {
   return useQuery({
@@ -104,6 +106,30 @@ export function useResendOtp() {
     },
     onError: (error: Error) => {
       toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
+  });
+}
+
+export function useUpdateProfile() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const { t } = useLanguage();
+
+  return useMutation({
+    mutationFn: async (data: ProfileInfoInput) => {
+      const res = await apiRequest("PATCH", "/api/user/profile", data);
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.message || "Failed to update profile");
+      }
+      return res.json();
+    },
+    onSuccess: (profile) => {
+      queryClient.setQueryData(["/api/user"], profile);
+      toast({ title: t.profile.profileSaved || "Profile Saved", description: "Your information has been updated." });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Update failed", description: error.message, variant: "destructive" });
     },
   });
 }

@@ -364,9 +364,38 @@ export async function registerRoutes(
     res.json(kyc || null);
   });
 
+  app.patch("/api/user/profile", isAuthenticated, async (req: any, res) => {
+    const profile = await getProfileFromReq(req);
+    if (!profile) return res.status(401).json({ message: "Unauthorized" });
+    
+    const { firstName, lastName, dateOfBirth, country, city, phone } = req.body;
+    
+    if (!firstName || !lastName || !dateOfBirth || !country || !city || !phone) {
+      return res.status(400).json({ message: "All fields are required" });
+    }
+
+    try {
+      const updatedUser = await storage.updateProfile(profile.id, {
+        firstName,
+        lastName,
+        dateOfBirth,
+        country,
+        city,
+        phone
+      });
+      const { passwordHash: _, twoFactorSecret: _s, ...safeProfile } = updatedUser;
+      res.json(safeProfile);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
   app.post(api.kyc.upload.path, isAuthenticated, async (req: any, res) => {
     const profile = await getProfileFromReq(req);
     if (!profile) return res.status(401).json({ message: "Unauthorized" });
+    if (!profile.firstName || !profile.lastName || !profile.dateOfBirth || !profile.country || !profile.city || !profile.phone) {
+      return res.status(400).json({ message: "Please complete your personal information first" });
+    }
     if (profile.kycStatus === "verified") return res.status(400).json({ message: "KYC already approved" });
     if (profile.kycStatus === "pending") return res.status(400).json({ message: "KYC already submitted and under review" });
     const { idDocumentUrl, idDocumentBackUrl, selfieUrl } = req.body;

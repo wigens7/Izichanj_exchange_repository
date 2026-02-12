@@ -14,6 +14,11 @@ export const userRoleEnum = pgEnum("user_role", ["user", "admin"]);
 export const profiles = pgTable("profiles", {
   id: serial("id").primaryKey(),
   fullName: text("full_name").notNull(),
+  firstName: text("first_name"),
+  lastName: text("last_name"),
+  dateOfBirth: text("date_of_birth"),
+  country: text("country"),
+  city: text("city"),
   email: text("email").notNull().unique(),
   phone: text("phone"),
   passwordHash: text("password_hash").notNull(),
@@ -155,5 +160,13 @@ export type WebAuthnCredential = typeof webauthnCredentials.$inferSelect;
 export type Notification = typeof notifications.$inferSelect;
 export type SupportConversation = typeof supportConversations.$inferSelect;
 export type SupportMessage = typeof supportMessages.$inferSelect;
-export type RegisterInput = z.infer<typeof registerSchema>;
-export type LoginInput = z.infer<typeof loginSchema>;
+export const profileInfoSchema = z.object({
+  firstName: z.string().min(1, "First name is required"),
+  lastName: z.string().min(1, "Last name is required"),
+  dateOfBirth: z.string().min(1, "Date of birth is required"),
+  country: z.string().min(1, "Country is required"),
+  city: z.string().min(1, "City is required"),
+  phone: z.string().min(8, "Phone number is required"),
+});
+
+export type ProfileInfoInput = z.infer<typeof profileInfoSchema>;

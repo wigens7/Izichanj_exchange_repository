@@ -1,4 +1,4 @@
-import { useUser } from "@/hooks/use-auth";
+import { useUser, useUpdateProfile } from "@/hooks/use-auth";
 import { useKycStatus, useUploadKyc } from "@/hooks/use-kyc";
 import { useUpload } from "@/hooks/use-upload";
 import { useLanguage, languageNames, type Language } from "@/lib/i18n";
@@ -8,13 +8,18 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { StatusBadge } from "@/components/status-badge";
-import { Loader2, UploadCloud, CheckCircle2, Globe, Clock } from "lucide-react";
-import { useState } from "react";
+import { Loader2, UploadCloud, CheckCircle2, Globe, Clock, User, UserCheck } from "lucide-react";
+import { useState, useEffect } from "react";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { profileInfoSchema, type ProfileInfoInput } from "@shared/schema";
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 
 export default function ProfilePage() {
   const { data: user } = useUser();
-  const { data: kycStatus, isLoading } = useKycStatus();
+  const { data: kycStatus } = useKycStatus();
   const { mutate: submitKyc, isPending: isSubmitting } = useUploadKyc();
+  const { mutate: updateProfile, isPending: isUpdatingProfile } = useUpdateProfile();
   const { language, setLanguage, t } = useLanguage();
   
   const { uploadFile, isUploading } = useUpload();
@@ -23,7 +28,34 @@ export default function ProfilePage() {
   const [idBackUrl, setIdBackUrl] = useState<string>("");
   const [selfieUrl, setSelfieUrl] = useState<string>("");
 
+  const form = useForm<ProfileInfoInput>({
+    resolver: zodResolver(profileInfoSchema),
+    defaultValues: {
+      firstName: user?.firstName || "",
+      lastName: user?.lastName || "",
+      dateOfBirth: user?.dateOfBirth || "",
+      country: user?.country || "",
+      city: user?.city || "",
+      phone: user?.phone || "",
+    }
+  });
+
+  useEffect(() => {
+    if (user) {
+      form.reset({
+        firstName: user.firstName || "",
+        lastName: user.lastName || "",
+        dateOfBirth: user.dateOfBirth || "",
+        country: user.country || "",
+        city: user.city || "",
+        phone: user.phone || "",
+      });
+    }
+  }, [user, form]);
+
   if (!user) return null;
+
+  const isProfileComplete = user.firstName && user.lastName && user.dateOfBirth && user.country && user.city && user.phone;
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, type: 'id' | 'id-back' | 'selfie') => {
     const file = e.target.files?.[0];
@@ -37,10 +69,14 @@ export default function ProfilePage() {
     }
   };
 
-  const handleSubmit = () => {
+  const handleSubmitKyc = () => {
     if (idUrl && idBackUrl && selfieUrl) {
         submitKyc({ idDocumentUrl: idUrl, idDocumentBackUrl: idBackUrl, selfieUrl: selfieUrl });
     }
+  };
+
+  const onProfileSubmit = (data: ProfileInfoInput) => {
+    updateProfile(data);
   };
 
   return (
@@ -94,12 +130,123 @@ export default function ProfilePage() {
           </Card>
         </div>
 
-        <div className="lg:col-span-2">
+        <div className="lg:col-span-2 space-y-6">
+          <Card>
+            <CardHeader className="pb-3">
+              <div className="flex items-center gap-2">
+                <User className="w-5 h-5 text-primary" />
+                <CardTitle className="text-base">{t.profile.personalInfoTitle}</CardTitle>
+              </div>
+              <CardDescription className="text-xs">{t.profile.personalInfoDescription}</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Form {...form}>
+                <form onSubmit={form.handleSubmit(onProfileSubmit)} className="space-y-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <FormField
+                      control={form.control}
+                      name="firstName"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>{t.profile.firstName}</FormLabel>
+                          <FormControl>
+                            <Input {...field} data-testid="input-first-name" />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name="lastName"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>{t.profile.lastName}</FormLabel>
+                          <FormControl>
+                            <Input {...field} data-testid="input-last-name" />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <FormField
+                      control={form.control}
+                      name="dateOfBirth"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>{t.profile.dateOfBirth}</FormLabel>
+                          <FormControl>
+                            <Input type="date" {...field} data-testid="input-dob" />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name="phone"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>{t.withdraw.phoneNumber}</FormLabel>
+                          <FormControl>
+                            <Input {...field} data-testid="input-profile-phone" />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <FormField
+                      control={form.control}
+                      name="country"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>{t.profile.country}</FormLabel>
+                          <FormControl>
+                            <Input {...field} data-testid="input-country" />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name="city"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>{t.profile.city}</FormLabel>
+                          <FormControl>
+                            <Input {...field} data-testid="input-city" />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+                  <Button 
+                    type="submit" 
+                    className="w-full primary-gradient" 
+                    disabled={isUpdatingProfile}
+                    data-testid="button-save-profile"
+                  >
+                    {isUpdatingProfile ? <Loader2 className="animate-spin mr-2" /> : <UserCheck className="w-4 h-4 mr-2" />}
+                    {t.profile.saveProfile}
+                  </Button>
+                </form>
+              </Form>
+            </CardContent>
+          </Card>
+
           {user.kycStatus === 'verified' ? null : (
-            <Card>
+            <Card className={!isProfileComplete ? "opacity-50 pointer-events-none" : ""}>
               <CardHeader className="pb-3">
                 <CardTitle className="text-base">{t.profile.kycTitle}</CardTitle>
-                <CardDescription className="text-xs">{t.profile.kycDescription}</CardDescription>
+                <CardDescription className="text-xs">
+                  {!isProfileComplete ? t.profile.profileIncomplete : t.profile.kycDescription}
+                </CardDescription>
               </CardHeader>
               <CardContent>
                 {user.kycStatus === 'pending' ? (
@@ -152,8 +299,8 @@ export default function ProfilePage() {
 
                     <Button 
                       className="w-full primary-gradient" 
-                      disabled={!idUrl || !idBackUrl || !selfieUrl || isSubmitting || isUploading}
-                      onClick={handleSubmit}
+                      disabled={!idUrl || !idBackUrl || !selfieUrl || isSubmitting || isUploading || !isProfileComplete}
+                      onClick={handleSubmitKyc}
                       data-testid="button-submit-kyc"
                     >
                       {isSubmitting ? <Loader2 className="animate-spin mr-2" /> : t.profile.submitVerification}
