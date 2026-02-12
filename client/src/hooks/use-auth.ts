@@ -21,7 +21,7 @@ export function useLogin() {
   const { toast } = useToast();
 
   return useMutation({
-    mutationFn: async (data: { email: string; password: string }) => {
+    mutationFn: async (data: { identifier: string; password: string }) => {
       const res = await apiRequest("POST", "/api/auth/login", data);
       if (!res.ok) {
         const err = await res.json();
