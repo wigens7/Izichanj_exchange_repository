@@ -13,7 +13,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
-import { Loader2, ShieldAlert, Phone, QrCode, UploadCloud, CheckCircle2, ArrowRight } from "lucide-react";
+import { Loader2, ShieldAlert, Phone, QrCode, UploadCloud, CheckCircle2, ArrowRight, Ban } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Link } from "wouter";
 
@@ -104,7 +104,15 @@ export default function WithdrawPage() {
         <p className="text-sm text-muted-foreground mt-0.5">{t.withdraw.subtitle}</p>
       </div>
 
-      {!kycVerified ? (
+      {user?.isBanned ? (
+        <Alert variant="destructive" data-testid="alert-banned-withdraw">
+          <Ban className="h-4 w-4" />
+          <AlertTitle>Account Disabled</AlertTitle>
+          <AlertDescription>
+            Your account is temporarily banned or disabled. Please contact customer support.
+          </AlertDescription>
+        </Alert>
+      ) : !kycVerified ? (
         <Alert className="bg-amber-500/8 border-amber-200 dark:border-amber-800/50 text-amber-800 dark:text-amber-300" data-testid="alert-kyc-required-withdraw">
           <ShieldAlert className="h-4 w-4" />
           <AlertTitle>{t.kyc.required}</AlertTitle>
