@@ -719,6 +719,19 @@ export async function registerRoutes(
       const responseMessages = [userMsg];
       if (botAnswer === "AGENT_REQUEST") {
         await storage.updateConversationStatus(conv.id, "waiting_agent");
+
+        // Notify admin
+        const admins = await storage.getAllProfiles();
+        const adminList = admins.filter(a => a.role === "admin");
+        for (const admin of adminList) {
+          await storage.createNotification({
+            profileId: admin.id,
+            type: "custom_message",
+            title: "Support Agent Requested",
+            message: `User ${profile.fullName} is requesting a live support agent.`,
+          });
+        }
+
         const botMsg = await storage.addMessage({
           conversationId: conv.id,
           sender: "bot",
