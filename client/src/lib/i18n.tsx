@@ -152,7 +152,7 @@ const translations = {
       startNewChat: "Start New Chat",
     },
     login: {
-      appTitle: "EASYCHANGE",
+      appTitle: "Izichanj",
       appSubtitle: "Secure Crypto to Cash Exchange",
       signIn: "Sign In",
       signUp: "Sign Up",
@@ -334,7 +334,7 @@ const translations = {
       startNewChat: "Nouveau chat",
     },
     login: {
-      appTitle: "EASYCHANGE",
+      appTitle: "Izichanj",
       appSubtitle: "\u00c9change s\u00e9curis\u00e9 de crypto en cash",
       signIn: "Se connecter",
       signUp: "S'inscrire",
@@ -516,7 +516,7 @@ const translations = {
       startNewChat: "Nouvo Chat",
     },
     login: {
-      appTitle: "EASYCHANGE",
+      appTitle: "Izichanj",
       appSubtitle: "Echanj kripto an lajan kach an sekirite",
       signIn: "Konekte",
       signUp: "Enskri",

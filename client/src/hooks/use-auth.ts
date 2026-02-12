@@ -79,7 +79,7 @@ export function useVerifyEmail() {
     },
     onSuccess: (profile) => {
       queryClient.setQueryData(["/api/user"], profile);
-      toast({ title: "Email verified!", description: `Welcome to EASYCHANGE, ${profile.fullName}` });
+      toast({ title: "Email verified!", description: `Welcome to Izichanj, ${profile.fullName}` });
     },
     onError: (error: Error) => {
       toast({ title: "Verification failed", description: error.message, variant: "destructive" });

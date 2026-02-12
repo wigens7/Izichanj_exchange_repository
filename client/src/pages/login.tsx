@@ -6,6 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Loader2, LogIn, UserPlus, Eye, EyeOff, Shield, Fingerprint, Wallet, ArrowRightLeft, ShieldCheck, Zap, Phone } from "lucide-react";
+import logoImg from "@/assets/logo.png";
 import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -436,10 +437,8 @@ export default function LoginPage() {
 
         <div className="relative z-10 flex flex-col justify-between p-10 w-full">
           <div className="flex items-center gap-2.5">
-            <div className="w-10 h-10 rounded-md bg-[hsl(230,75%,57%)] flex items-center justify-center">
-              <Wallet className="w-5 h-5 text-white" />
-            </div>
-            <span className="text-xl font-display font-bold text-white">EASYCHANGE</span>
+            <img src={logoImg} alt="Izichanj Logo" className="h-10 w-auto" />
+            <span className="text-xl font-display font-bold text-white uppercase tracking-wider">Izichanj</span>
           </div>
 
           <div className="space-y-8">
@@ -467,12 +466,9 @@ export default function LoginPage() {
         <div className="w-full max-w-[420px]">
           <div className="lg:hidden text-center mb-8">
             <div className="flex items-center justify-center gap-2.5 mb-2">
-              <div className="w-9 h-9 rounded-md bg-primary flex items-center justify-center">
-                <Wallet className="w-5 h-5 text-white" />
-              </div>
-              <span className="text-2xl font-display font-bold">{t.login.appTitle}</span>
+              <img src={logoImg} alt="Izichanj Logo" className="h-12 w-auto" />
             </div>
-            <p className="text-sm text-muted-foreground">{t.login.appSubtitle}</p>
+            <p className="text-sm text-muted-foreground mt-2">{t.login.appSubtitle}</p>
           </div>
 
           <Card className="border shadow-sm">

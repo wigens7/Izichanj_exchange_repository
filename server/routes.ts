@@ -24,7 +24,7 @@ if (process.env.SENDGRID_API_KEY) {
   sgMail.setApiKey(process.env.SENDGRID_API_KEY);
 }
 
-const rpName = "EASYCHANGE";
+const rpName = "Izichanj";
 const rpID = process.env.REPLIT_DEV_DOMAIN?.replace(/^https?:\/\//, "") || "localhost";
 const origin = process.env.REPLIT_DEV_DOMAIN ? `https://${rpID}` : "http://localhost:5000";
 
@@ -36,7 +36,7 @@ async function sendWhatsAppOtp(phone: string, code: string) {
     return;
   }
   try {
-    const body = `*EASYCHANGE*\n\nYour verification code is: *${code}*\n\nThis code expires in 5 minutes.\nDo not share it with anyone.`;
+    const body = `*Izichanj*\n\nYour verification code is: *${code}*\n\nThis code expires in 5 minutes.\nDo not share it with anyone.`;
     const res = await fetch(`https://api.ultramsg.com/${instanceId}/messages/chat`, {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },

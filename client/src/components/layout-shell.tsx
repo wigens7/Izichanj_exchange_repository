@@ -18,6 +18,7 @@ import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { NotificationBell } from "@/components/notification-bell";
 import { SupportChat } from "@/components/support-chat";
+import logoImg from "@/assets/logo.png";
 
 interface LayoutShellProps {
   children: ReactNode;
@@ -48,12 +49,10 @@ export function LayoutShell({ children }: LayoutShellProps) {
     <div className="flex flex-col h-full bg-sidebar text-sidebar-foreground">
       <div className="px-5 pt-7 pb-5">
         <div className="flex items-center gap-2.5">
-          <div className="w-9 h-9 rounded-md bg-sidebar-primary flex items-center justify-center">
-            <Wallet className="w-5 h-5 text-white" />
-          </div>
+          <img src={logoImg} alt="Izichanj Logo" className="h-8 w-auto" />
           <div>
             <h1 className="text-lg font-display font-bold text-white tracking-tight">
-              EASYCHANGE
+              Izichanj
             </h1>
             <p className="text-[11px] text-sidebar-foreground/50 leading-none">{t.nav.cryptoToCash}</p>
           </div>
@@ -110,10 +109,8 @@ export function LayoutShell({ children }: LayoutShellProps) {
     <div className="min-h-screen bg-background">
       <header className="lg:hidden fixed top-0 left-0 right-0 h-14 bg-sidebar border-b border-sidebar-border z-50 flex items-center justify-between px-4">
         <div className="flex items-center gap-2.5">
-          <div className="w-7 h-7 rounded-md bg-sidebar-primary flex items-center justify-center">
-            <Wallet className="w-4 h-4 text-white" />
-          </div>
-          <h1 className="text-base font-display font-bold text-white">EASYCHANGE</h1>
+          <img src={logoImg} alt="Izichanj Logo" className="h-7 w-auto" />
+          <h1 className="text-base font-display font-bold text-white">Izichanj</h1>
         </div>
         <div className="flex items-center gap-1">
           <div className="text-sidebar-foreground">

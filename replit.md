@@ -1,9 +1,10 @@
-# EASYCHANGE - Crypto to Cash Exchange Platform
+# Izichanj - Crypto to Cash Exchange Platform
 
 ## Overview
 A secure fintech mobile web app for converting USDT (TRC20/BEP20) to MonCash/NatCash. Users register with email/password, complete KYC verification, submit deposits with transaction hashes, and request withdrawals to local mobile money accounts.
 
 ## Recent Changes
+- **Feb 11, 2026**: Rebranded app from EasyChange to Izichanj. Updated app name in all UI components, notification messages, and translations. Replaced Wallet icons with the new custom logo asset. Removed all remaining Replit logo references.
 - **Feb 11, 2026**: Replaced email OTP with WhatsApp OTP via UltraMsg API. All OTP delivery (registration, login verification, withdrawal, password reset) now sent via WhatsApp. Added phone field to profiles schema and registration form. Added forgot password flow: user enters WhatsApp number, receives OTP, enters code + new password. New page /forgot-password with 3-step flow (phone -> code+password -> success). New endpoints: POST /api/auth/forgot-password, POST /api/auth/reset-password. Updated verify-email page to reference WhatsApp. All i18n translations updated (EN/FR/HT).
 - **Feb 11, 2026**: Added file attachment capability to support chat. Users and admins can attach files (images, PDFs, docs, etc.) up to 10MB via paperclip button. Files uploaded to Replit Object Storage with presigned URLs. Images display inline as thumbnails, other files show as downloadable links. Schema updated with fileUrl/fileName columns in support_messages. Endpoints: POST /api/support/upload, POST /api/admin/support/upload for presigned URL generation.
 - **Feb 11, 2026**: Enhanced support chat with end chat + star rating. Users see "End Chat" button in chat header, clicking shows 5-star rating UI. After rating and ending, users can start a new conversation anytime. Admin close sends automatic goodbye message. Conversations auto-close after 5 minutes of inactivity with bot goodbye. Schema updated with rating (1-5) and closedBy columns. Admin panel shows star ratings on closed conversations.

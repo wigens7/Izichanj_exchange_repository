@@ -5,6 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp";
 import { Loader2, ArrowLeft, Phone, Lock, Eye, EyeOff, Wallet, KeyRound } from "lucide-react";
+import logoImg from "@/assets/logo.png";
 import { useState } from "react";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -104,10 +105,8 @@ export default function ForgotPasswordPage() {
     <div className="min-h-screen flex items-center justify-center p-4 bg-background">
       <div className="w-full max-w-md">
         <div className="flex items-center justify-center gap-2.5 mb-8">
-          <div className="w-9 h-9 rounded-md bg-primary flex items-center justify-center">
-            <Wallet className="w-5 h-5 text-white" />
-          </div>
-          <span className="text-2xl font-display font-bold">EASYCHANGE</span>
+          <img src={logoImg} alt="Izichanj Logo" className="h-10 w-auto" />
+          <span className="text-2xl font-display font-bold">Izichanj</span>
         </div>
 
         <Card className="border shadow-sm">

@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp";
 import { Loader2, MessageCircle, RefreshCw, Wallet } from "lucide-react";
+import logoImg from "@/assets/logo.png";
 import { useEffect, useState } from "react";
 
 export default function VerifyEmailPage() {
@@ -56,10 +57,8 @@ export default function VerifyEmailPage() {
     <div className="min-h-screen flex items-center justify-center p-4 bg-background">
       <div className="w-full max-w-md">
         <div className="flex items-center justify-center gap-2.5 mb-8">
-          <div className="w-9 h-9 rounded-md bg-primary flex items-center justify-center">
-            <Wallet className="w-5 h-5 text-white" />
-          </div>
-          <span className="text-2xl font-display font-bold">EASYCHANGE</span>
+          <img src={logoImg} alt="Izichanj Logo" className="h-10 w-auto" />
+          <span className="text-2xl font-display font-bold">Izichanj</span>
         </div>
 
         <Card className="border shadow-sm">
