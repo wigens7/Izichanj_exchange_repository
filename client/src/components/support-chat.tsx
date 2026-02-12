@@ -155,6 +155,9 @@ export function SupportChat() {
       const hasAdminReply = newMessages.some((m: any) => m.sender === "admin");
       if (hasAdminReply) {
         playChatBeep();
+        if (window.navigator && window.navigator.vibrate) {
+          window.navigator.vibrate([200, 100, 200]);
+        }
       }
     }
     prevMsgCountRef.current = messages.length;

@@ -102,6 +102,9 @@ export function NotificationBell() {
   useEffect(() => {
     if (prevCountRef.current !== null && unreadCount > prevCountRef.current) {
       playNotificationSound();
+      if (window.navigator && window.navigator.vibrate) {
+        window.navigator.vibrate([200, 100, 200]);
+      }
     }
     prevCountRef.current = unreadCount;
   }, [unreadCount]);

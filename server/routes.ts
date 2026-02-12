@@ -288,6 +288,19 @@ export async function registerRoutes(
       if (profile.kycStatus !== "verified") return res.status(403).json({ message: "KYC verification required before making deposits" });
       const input = api.deposits.create.input.parse(req.body);
       const deposit = await storage.createDeposit({ ...input, profileId: profile.id });
+
+      // Notify admin
+      const admins = await storage.getAllProfiles();
+      const adminList = admins.filter(a => a.role === "admin");
+      for (const admin of adminList) {
+        await storage.createNotification({
+          profileId: admin.id,
+          type: "custom_message",
+          title: "New Deposit Request",
+          message: `User ${profile.fullName} has submitted a new deposit request of ${input.amountUsdt} USDT.`,
+        });
+      }
+
       res.status(201).json(deposit);
     } catch (e) {
       if (e instanceof z.ZodError) return res.status(400).json({ message: e.errors[0].message });
@@ -353,6 +366,19 @@ export async function registerRoutes(
 
       const { otp, ...rest } = parsed;
       const withdrawal = await storage.createWithdrawal({ ...rest, profileId: profile.id });
+
+      // Notify admin
+      const admins = await storage.getAllProfiles();
+      const adminList = admins.filter(a => a.role === "admin");
+      for (const admin of adminList) {
+        await storage.createNotification({
+          profileId: admin.id,
+          type: "custom_message",
+          title: "New Withdrawal Request",
+          message: `User ${profile.fullName} has submitted a new withdrawal request of ${parsed.amount} USDT.`,
+        });
+      }
+
       res.status(201).json(withdrawal);
     } catch (e) {
       if (e instanceof z.ZodError) return res.status(400).json({ message: e.errors[0].message });
@@ -412,6 +438,19 @@ export async function registerRoutes(
     const { idDocumentUrl, idDocumentBackUrl, selfieUrl } = req.body;
     if (!idDocumentUrl || !idDocumentBackUrl || !selfieUrl) return res.status(400).json({ message: "Missing documents" });
     const kyc = await storage.createKyc({ profileId: profile.id, idDocumentUrl, idDocumentBackUrl, selfieUrl });
+
+    // Notify admin
+    const admins = await storage.getAllProfiles();
+    const adminList = admins.filter(a => a.role === "admin");
+    for (const admin of adminList) {
+      await storage.createNotification({
+        profileId: admin.id,
+        type: "custom_message",
+        title: "New KYC Submission",
+        message: `User ${profile.fullName} has submitted documents for KYC verification.`,
+      });
+    }
+
     res.status(201).json(kyc);
   });
 
