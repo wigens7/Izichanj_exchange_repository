@@ -22,9 +22,19 @@ import {
   Image as ImageIcon,
 } from "lucide-react";
 
+import { resumeAudioContext } from "./notification-bell";
+
 function playChatBeep() {
   try {
+    // We attempt to resume context if it's suspended, although this usually needs 
+    // a fresh user gesture to work reliably across all browsers.
+    resumeAudioContext();
+    
+    // We use the same context management logic if possible, but for simplicity here
+    // we just wrap the existing logic in a check.
     const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+    if (audioCtx.state === "suspended") return;
+
     const oscillator = audioCtx.createOscillator();
     const gainNode = audioCtx.createGain();
     oscillator.connect(gainNode);

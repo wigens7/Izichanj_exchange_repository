@@ -17,17 +17,36 @@ const NOTIFICATION_SOUND_KEY = "easychange_notification_sound";
 const DEFAULT_BEEP_FREQUENCY = 800;
 const DEFAULT_BEEP_DURATION = 150;
 
+let audioCtx: AudioContext | null = null;
+
+function getAudioContext() {
+  if (!audioCtx) {
+    audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+  }
+  return audioCtx;
+}
+
+// Function to resume AudioContext on user interaction
+export function resumeAudioContext() {
+  const ctx = getAudioContext();
+  if (ctx.state === "suspended") {
+    ctx.resume();
+  }
+}
+
 function playNotificationSound() {
   const soundPref = localStorage.getItem(NOTIFICATION_SOUND_KEY) || "default";
   if (soundPref === "none") return;
 
   try {
-    const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
-    const oscillator = audioCtx.createOscillator();
-    const gainNode = audioCtx.createGain();
+    const ctx = getAudioContext();
+    if (ctx.state === "suspended") return;
+
+    const oscillator = ctx.createOscillator();
+    const gainNode = ctx.createGain();
 
     oscillator.connect(gainNode);
-    gainNode.connect(audioCtx.destination);
+    gainNode.connect(ctx.destination);
 
     if (soundPref === "soft") {
       oscillator.frequency.value = 600;
@@ -43,9 +62,9 @@ function playNotificationSound() {
       gainNode.gain.value = 0.2;
     }
 
-    gainNode.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + DEFAULT_BEEP_DURATION / 1000 + 0.1);
-    oscillator.start(audioCtx.currentTime);
-    oscillator.stop(audioCtx.currentTime + DEFAULT_BEEP_DURATION / 1000 + 0.1);
+    gainNode.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + DEFAULT_BEEP_DURATION / 1000 + 0.1);
+    oscillator.start(ctx.currentTime);
+    oscillator.stop(ctx.currentTime + DEFAULT_BEEP_DURATION / 1000 + 0.1);
   } catch (e) {
   }
 }
