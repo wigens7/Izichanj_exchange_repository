@@ -18,6 +18,7 @@ const translations = {
       adminPanel: "Admin Panel",
       signOut: "Sign Out",
       cryptoToCash: "Crypto to Cash",
+      faq: "FAQ",
     },
     dashboard: {
       title: "Dashboard",
@@ -107,6 +108,31 @@ const translations = {
       uploaded: "Uploaded",
       uploading: "Uploading documents...",
       submitVerification: "Submit for Verification",
+    },
+    faq: {
+      title: "Frequently Asked Questions",
+      subtitle: "Find answers to the most common questions about Izichanj.",
+      categories: {
+        general: "General",
+        deposits: "Deposits",
+        withdrawals: "Withdrawals",
+        kyc: "Verification (KYC)",
+        security: "Security",
+      },
+      questions: {
+        whatIsIzichanj: "What is Izichanj?",
+        whatIsIzichanjAns: "Izichanj is a secure fintech platform that allows you to exchange USDT (TRC20/BEP20) for local mobile money like MonCash and NatCash in Haiti.",
+        howToDeposit: "How do I make a deposit?",
+        howToDepositAns: "Go to the 'Deposit' page, choose your network (TRC20 or BEP20), send the USDT to the provided address, and submit the transaction hash for verification.",
+        howToWithdraw: "How do I withdraw my funds?",
+        howToWithdrawAns: "Navigate to the 'Withdraw' page, select MonCash or NatCash, enter the amount, provide your phone number or QR code, and verify with the WhatsApp OTP.",
+        withdrawalTime: "How long does a withdrawal take?",
+        withdrawalTimeAns: "Most withdrawals are processed within 15 to 20 minutes after being approved by our team.",
+        whyKyc: "Why do I need to verify my identity?",
+        whyKycAns: "KYC (Know Your Customer) is required to prevent fraud and comply with financial regulations. It ensures a safe environment for all users.",
+        isItSecure: "Is my account secure?",
+        isItSecureAns: "Yes! We use 256-bit encryption, support Two-Factor Authentication (2FA), and biometric login (fingerprint/FaceID) to protect your account.",
+      }
     },
     security: {
       title: "Security Settings",
@@ -210,6 +236,7 @@ const translations = {
       adminPanel: "Panneau admin",
       signOut: "D\u00e9connexion",
       cryptoToCash: "Crypto en cash",
+      faq: "FAQ",
     },
     dashboard: {
       title: "Tableau de bord",
@@ -299,6 +326,31 @@ const translations = {
       uploaded: "T\u00e9l\u00e9charg\u00e9",
       uploading: "T\u00e9l\u00e9chargement des documents...",
       submitVerification: "Soumettre pour v\u00e9rification",
+    },
+    faq: {
+      title: "Foire Aux Questions",
+      subtitle: "Trouvez des r\u00e9ponses aux questions les plus fr\u00e9quentes sur Izichanj.",
+      categories: {
+        general: "G\u00e9n\u00e9ral",
+        deposits: "D\u00e9p\u00f4ts",
+        withdrawals: "Retraits",
+        kyc: "V\u00e9rification (KYC)",
+        security: "S\u00e9curit\u00e9",
+      },
+      questions: {
+        whatIsIzichanj: "Qu'est-ce qu'Izichanj ?",
+        whatIsIzichanjAns: "Izichanj est une plateforme fintech s\u00e9curis\u00e9e qui vous permet d'\u00e9changer des USDT (TRC20/BEP20) contre de l'argent mobile local comme MonCash et NatCash en Ha\u00efti.",
+        howToDeposit: "Comment faire un d\u00e9p\u00f4t ?",
+        howToDepositAns: "Allez sur la page 'D\u00e9p\u00f4t', choisissez votre r\u00e9seau (TRC20 ou BEP20), envoyez les USDT \u00e0 l'adresse fournie et soumettez le hash de transaction pour v\u00e9rification.",
+        howToWithdraw: "Comment retirer mes fonds ?",
+        howToWithdrawAns: "Acc\u00e9dez \u00e0 la page 'Retrait', s\u00e9lectionnez MonCash ou NatCash, entrez le montant, fournissez votre num\u00e9ro de t\u00e9l\u00e9phone ou code QR, et v\u00e9rifiez avec l'OTP WhatsApp.",
+        withdrawalTime: "Combien de temps prend un retrait ?",
+        withdrawalTimeAns: "La plupart des retraits sont trait\u00e9s dans les 15 \u00e0 20 minutes apr\u00e8s avoir \u00e9t\u00e9 approuv\u00e9s par notre \u00e9quipe.",
+        whyKyc: "Pourquoi dois-je v\u00e9rifier mon identit\u00e9 ?",
+        whyKycAns: "Le KYC (Know Your Customer) est requis pour pr\u00e9venir la fraude et se conformer aux r\u00e9glementations financi\u00e8res. Il garantit un environnement s\u00fbr pour tous les utilisateurs.",
+        isItSecure: "Mon compte est-il s\u00e9curis\u00e9 ?",
+        isItSecureAns: "Oui ! Nous utilisons un cryptage 256 bits, prenons en charge l'authentification \u00e0 deux facteurs (2FA) et la connexion biom\u00e9trique (empreinte digitale/FaceID) pour prot\u00e9ger votre compte.",
+      }
     },
     security: {
       title: "Param\u00e8tres de s\u00e9curit\u00e9",
@@ -402,6 +454,7 @@ const translations = {
       adminPanel: "Pano admin",
       signOut: "Dekonekte",
       cryptoToCash: "Kripto an lajan kach",
+      faq: "FAQ",
     },
     dashboard: {
       title: "Tablo",
@@ -491,6 +544,31 @@ const translations = {
       uploaded: "Telechaje",
       uploading: "Ap telechaje dokiman yo...",
       submitVerification: "Soum\u00e8t pou verifikasyon",
+    },
+    faq: {
+      title: "Kesyon moun poze souvan",
+      subtitle: "Jwenn repons pou kesyon ki pi komen sou Izichanj.",
+      categories: {
+        general: "Jeneral",
+        deposits: "Depo",
+        withdrawals: "Retr\u00e8",
+        kyc: "Verifikasyon (KYC)",
+        security: "Sekirite",
+      },
+      questions: {
+        whatIsIzichanj: "Kisa Izichanj ye?",
+        whatIsIzichanjAns: "Izichanj se yon platf\u00f2m fintech sekirize ki p\u00e8m\u00e8t ou echanje USDT (TRC20/BEP20) pou lajan mobil lokal tankou MonCash ak NatCash nan peyi Ayiti.",
+        howToDeposit: "Kijan pou m f\u00e8 yon depo?",
+        howToDepositAns: "Ale sou paj 'Depo', chwazi rezo w la (TRC20 oswa BEP20), voye USDT yo nan adr\u00e8s yo ba ou a, epi soum\u00e8t hash tranzaksyon an pou verifikasyon.",
+        howToWithdraw: "Kijan pou m retire lajan m?",
+        howToWithdrawAns: "Ale sou paj 'Retr\u00e8', chwazi MonCash oswa NatCash, antre montan an, bay nimewo telef\u00f2n ou oswa k\u00f2d QR ou, epi verifye ak k\u00f2d OTP WhatsApp la.",
+        withdrawalTime: "Konbe tan yon retr\u00e8 pran?",
+        withdrawalTimeAns: "Pif\u00f2 retr\u00e8 yo trete nan 15 pou rive 20 minit apre ekip nou an fin apwouve yo.",
+        whyKyc: "Poukisa m dwe verifye idantite m?",
+        whyKycAns: "KYC (Know Your Customer) neses\u00e8 pou anpeche fwod epi konf\u00f2me ak r\u00e8gleman finansye yo. Li asire yon anviw\u00f2nman an sekirite pou tout itilizat\u00e8 yo.",
+        isItSecure: "\u00c8ske kont mwen an sekirite?",
+        isItSecureAns: "Wi! Nou itilize chifreman 256-bit, nou sip\u00f2te otantifikasyon de fakt\u00e8 (2FA), ak koneksyon byometrik (anprent/FaceID) pou pwoteje kont ou.",
+      }
     },
     security: {
       title: "Param\u00e8t sekirite",

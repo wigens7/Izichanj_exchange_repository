@@ -12,7 +12,8 @@ import {
   ShieldCheck, 
   LogOut,
   Menu,
-  Wallet
+  Wallet,
+  HelpCircle
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
@@ -37,6 +38,7 @@ export function LayoutShell({ children }: LayoutShellProps) {
     { href: "/withdraw", label: t.nav.withdraw, icon: ArrowUpCircle },
     { href: "/profile", label: t.nav.profileKyc, icon: UserCircle },
     { href: "/security", label: t.security.title, icon: Shield },
+    { href: "/faq", label: t.nav.faq, icon: HelpCircle },
   ];
 
   if (user?.role === "admin") {

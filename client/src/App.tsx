@@ -16,6 +16,7 @@ import WithdrawPage from "@/pages/withdraw";
 import ProfilePage from "@/pages/profile";
 import SecurityPage from "@/pages/security";
 import AdminPage from "@/pages/admin";
+import FAQPage from "@/pages/faq";
 import NotFound from "@/pages/not-found";
 import { LayoutShell } from "@/components/layout-shell";
 
@@ -73,6 +74,9 @@ function Router() {
       </Route>
       <Route path="/admin">
         <ProtectedRoute component={AdminPage} adminOnly />
+      </Route>
+      <Route path="/faq">
+        <ProtectedRoute component={FAQPage} />
       </Route>
 
       <Route component={NotFound} />
