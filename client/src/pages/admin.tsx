@@ -45,6 +45,8 @@ import {
   Download,
   Image as ImageIcon,
   KeyRound,
+  Ban,
+  Unlock,
 } from "lucide-react";
 import { format } from "date-fns";
 import { usdtToHtg, formatHtg, formatUsdt } from "@shared/constants";
@@ -213,10 +215,36 @@ function UserRow({ user, onUpdateBalance, isPending }: { user: any; onUpdateBala
     },
   });
 
+  const banMutation = useMutation({
+    mutationFn: async (isBanned: boolean) => {
+      const res = await apiRequest("PATCH", `/api/admin/users/${user.id}/ban`, { isBanned });
+      return res.json();
+    },
+    onSuccess: (data) => {
+      toast({ 
+        title: data.isBanned ? "User banned" : "User unbanned",
+        description: `${user.fullName} has been ${data.isBanned ? "temporarily banned" : "unbanned"}.`
+      });
+      qc.invalidateQueries({ queryKey: ["/api/admin/users"] });
+    },
+    onError: (error: Error) => {
+      toast({ 
+        title: "Error", 
+        description: error.message,
+        variant: "destructive" 
+      });
+    },
+  });
+
   return (
     <TableRow data-testid={`row-user-${user.id}`}>
       <TableCell className="font-mono text-xs">{user.id}</TableCell>
-      <TableCell className="font-medium">{user.fullName}</TableCell>
+      <TableCell className="font-medium">
+        {user.fullName}
+        {user.isBanned && (
+          <Badge variant="destructive" className="ml-2 text-[10px] h-4 px-1 uppercase">Banned</Badge>
+        )}
+      </TableCell>
       <TableCell className="text-muted-foreground text-sm">{user.email}</TableCell>
       <TableCell>
         <StatusBadge status={user.role} />
@@ -263,18 +291,37 @@ function UserRow({ user, onUpdateBalance, isPending }: { user: any; onUpdateBala
         {format(new Date(user.createdAt), "MMM d, yyyy")}
       </TableCell>
       <TableCell>
-        {user.twoFactorEnabled && (
+        <div className="flex items-center gap-2">
+          {user.twoFactorEnabled && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => disable2faMutation.mutate()}
+              disabled={disable2faMutation.isPending}
+              data-testid={`button-disable-2fa-${user.id}`}
+            >
+              {disable2faMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <KeyRound className="w-3 h-3 mr-1" />}
+              Disable 2FA
+            </Button>
+          )}
           <Button
-            variant="outline"
+            variant={user.isBanned ? "default" : "outline"}
             size="sm"
-            onClick={() => disable2faMutation.mutate()}
-            disabled={disable2faMutation.isPending}
-            data-testid={`button-disable-2fa-${user.id}`}
+            onClick={() => banMutation.mutate(!user.isBanned)}
+            disabled={banMutation.isPending}
+            className={user.isBanned ? "bg-red-600 hover:bg-red-700" : "text-red-600 hover:text-red-700 border-red-200"}
+            data-testid={`button-ban-user-${user.id}`}
           >
-            {disable2faMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <KeyRound className="w-3 h-3 mr-1" />}
-            Disable 2FA
+            {banMutation.isPending ? (
+              <Loader2 className="w-3 h-3 animate-spin mr-1" />
+            ) : user.isBanned ? (
+              <Unlock className="w-3 h-3 mr-1" />
+            ) : (
+              <Ban className="w-3 h-3 mr-1" />
+            )}
+            {user.isBanned ? "Unban User" : "Ban User"}
           </Button>
-        )}
+        </div>
       </TableCell>
     </TableRow>
   );
@@ -571,7 +618,12 @@ function KycTab() {
                 {kycUsers.map((user: any) => (
                   <TableRow key={user.id} data-testid={`row-kyc-${user.id}`}>
                     <TableCell className="font-mono text-xs">{user.id}</TableCell>
-                    <TableCell className="font-medium">{user.fullName}</TableCell>
+                    <TableCell className="font-medium">
+        {user.fullName}
+        {user.isBanned && (
+          <Badge variant="destructive" className="ml-2 text-[10px] h-4 px-1 uppercase">Banned</Badge>
+        )}
+      </TableCell>
                     <TableCell className="text-muted-foreground text-sm">{user.email}</TableCell>
                     <TableCell>
                       {getKycDocsForUser(user.id) ? (
