@@ -114,9 +114,9 @@ const translations = {
       title: "Virtual Visa Card",
       subtitle: "Apply for a virtual Visa card to make online payments worldwide.",
       applyTitle: "Apply for Card",
-      applyDescription: "Get a virtual Visa card funded from your USDT balance.",
+      applyDescription: "Get a virtual Visa card funded from your USDT balance. Card costs $20 USD.",
       initialFunding: "Initial Funding (USD)",
-      minFunding: "Minimum $1 USD",
+      minFunding: "Minimum $19.99 USD",
       applyButton: "Apply for Virtual Card",
       applying: "Creating your card...",
       myCards: "My Cards",
@@ -139,6 +139,9 @@ const translations = {
       cardFunded: "Card funded successfully!",
       frozen: "Frozen",
       active: "Active",
+      cardCost: "Card Cost",
+      yourBalance: "Your Balance",
+      insufficientBalance: "You need at least $20 USDT in your account to apply for a virtual card. Please deposit funds first.",
     },
     faq: {
       title: "Frequently Asked Questions",
@@ -363,9 +366,9 @@ const translations = {
       title: "Carte Visa Virtuelle",
       subtitle: "Demandez une carte Visa virtuelle pour effectuer des paiements en ligne dans le monde entier.",
       applyTitle: "Demander une carte",
-      applyDescription: "Obtenez une carte Visa virtuelle financ\u00e9e depuis votre solde USDT.",
+      applyDescription: "Obtenez une carte Visa virtuelle financ\u00e9e depuis votre solde USDT. La carte co\u00fbte 20 $ USD.",
       initialFunding: "Financement initial (USD)",
-      minFunding: "Minimum 1 $ USD",
+      minFunding: "Minimum 19,99 $ USD",
       applyButton: "Demander une carte virtuelle",
       applying: "Cr\u00e9ation de votre carte...",
       myCards: "Mes cartes",
@@ -388,6 +391,9 @@ const translations = {
       cardFunded: "Carte recharg\u00e9e avec succ\u00e8s !",
       frozen: "Gel\u00e9e",
       active: "Active",
+      cardCost: "Co\u00fbt de la carte",
+      yourBalance: "Votre solde",
+      insufficientBalance: "Vous avez besoin d'au moins 20 $ USDT sur votre compte pour demander une carte virtuelle. Veuillez d'abord d\u00e9poser des fonds.",
     },
     faq: {
       title: "Foire Aux Questions",
@@ -612,9 +618,9 @@ const translations = {
       title: "Kat Visa Vity\u00e8l",
       subtitle: "Aplike pou yon kat Visa vity\u00e8l pou f\u00e8 peman sou entyn\u00e8t toupatou nan mond lan.",
       applyTitle: "Aplike pou kat",
-      applyDescription: "Jwenn yon kat Visa vity\u00e8l ki finanse ak balans USDT ou.",
+      applyDescription: "Jwenn yon kat Visa vity\u00e8l ki finanse ak balans USDT ou. Kat la koute $20 USD.",
       initialFunding: "Finansman inisyal (USD)",
-      minFunding: "Minimom $1 USD",
+      minFunding: "Minimom $19.99 USD",
       applyButton: "Aplike pou kat vity\u00e8l",
       applying: "Ap kreye kat ou a...",
       myCards: "Kat mwen yo",
@@ -637,6 +643,9 @@ const translations = {
       cardFunded: "Kat rechaje avek sikse!",
       frozen: "Jele",
       active: "Aktif",
+      cardCost: "Pri kat la",
+      yourBalance: "Balans ou",
+      insufficientBalance: "Ou bezwen omwen $20 USDT nan kont ou pou aplike pou yon kat vity\u00e8l. Tanpri depoze lajan anvan.",
     },
     faq: {
       title: "Kesyon moun poze souvan",
@@ -766,7 +775,7 @@ type TranslationSet = {
   profile: { status: string; joined: string; language: string; selectLanguage: string; kycTitle: string; kycDescription: string; verified: string; verifiedDescription: string; underReview: string; underReviewDescription: string; idFront: string; idBack: string; selfie: string; clickToUpload: string; uploaded: string; uploading: string; submitVerification: string };
   security: { title: string; description: string; twoFactorAuth: string; twoFactorDescription: string; twoFactorEnabled: string; twoFactorDisabled: string; enable2FA: string; disable2FA: string; scanQRCode: string; manualKey: string; enterCode: string; verify: string; disableConfirm: string; confirmDisable: string; cancel: string; fingerprint: string; fingerprintDescription: string; registerFingerprint: string; registeredDevices: string; noDevices: string; removeDevice: string; twoFARequired: string; enter2FACode: string; verifyLogin: string; fingerprintLogin: string };
   kyc: { required: string; depositMessage: string; withdrawMessage: string; goToProfile: string };
-  virtualCard: { title: string; subtitle: string; applyTitle: string; applyDescription: string; initialFunding: string; minFunding: string; applyButton: string; applying: string; myCards: string; noCards: string; cardBalance: string; fundCard: string; freezeCard: string; unfreezeCard: string; viewDetails: string; transactions: string; fundAmount: string; fundButton: string; funding: string; cardNumber: string; expiry: string; cvv: string; noTransactions: string; kycRequired: string; cardCreated: string; cardFunded: string; frozen: string; active: string };
+  virtualCard: { title: string; subtitle: string; applyTitle: string; applyDescription: string; initialFunding: string; minFunding: string; applyButton: string; applying: string; myCards: string; noCards: string; cardBalance: string; fundCard: string; freezeCard: string; unfreezeCard: string; viewDetails: string; transactions: string; fundAmount: string; fundButton: string; funding: string; cardNumber: string; expiry: string; cvv: string; noTransactions: string; kycRequired: string; cardCreated: string; cardFunded: string; frozen: string; active: string; cardCost: string; yourBalance: string; insufficientBalance: string };
   support: { title: string; subtitle: string; welcomeTitle: string; welcomeMessage: string; quickDeposit: string; quickWithdraw: string; quickKyc: string; talkToAgent: string; placeholder: string; waitingAgent: string; agentLabel: string; endChat: string; rateTitle: string; rateMessage: string; cancelRating: string; submitRating: string; chatEnded: string; startNewChat: string };
   login: { appTitle: string; appSubtitle: string; signIn: string; signUp: string; welcomeBack: string; signInDescription: string; createAccount: string; signUpDescription: string; email: string; password: string; fullName: string; confirmPassword: string; whatsappNumber: string; forgotPassword: string; forgotDescription: string; sendResetCode: string; enterResetCode: string; newPassword: string; confirmPasswordPlaceholder: string; passwordMinLength: string; passwordsDoNotMatch: string; resetPassword: string; backToLogin: string; codeSentTitle: string; codeSentWhatsApp: string; passwordResetSuccess: string; passwordResetDescription: string; phoneRequired: string };
   verifyEmail: { title: string; description: string; verifyButton: string; didntReceive: string; resendIn: string; resendCode: string };

@@ -1176,16 +1176,14 @@ export async function registerRoutes(
         return res.status(500).json({ message: "Card service not configured" });
       }
 
-      const { amount } = req.body;
-      const fundAmount = parseFloat(amount);
-      if (isNaN(fundAmount) || fundAmount < 1) {
-        return res.status(400).json({ message: "Minimum card funding is $1 USD" });
-      }
+      const CARD_COST_USD = 20;
 
       const balanceUsdt = parseFloat(profile.balance || "0");
-      if (fundAmount > balanceUsdt) {
-        return res.status(400).json({ message: "Insufficient USDT balance" });
+      if (balanceUsdt < CARD_COST_USD) {
+        return res.status(400).json({ message: `Insufficient balance. You need at least $${CARD_COST_USD} USDT to apply for a virtual card. Your current balance is $${balanceUsdt.toFixed(2)} USDT.` });
       }
+
+      const fundAmount = CARD_COST_USD;
 
       const nameOnCard = `${profile.firstName || ""} ${profile.lastName || ""}`.trim() || profile.fullName;
 
@@ -1245,13 +1243,13 @@ export async function registerRoutes(
 
       const { amount } = req.body;
       const fundAmount = parseFloat(amount);
-      if (isNaN(fundAmount) || fundAmount < 1) {
-        return res.status(400).json({ message: "Minimum funding is $1 USD" });
+      if (isNaN(fundAmount) || fundAmount < 19.99) {
+        return res.status(400).json({ message: "Minimum funding is $19.99 USD" });
       }
 
       const balanceUsdt = parseFloat(profile.balance || "0");
       if (fundAmount > balanceUsdt) {
-        return res.status(400).json({ message: "Insufficient USDT balance" });
+        return res.status(400).json({ message: `Insufficient USDT balance. Your current balance is $${balanceUsdt.toFixed(2)} USDT.` });
       }
 
       const response = await fetch(`${STROWALLET_BASE}/fund-card/`, {

@@ -88,20 +88,23 @@ export default function VirtualCardsPage() {
 function ApplyCardSection() {
   const { t } = useLanguage();
   const vc = t.virtualCard;
+  const { data: user } = useUser();
   const { toast } = useToast();
   const qc = useQueryClient();
-  const [amount, setAmount] = useState("");
+
+  const CARD_COST = 20;
+  const userBalance = parseFloat(user?.balance || "0");
+  const hasEnoughBalance = userBalance >= CARD_COST;
 
   const createMutation = useMutation({
-    mutationFn: async (amt: string) => {
-      const res = await apiRequest("POST", "/api/cards/create", { amount: amt });
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/cards/create", { amount: String(CARD_COST) });
       return res.json();
     },
     onSuccess: () => {
       toast({ title: vc.cardCreated });
       qc.invalidateQueries({ queryKey: ["/api/cards"] });
       qc.invalidateQueries({ queryKey: ["/api/user"] });
-      setAmount("");
     },
     onError: (err: Error) => {
       toast({ title: err.message, variant: "destructive" });
@@ -117,44 +120,45 @@ function ApplyCardSection() {
         </CardTitle>
         <CardDescription>{vc.applyDescription}</CardDescription>
       </CardHeader>
-      <CardContent>
-        <div className="flex flex-col sm:flex-row items-end gap-3">
-          <div className="w-full sm:w-auto flex-1">
-            <Label htmlFor="fundAmount">{vc.initialFunding}</Label>
-            <div className="relative mt-1.5">
-              <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-              <Input
-                id="fundAmount"
-                type="number"
-                min="1"
-                step="0.01"
-                placeholder="5.00"
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-                className="pl-9"
-                data-testid="input-card-amount"
-              />
-            </div>
-            <p className="text-xs text-muted-foreground mt-1">{vc.minFunding}</p>
+      <CardContent className="space-y-4">
+        <div className="bg-muted/30 rounded-md p-4 flex items-center justify-between gap-3 flex-wrap">
+          <div>
+            <p className="text-sm text-muted-foreground">{vc.cardCost}</p>
+            <p className="text-2xl font-bold font-display" data-testid="text-card-cost">$20.00 <span className="text-sm font-normal text-muted-foreground">USD</span></p>
           </div>
-          <Button
-            onClick={() => createMutation.mutate(amount)}
-            disabled={createMutation.isPending || !amount || parseFloat(amount) < 1}
-            data-testid="button-apply-card"
-          >
-            {createMutation.isPending ? (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                {vc.applying}
-              </>
-            ) : (
-              <>
-                <CreditCard className="w-4 h-4 mr-2" />
-                {vc.applyButton}
-              </>
-            )}
-          </Button>
+          <div className="text-right">
+            <p className="text-sm text-muted-foreground">{vc.yourBalance}</p>
+            <p className={`text-lg font-semibold ${hasEnoughBalance ? "text-emerald-600" : "text-red-500"}`} data-testid="text-your-balance">
+              ${userBalance.toFixed(2)} USDT
+            </p>
+          </div>
         </div>
+
+        {!hasEnoughBalance && (
+          <div className="flex items-center gap-2 text-sm text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 rounded-md p-3">
+            <AlertCircle className="w-4 h-4 flex-shrink-0" />
+            <p>{vc.insufficientBalance}</p>
+          </div>
+        )}
+
+        <Button
+          onClick={() => createMutation.mutate()}
+          disabled={createMutation.isPending || !hasEnoughBalance}
+          className="w-full sm:w-auto"
+          data-testid="button-apply-card"
+        >
+          {createMutation.isPending ? (
+            <>
+              <Loader2 className="w-4 h-4 animate-spin mr-2" />
+              {vc.applying}
+            </>
+          ) : (
+            <>
+              <CreditCard className="w-4 h-4 mr-2" />
+              {vc.applyButton} — $20.00
+            </>
+          )}
+        </Button>
       </CardContent>
     </Card>
   );
@@ -301,12 +305,13 @@ function CardItem({ card }: { card: VirtualCard }) {
           {showFund && (
             <div className="bg-muted/30 rounded-md p-3 space-y-2">
               <Label>{vc.fundAmount}</Label>
+              <p className="text-xs text-muted-foreground">{vc.minFunding}</p>
               <div className="flex items-center gap-2">
                 <div className="relative flex-1">
                   <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                   <Input
                     type="number"
-                    min="1"
+                    min="19.99"
                     step="0.01"
                     value={fundAmount}
                     onChange={(e) => setFundAmount(e.target.value)}
@@ -316,7 +321,7 @@ function CardItem({ card }: { card: VirtualCard }) {
                 </div>
                 <Button
                   onClick={() => fundMutation.mutate(fundAmount)}
-                  disabled={fundMutation.isPending || !fundAmount || parseFloat(fundAmount) < 1}
+                  disabled={fundMutation.isPending || !fundAmount || parseFloat(fundAmount) < 19.99}
                   data-testid={`button-fund-card-${card.id}`}
                 >
                   {fundMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : vc.fundButton}
