@@ -149,15 +149,21 @@ export async function registerRoutes(
   app.post("/api/auth/login", async (req, res) => {
     try {
       const input = loginSchema.parse(req.body);
-      const profile = await storage.getProfileByEmail(input.email);
-      console.log(`[LOGIN] Attempt for ${input.email}, found: ${!!profile}, hash starts: ${profile?.passwordHash?.substring(0, 10) || 'N/A'}`);
+      let profile;
+      if (input.identifier.includes("@")) {
+        profile = await storage.getProfileByEmail(input.identifier);
+      } else {
+        profile = await storage.getProfileByPhone(input.identifier);
+      }
+
+      console.log(`[LOGIN] Attempt for ${input.identifier}, found: ${!!profile}, hash starts: ${profile?.passwordHash?.substring(0, 10) || 'N/A'}`);
       if (!profile) {
-        return res.status(401).json({ message: "Invalid email or password" });
+        return res.status(401).json({ message: "Invalid email/phone or password" });
       }
       const valid = await bcrypt.compare(input.password, profile.passwordHash);
-      console.log(`[LOGIN] Password compare result for ${input.email}: ${valid}`);
+      console.log(`[LOGIN] Password compare result for ${input.identifier}: ${valid}`);
       if (!valid) {
-        return res.status(401).json({ message: "Invalid email or password" });
+        return res.status(401).json({ message: "Invalid email/phone or password" });
       }
 
       if (!profile.emailVerified) {

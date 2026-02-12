@@ -81,7 +81,7 @@ function SignInForm() {
 
   const form = useForm<LoginInput>({
     resolver: zodResolver(loginSchema),
-    defaultValues: { email: "", password: "" },
+    defaultValues: { identifier: "", password: "" },
   });
 
   const onSubmit = (data: LoginInput) => {
@@ -99,14 +99,14 @@ function SignInForm() {
   };
 
   const handleFingerprintLogin = async () => {
-    const email = form.getValues("email");
-    if (!email) {
-      toast({ title: "Error", description: "Enter your email first", variant: "destructive" });
+    const identifier = form.getValues("identifier");
+    if (!identifier) {
+      toast({ title: "Error", description: "Enter your email or phone first", variant: "destructive" });
       return;
     }
     setIsFingerprintLoading(true);
     try {
-      const optionsRes = await apiRequest("POST", "/api/security/webauthn/auth-options", { email });
+      const optionsRes = await apiRequest("POST", "/api/security/webauthn/auth-options", { email: identifier });
       if (!optionsRes.ok) {
         const err = await optionsRes.json();
         throw new Error(err.message);
@@ -145,15 +145,14 @@ function SignInForm() {
       <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
         <FormField
           control={form.control}
-          name="email"
+          name="identifier"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>{t.login.email}</FormLabel>
+              <FormLabel>{t.login.emailOrPhone || "Email or Phone Number"}</FormLabel>
               <FormControl>
                 <Input
-                  type="email"
-                  placeholder="you@example.com"
-                  data-testid="input-login-email"
+                  placeholder="you@example.com or +509..."
+                  data-testid="input-login-identifier"
                   {...field}
                 />
               </FormControl>
