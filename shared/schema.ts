@@ -160,6 +160,26 @@ export type WebAuthnCredential = typeof webauthnCredentials.$inferSelect;
 export type Notification = typeof notifications.$inferSelect;
 export type SupportConversation = typeof supportConversations.$inferSelect;
 export type SupportMessage = typeof supportMessages.$inferSelect;
+export const cardStatusEnum = pgEnum("card_status", ["pending", "active", "frozen", "terminated"]);
+
+export const virtualCards = pgTable("virtual_cards", {
+  id: serial("id").primaryKey(),
+  profileId: integer("profile_id").references(() => profiles.id).notNull(),
+  cardId: text("card_id").notNull(),
+  cardType: text("card_type").default("visa").notNull(),
+  nameOnCard: text("name_on_card").notNull(),
+  last4: text("last4"),
+  brand: text("brand").default("Visa"),
+  status: cardStatusEnum("status").default("pending").notNull(),
+  balance: decimal("card_balance", { precision: 10, scale: 2 }).default("0").notNull(),
+  currency: text("card_currency").default("USD").notNull(),
+  cardDetail: jsonb("card_detail"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertVirtualCardSchema = createInsertSchema(virtualCards).omit({ id: true, profileId: true, createdAt: true });
+export type VirtualCard = typeof virtualCards.$inferSelect;
+
 export const profileInfoSchema = z.object({
   firstName: z.string().min(1, "First name is required"),
   lastName: z.string().min(1, "Last name is required"),

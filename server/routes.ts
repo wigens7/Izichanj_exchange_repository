@@ -1033,5 +1033,225 @@ export async function registerRoutes(
     }
   });
 
+  // ============ VIRTUAL CARD (STROWALLET) ============
+
+  const STROWALLET_BASE = "https://strowallet.com/api/bitvcard";
+  const strowalletPublicKey = process.env.STROWALLET_PUBLIC_KEY || "";
+
+  app.get("/api/cards", isAuthenticated, async (req: any, res) => {
+    try {
+      const profile = await getProfileFromReq(req);
+      if (!profile) return res.status(401).json({ message: "Unauthorized" });
+      const cards = await storage.getVirtualCards(profile.id);
+      res.json(cards);
+    } catch (e) {
+      console.error("Get cards error:", e);
+      res.status(500).json({ message: "Internal Error" });
+    }
+  });
+
+  app.post("/api/cards/create", isAuthenticated, async (req: any, res) => {
+    try {
+      const profile = await getProfileFromReq(req);
+      if (!profile) return res.status(401).json({ message: "Unauthorized" });
+      if (profile.kycStatus !== "verified") return res.status(403).json({ message: "KYC verification required before applying for a virtual card" });
+
+      if (!strowalletPublicKey) {
+        return res.status(500).json({ message: "Card service not configured" });
+      }
+
+      const { amount } = req.body;
+      const fundAmount = parseFloat(amount);
+      if (isNaN(fundAmount) || fundAmount < 1) {
+        return res.status(400).json({ message: "Minimum card funding is $1 USD" });
+      }
+
+      const balanceUsdt = parseFloat(profile.balance || "0");
+      if (fundAmount > balanceUsdt) {
+        return res.status(400).json({ message: "Insufficient USDT balance" });
+      }
+
+      const nameOnCard = `${profile.firstName || ""} ${profile.lastName || ""}`.trim() || profile.fullName;
+
+      const response = await fetch(`${STROWALLET_BASE}/create-card/`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Accept": "application/json" },
+        body: JSON.stringify({
+          name_on_card: nameOnCard,
+          card_type: "visa",
+          public_key: strowalletPublicKey,
+          amount: fundAmount.toString(),
+          customerEmail: profile.email,
+        }),
+      });
+
+      const data = await response.json();
+      console.log("[STROWALLET] Create card response:", JSON.stringify(data));
+
+      if (!response.ok || data.status === "error" || data.status === false) {
+        return res.status(400).json({ message: data.message || data.error || "Failed to create virtual card" });
+      }
+
+      const cardInfo = data.response || data.data || data;
+      const cardId = cardInfo.card_id || cardInfo.id || `stro_${Date.now()}`;
+      const last4 = cardInfo.card_number ? cardInfo.card_number.slice(-4) : cardInfo.last4 || null;
+
+      const newBalance = balanceUsdt - fundAmount;
+      await storage.updateProfileBalance(profile.id, newBalance);
+
+      const card = await storage.createVirtualCard({
+        profileId: profile.id,
+        cardId: String(cardId),
+        cardType: "visa",
+        nameOnCard,
+        last4,
+        brand: "Visa",
+        status: "active",
+        balance: fundAmount.toString(),
+        currency: "USD",
+        cardDetail: cardInfo,
+      });
+
+      res.status(201).json(card);
+    } catch (e: any) {
+      console.error("Create card error:", e);
+      res.status(500).json({ message: e.message || "Internal Error" });
+    }
+  });
+
+  app.post("/api/cards/:id/fund", isAuthenticated, async (req: any, res) => {
+    try {
+      const profile = await getProfileFromReq(req);
+      if (!profile) return res.status(401).json({ message: "Unauthorized" });
+
+      const card = await storage.getVirtualCard(Number(req.params.id), profile.id);
+      if (!card) return res.status(404).json({ message: "Card not found" });
+
+      const { amount } = req.body;
+      const fundAmount = parseFloat(amount);
+      if (isNaN(fundAmount) || fundAmount < 1) {
+        return res.status(400).json({ message: "Minimum funding is $1 USD" });
+      }
+
+      const balanceUsdt = parseFloat(profile.balance || "0");
+      if (fundAmount > balanceUsdt) {
+        return res.status(400).json({ message: "Insufficient USDT balance" });
+      }
+
+      const response = await fetch(`${STROWALLET_BASE}/fund-card/`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Accept": "application/json" },
+        body: JSON.stringify({
+          card_id: card.cardId,
+          amount: fundAmount.toString(),
+          public_key: strowalletPublicKey,
+        }),
+      });
+
+      const data = await response.json();
+      console.log("[STROWALLET] Fund card response:", JSON.stringify(data));
+
+      if (!response.ok || data.status === "error" || data.status === false) {
+        return res.status(400).json({ message: data.message || data.error || "Failed to fund card" });
+      }
+
+      const newBalance = balanceUsdt - fundAmount;
+      await storage.updateProfileBalance(profile.id, newBalance);
+
+      const currentCardBalance = parseFloat(card.balance || "0");
+      const updatedCard = await storage.updateVirtualCard(card.id, {
+        balance: (currentCardBalance + fundAmount).toString(),
+      });
+
+      res.json(updatedCard);
+    } catch (e: any) {
+      console.error("Fund card error:", e);
+      res.status(500).json({ message: e.message || "Internal Error" });
+    }
+  });
+
+  app.get("/api/cards/:id/details", isAuthenticated, async (req: any, res) => {
+    try {
+      const profile = await getProfileFromReq(req);
+      if (!profile) return res.status(401).json({ message: "Unauthorized" });
+
+      const card = await storage.getVirtualCard(Number(req.params.id), profile.id);
+      if (!card) return res.status(404).json({ message: "Card not found" });
+
+      const response = await fetch(`${STROWALLET_BASE}/fetch-card-detail/`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Accept": "application/json" },
+        body: JSON.stringify({
+          card_id: card.cardId,
+          public_key: strowalletPublicKey,
+        }),
+      });
+
+      const data = await response.json();
+      if (!response.ok || data.status === "error" || data.status === false) {
+        return res.json({ card, remoteDetail: null });
+      }
+
+      const detail = data.response || data.data || data;
+      if (detail.balance !== undefined) {
+        await storage.updateVirtualCard(card.id, {
+          balance: String(detail.balance),
+          cardDetail: detail,
+        });
+      }
+
+      res.json({ card, remoteDetail: detail });
+    } catch (e: any) {
+      console.error("Fetch card detail error:", e);
+      res.status(500).json({ message: e.message || "Internal Error" });
+    }
+  });
+
+  app.get("/api/cards/:id/transactions", isAuthenticated, async (req: any, res) => {
+    try {
+      const profile = await getProfileFromReq(req);
+      if (!profile) return res.status(401).json({ message: "Unauthorized" });
+
+      const card = await storage.getVirtualCard(Number(req.params.id), profile.id);
+      if (!card) return res.status(404).json({ message: "Card not found" });
+
+      const response = await fetch(`${STROWALLET_BASE}/card-transactions/`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Accept": "application/json" },
+        body: JSON.stringify({
+          card_id: card.cardId,
+          public_key: strowalletPublicKey,
+        }),
+      });
+
+      const data = await response.json();
+      if (!response.ok || data.status === "error" || data.status === false) {
+        return res.json([]);
+      }
+
+      res.json(data.response || data.data || []);
+    } catch (e: any) {
+      console.error("Card transactions error:", e);
+      res.status(500).json({ message: e.message || "Internal Error" });
+    }
+  });
+
+  app.post("/api/cards/:id/freeze", isAuthenticated, async (req: any, res) => {
+    try {
+      const profile = await getProfileFromReq(req);
+      if (!profile) return res.status(401).json({ message: "Unauthorized" });
+
+      const card = await storage.getVirtualCard(Number(req.params.id), profile.id);
+      if (!card) return res.status(404).json({ message: "Card not found" });
+
+      const newStatus = card.status === "frozen" ? "active" : "frozen";
+      const updatedCard = await storage.updateVirtualCard(card.id, { status: newStatus });
+      res.json(updatedCard);
+    } catch (e: any) {
+      console.error("Freeze card error:", e);
+      res.status(500).json({ message: e.message || "Internal Error" });
+    }
+  });
+
   return httpServer;
 }

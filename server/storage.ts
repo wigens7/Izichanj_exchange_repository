@@ -1,4 +1,4 @@
-import { profiles, deposits, withdrawals, kycDocuments, otps, webauthnCredentials, notifications, supportConversations, supportMessages, type Profile, type Deposit, type InsertDeposit, type Withdrawal, type InsertWithdrawal, type KycDocument, type WebAuthnCredential, type Notification, type SupportConversation, type SupportMessage } from "@shared/schema";
+import { profiles, deposits, withdrawals, kycDocuments, otps, webauthnCredentials, notifications, supportConversations, supportMessages, virtualCards, type Profile, type Deposit, type InsertDeposit, type Withdrawal, type InsertWithdrawal, type KycDocument, type WebAuthnCredential, type Notification, type SupportConversation, type SupportMessage, type VirtualCard } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, sql } from "drizzle-orm";
 
@@ -55,6 +55,12 @@ export interface IStorage {
   getAllConversations(): Promise<(SupportConversation & { profile: Profile; lastMessage?: string; unreadCount: number })[]>;
   getUnreadSupportCount(profileId: number): Promise<number>;
   getInactiveConversations(minutesInactive: number): Promise<SupportConversation[]>;
+
+  createVirtualCard(data: { profileId: number; cardId: string; cardType: string; nameOnCard: string; last4?: string; brand?: string; status?: VirtualCard["status"]; balance?: string; currency?: string; cardDetail?: any }): Promise<VirtualCard>;
+  getVirtualCards(profileId: number): Promise<VirtualCard[]>;
+  getVirtualCard(id: number, profileId: number): Promise<VirtualCard | undefined>;
+  getVirtualCardByCardId(cardId: string): Promise<VirtualCard | undefined>;
+  updateVirtualCard(id: number, data: Partial<VirtualCard>): Promise<VirtualCard>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -323,6 +329,30 @@ export class DatabaseStorage implements IStorage {
         sql`${supportMessages.createdAt} > (SELECT COALESCE(MAX(created_at), '1970-01-01') FROM support_messages WHERE conversation_id = ${conv.id} AND sender = 'user')`
       ));
     return result?.count || 0;
+  }
+
+  async createVirtualCard(data: { profileId: number; cardId: string; cardType: string; nameOnCard: string; last4?: string; brand?: string; status?: VirtualCard["status"]; balance?: string; currency?: string; cardDetail?: any }): Promise<VirtualCard> {
+    const [card] = await db.insert(virtualCards).values(data).returning();
+    return card;
+  }
+
+  async getVirtualCards(profileId: number): Promise<VirtualCard[]> {
+    return db.select().from(virtualCards).where(eq(virtualCards.profileId, profileId)).orderBy(desc(virtualCards.createdAt));
+  }
+
+  async getVirtualCard(id: number, profileId: number): Promise<VirtualCard | undefined> {
+    const [card] = await db.select().from(virtualCards).where(and(eq(virtualCards.id, id), eq(virtualCards.profileId, profileId)));
+    return card;
+  }
+
+  async getVirtualCardByCardId(cardId: string): Promise<VirtualCard | undefined> {
+    const [card] = await db.select().from(virtualCards).where(eq(virtualCards.cardId, cardId));
+    return card;
+  }
+
+  async updateVirtualCard(id: number, data: Partial<VirtualCard>): Promise<VirtualCard> {
+    const [card] = await db.update(virtualCards).set(data).where(eq(virtualCards.id, id)).returning();
+    return card;
   }
 }
 
