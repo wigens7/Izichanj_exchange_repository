@@ -28,6 +28,7 @@ import {
 } from "lucide-react";
 import { format } from "date-fns";
 import type { VirtualCard } from "@shared/schema";
+import cardTemplateBg from "@assets/file_00000000b34c71fdb30e83cdfb484f8a_1770937069013.png";
 
 export default function VirtualCardsPage() {
   const { t } = useLanguage();
@@ -239,65 +240,68 @@ function CardItem({ card }: { card: VirtualCard }) {
   return (
     <Card data-testid={`card-virtual-${card.id}`}>
       <CardContent className="p-0">
-        <div className={`relative overflow-hidden rounded-t-md p-5 ${isFrozen ? "bg-blue-900/20" : "bg-gradient-to-br from-indigo-600 to-purple-700"}`}>
-          <div className="flex items-center justify-between mb-6">
-            <div className="flex items-center gap-2">
-              <CreditCard className="w-5 h-5 text-white/80" />
-              <span className="text-white/80 text-sm font-medium">{card.brand} {card.cardType?.toUpperCase()}</span>
+        <div className="relative overflow-hidden rounded-t-md" style={{ aspectRatio: "1.586" }}>
+          <img
+            src={cardTemplateBg}
+            alt="Virtual Card"
+            className={`absolute inset-0 w-full h-full object-cover ${isFrozen ? "opacity-40 grayscale" : ""}`}
+          />
+          <div className="absolute inset-0 flex flex-col justify-between p-5">
+            <div className="flex items-center justify-between">
+              <div />
+              <div className="flex items-center gap-2">
+                <Badge variant={isFrozen ? "secondary" : "default"} className={isFrozen ? "" : "bg-emerald-500/20 text-emerald-200 border-emerald-500/30"}>
+                  {isFrozen ? vc.frozen : vc.active}
+                </Badge>
+                <Badge variant="outline" className="text-white/80 border-white/20 bg-white/10">
+                  ${Number(card.balance).toFixed(2)}
+                </Badge>
+              </div>
             </div>
-            <Badge variant={isFrozen ? "secondary" : "default"} className={isFrozen ? "" : "bg-emerald-500/20 text-emerald-200 border-emerald-500/30"}>
-              {isFrozen ? vc.frozen : vc.active}
-            </Badge>
-          </div>
 
-          <div className="mb-4">
-            <p className="text-white/50 text-xs mb-0.5">{vc.cardNumber}</p>
-            <p className="text-white font-mono text-lg tracking-widest">
-              {showDetails && cardDetails?.card_number
-                ? cardDetails.card_number.replace(/(.{4})/g, "$1 ").trim()
-                : `•••• •••• •••• ${card.last4 || "••••"}`}
-            </p>
-          </div>
+            <div className="space-y-3">
+              <p className="text-white font-mono text-xl sm:text-2xl tracking-[0.2em] drop-shadow-lg">
+                {showDetails && cardDetails?.card_number
+                  ? cardDetails.card_number.replace(/(.{4})/g, "$1 ").trim()
+                  : `•••• •••• •••• ${card.last4 || "••••"}`}
+              </p>
 
-          <div className="flex items-end justify-between">
-            <div>
-              <p className="text-white/50 text-xs">{card.nameOnCard}</p>
-            </div>
-            <div className="text-right">
-              <p className="text-white/50 text-xs">{vc.cardBalance}</p>
-              <p className="text-white text-xl font-bold font-display">${Number(card.balance).toFixed(2)}</p>
+              <div className="flex items-end justify-between gap-2">
+                <p className="text-white text-sm font-medium uppercase tracking-wider drop-shadow">{card.nameOnCard}</p>
+                <div className="text-right text-white text-sm drop-shadow">
+                  {showDetails && cardDetails ? (
+                    <div className="flex items-center gap-3">
+                      <span>Exp: {cardDetails.expiry_month}/{cardDetails.expiry_year}</span>
+                      <span>CVV: {cardDetails.cvv || "•••"}</span>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-3">
+                      <span>Exp: ••/••</span>
+                      <span>CVV: •••</span>
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
           </div>
         </div>
 
         <div className="p-4 space-y-3">
           {showDetails && cardDetails && (
-            <div className="bg-muted/30 rounded-md p-3 space-y-2 text-sm">
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-muted-foreground">{vc.cardNumber}</span>
-                <div className="flex items-center gap-1">
-                  <span className="font-mono" data-testid={`text-card-number-${card.id}`}>{cardDetails.card_number || "N/A"}</span>
-                  {cardDetails.card_number && (
-                    <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => copyToClipboard(cardDetails.card_number, "number")} data-testid={`button-copy-number-${card.id}`}>
-                      {copied === "number" ? <CheckCircle className="w-3 h-3 text-emerald-500" /> : <Copy className="w-3 h-3" />}
-                    </Button>
-                  )}
-                </div>
-              </div>
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-muted-foreground">{vc.expiry}</span>
-                <span className="font-mono">{cardDetails.expiry_month}/{cardDetails.expiry_year}</span>
-              </div>
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-muted-foreground">{vc.cvv}</span>
-                <div className="flex items-center gap-1">
-                  <span className="font-mono">{cardDetails.cvv || "•••"}</span>
-                  {cardDetails.cvv && (
-                    <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => copyToClipboard(cardDetails.cvv, "cvv")} data-testid={`button-copy-cvv-${card.id}`}>
-                      {copied === "cvv" ? <CheckCircle className="w-3 h-3 text-emerald-500" /> : <Copy className="w-3 h-3" />}
-                    </Button>
-                  )}
-                </div>
+            <div className="bg-muted/30 rounded-md p-3 text-sm">
+              <div className="flex items-center gap-2 flex-wrap">
+                {cardDetails.card_number && (
+                  <Button variant="outline" size="sm" onClick={() => copyToClipboard(cardDetails.card_number, "number")} data-testid={`button-copy-number-${card.id}`}>
+                    {copied === "number" ? <CheckCircle className="w-3 h-3 text-emerald-500 mr-1.5" /> : <Copy className="w-3 h-3 mr-1.5" />}
+                    {vc.cardNumber}
+                  </Button>
+                )}
+                {cardDetails.cvv && (
+                  <Button variant="outline" size="sm" onClick={() => copyToClipboard(cardDetails.cvv, "cvv")} data-testid={`button-copy-cvv-${card.id}`}>
+                    {copied === "cvv" ? <CheckCircle className="w-3 h-3 text-emerald-500 mr-1.5" /> : <Copy className="w-3 h-3 mr-1.5" />}
+                    {vc.cvv}
+                  </Button>
+                )}
               </div>
             </div>
           )}
