@@ -150,7 +150,7 @@ export default function ProfilePage() {
                         <FormItem>
                           <FormLabel>{t.profile.firstName}</FormLabel>
                           <FormControl>
-                            <Input {...field} data-testid="input-first-name" />
+                            <Input {...field} data-testid="input-first-name" disabled={!!user.firstName} />
                           </FormControl>
                           <FormMessage />
                         </FormItem>
@@ -163,7 +163,7 @@ export default function ProfilePage() {
                         <FormItem>
                           <FormLabel>{t.profile.lastName}</FormLabel>
                           <FormControl>
-                            <Input {...field} data-testid="input-last-name" />
+                            <Input {...field} data-testid="input-last-name" disabled={!!user.lastName} />
                           </FormControl>
                           <FormMessage />
                         </FormItem>
@@ -178,7 +178,7 @@ export default function ProfilePage() {
                         <FormItem>
                           <FormLabel>{t.profile.dateOfBirth}</FormLabel>
                           <FormControl>
-                            <Input type="date" {...field} data-testid="input-dob" />
+                            <Input type="date" {...field} data-testid="input-dob" disabled={!!user.dateOfBirth} />
                           </FormControl>
                           <FormMessage />
                         </FormItem>
@@ -191,7 +191,7 @@ export default function ProfilePage() {
                         <FormItem>
                           <FormLabel>{t.withdraw.phoneNumber}</FormLabel>
                           <FormControl>
-                            <Input {...field} data-testid="input-profile-phone" />
+                            <Input {...field} data-testid="input-profile-phone" disabled={!!user.phone} />
                           </FormControl>
                           <FormMessage />
                         </FormItem>
@@ -206,7 +206,7 @@ export default function ProfilePage() {
                         <FormItem>
                           <FormLabel>{t.profile.country}</FormLabel>
                           <FormControl>
-                            <Input {...field} data-testid="input-country" />
+                            <Input {...field} data-testid="input-country" disabled={!!user.country} />
                           </FormControl>
                           <FormMessage />
                         </FormItem>
@@ -219,22 +219,24 @@ export default function ProfilePage() {
                         <FormItem>
                           <FormLabel>{t.profile.city}</FormLabel>
                           <FormControl>
-                            <Input {...field} data-testid="input-city" />
+                            <Input {...field} data-testid="input-city" disabled={!!user.city} />
                           </FormControl>
                           <FormMessage />
                         </FormItem>
                       )}
                     />
                   </div>
-                  <Button 
-                    type="submit" 
-                    className="w-full primary-gradient" 
-                    disabled={isUpdatingProfile}
-                    data-testid="button-save-profile"
-                  >
-                    {isUpdatingProfile ? <Loader2 className="animate-spin mr-2" /> : <UserCheck className="w-4 h-4 mr-2" />}
-                    {t.profile.saveProfile}
-                  </Button>
+                  {!isProfileComplete && (
+                    <Button 
+                      type="submit" 
+                      className="w-full primary-gradient" 
+                      disabled={isUpdatingProfile}
+                      data-testid="button-save-profile"
+                    >
+                      {isUpdatingProfile ? <Loader2 className="animate-spin mr-2" /> : <UserCheck className="w-4 h-4 mr-2" />}
+                      {t.profile.saveProfile}
+                    </Button>
+                  )}
                 </form>
               </Form>
             </CardContent>

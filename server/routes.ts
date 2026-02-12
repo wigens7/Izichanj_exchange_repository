@@ -367,6 +367,11 @@ export async function registerRoutes(
   app.patch("/api/user/profile", isAuthenticated, async (req: any, res) => {
     const profile = await getProfileFromReq(req);
     if (!profile) return res.status(401).json({ message: "Unauthorized" });
+
+    // Enforce permanent lock on personal information
+    if (profile.firstName && profile.lastName && profile.dateOfBirth && profile.country && profile.city && profile.phone) {
+      return res.status(400).json({ message: "Personal information is locked and cannot be changed" });
+    }
     
     const { firstName, lastName, dateOfBirth, country, city, phone } = req.body;
     
