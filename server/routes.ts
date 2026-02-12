@@ -316,6 +316,9 @@ export async function registerRoutes(
     try {
       const profile = await getProfileFromReq(req);
       if (!profile) return res.status(401).json({ message: "Unauthorized" });
+      if (profile.isBanned) {
+        return res.status(403).json({ message: "Your account is temporarily banned or disabled. Please contact customer support." });
+      }
       if (profile.kycStatus !== "verified") return res.status(403).json({ message: "KYC verification required before making withdrawals" });
       const parsed = api.withdrawals.create.input.parse(req.body);
 
@@ -426,6 +429,16 @@ export async function registerRoutes(
     const balance = req.body.balance;
     const profile = await storage.updateProfileBalance(Number(req.params.id), balance);
     res.json(profile);
+  });
+
+  app.patch("/api/admin/users/:id/ban", isAuthenticated, isAdmin, async (req: any, res) => {
+    try {
+      const { isBanned } = req.body;
+      const profile = await storage.setUserBanStatus(Number(req.params.id), isBanned);
+      res.json(profile);
+    } catch (e) {
+      res.status(500).json({ message: "Internal Error" });
+    }
   });
 
   app.patch("/api/admin/users/:id/disable-2fa", isAuthenticated, isAdmin, async (req: any, res) => {

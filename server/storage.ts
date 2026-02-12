@@ -28,6 +28,7 @@ export interface IStorage {
   getAllKyc(): Promise<(KycDocument & { profile: Profile })[]>;
   updateKycStatus(profileId: number, status: "verified" | "rejected"): Promise<void>;
   updateProfile(id: number, data: Partial<Profile>): Promise<Profile>;
+  setUserBanStatus(id: number, isBanned: boolean): Promise<Profile>;
   getAllProfiles(): Promise<Profile[]>;
 
   setTwoFactorSecret(profileId: number, secret: string): Promise<void>;
@@ -179,6 +180,12 @@ export class DatabaseStorage implements IStorage {
 
   async updateProfile(id: number, data: Partial<Profile>): Promise<Profile> {
     const [profile] = await db.update(profiles).set(data).where(eq(profiles.id, id)).returning();
+    if (!profile) throw new Error("Profile not found");
+    return profile;
+  }
+
+  async setUserBanStatus(id: number, isBanned: boolean): Promise<Profile> {
+    const [profile] = await db.update(profiles).set({ isBanned }).where(eq(profiles.id, id)).returning();
     if (!profile) throw new Error("Profile not found");
     return profile;
   }

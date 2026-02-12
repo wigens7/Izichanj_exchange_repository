@@ -28,6 +28,7 @@ export const profiles = pgTable("profiles", {
   balance: decimal("balance", { precision: 10, scale: 2 }).default("0").notNull(),
   twoFactorSecret: text("two_factor_secret"),
   twoFactorEnabled: boolean("two_factor_enabled").default(false).notNull(),
+  isBanned: boolean("is_banned").default(false).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
