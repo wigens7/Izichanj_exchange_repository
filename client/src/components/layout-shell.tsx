@@ -38,7 +38,7 @@ export function LayoutShell({ children }: LayoutShellProps) {
     { href: "/withdraw", label: t.nav.withdraw, icon: ArrowUpCircle },
     { href: "/profile", label: t.nav.profileKyc, icon: UserCircle },
     { href: "/security", label: t.security.title, icon: Shield },
-    { href: "/faq", label: t.nav.faq, icon: HelpCircle },
+    { href: "/faq", label: t.nav.faq ?? "FAQ", icon: HelpCircle },
   ];
 
   if (user?.role === "admin") {
