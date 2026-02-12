@@ -56,7 +56,7 @@ export function useRegister() {
     },
     onSuccess: (profile) => {
       queryClient.setQueryData(["/api/user"], profile);
-      toast({ title: "Check your email", description: "We sent a 6-digit verification code" });
+      toast({ title: "Check your WhatsApp", description: "We sent a 6-digit verification code" });
     },
     onError: (error: Error) => {
       toast({ title: "Sign up failed", description: error.message, variant: "destructive" });
@@ -100,7 +100,7 @@ export function useResendOtp() {
       return res.json();
     },
     onSuccess: () => {
-      toast({ title: "Code resent", description: "Check your email for the new code" });
+      toast({ title: "Code resent", description: "Check your WhatsApp for the new code" });
     },
     onError: (error: Error) => {
       toast({ title: "Error", description: error.message, variant: "destructive" });

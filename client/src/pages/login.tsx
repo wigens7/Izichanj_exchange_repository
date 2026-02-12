@@ -107,7 +107,7 @@ function SignInForm() {
     }
     setIsFingerprintLoading(true);
     try {
-      const optionsRes = await apiRequest("POST", "/api/security/webauthn/auth-options", { email: identifier });
+      const optionsRes = await apiRequest("POST", "/api/security/webauthn/auth-options", { identifier });
       if (!optionsRes.ok) {
         const err = await optionsRes.json();
         throw new Error(err.message);
