@@ -118,6 +118,12 @@ export async function registerRoutes(
     if (!response.ok) {
       const text = await response.text();
       console.error("MonCash create payment error:", text);
+      try {
+        const errData = JSON.parse(text);
+        if (errData.message) throw new Error(errData.message);
+      } catch (parseErr: any) {
+        if (parseErr.message && parseErr.message !== text) throw parseErr;
+      }
       throw new Error("Failed to create MonCash payment");
     }
     const data = await response.json() as any;
