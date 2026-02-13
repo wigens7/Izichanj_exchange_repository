@@ -537,6 +537,7 @@ function DepositsTab() {
               <TableRow>
                 <TableHead>ID</TableHead>
                 <TableHead>User ID</TableHead>
+                <TableHead>Method</TableHead>
                 <TableHead>Amount (USDT)</TableHead>
                 <TableHead>HTG Value</TableHead>
                 <TableHead>Tx Hash</TableHead>
@@ -550,6 +551,11 @@ function DepositsTab() {
                 <TableRow key={deposit.id} data-testid={`row-deposit-${deposit.id}`}>
                   <TableCell className="font-mono text-xs">{deposit.id}</TableCell>
                   <TableCell>{deposit.profileId}</TableCell>
+                  <TableCell>
+                    <Badge variant={deposit.depositMethod === "moncash" ? "secondary" : "outline"} className="text-xs">
+                      {deposit.depositMethod === "moncash" ? "MonCash" : "USDT"}
+                    </Badge>
+                  </TableCell>
                   <TableCell className="font-medium">${Number(deposit.amountUsdt).toFixed(2)}</TableCell>
                   <TableCell className="text-muted-foreground">{formatHtg(usdtToHtg(Number(deposit.amountUsdt)))} HTG</TableCell>
                   <TableCell>

@@ -16,9 +16,10 @@ export interface IStorage {
   getValidOtp(profileId: number, code: string): Promise<typeof otps.$inferSelect | undefined>;
   markOtpVerified(id: number): Promise<void>;
 
-  createDeposit(deposit: InsertDeposit & { profileId: number }): Promise<Deposit>;
+  createDeposit(deposit: InsertDeposit & { profileId: number; depositMethod?: "usdt" | "moncash"; amountHtg?: string; moncashTransactionId?: string }): Promise<Deposit>;
   getDeposits(profileId?: number): Promise<Deposit[]>;
   updateDepositStatus(id: number, status: "approved" | "rejected"): Promise<Deposit>;
+  getDepositByMoncashTransactionId(transactionId: string): Promise<Deposit | undefined>;
 
   createWithdrawal(withdrawal: InsertWithdrawal & { profileId: number }): Promise<Withdrawal>;
   getWithdrawals(profileId?: number): Promise<Withdrawal[]>;
@@ -130,7 +131,7 @@ export class DatabaseStorage implements IStorage {
     await db.update(otps).set({ verified: true }).where(eq(otps.id, id));
   }
 
-  async createDeposit(deposit: InsertDeposit & { profileId: number }): Promise<Deposit> {
+  async createDeposit(deposit: InsertDeposit & { profileId: number; depositMethod?: "usdt" | "moncash"; amountHtg?: string; moncashTransactionId?: string }): Promise<Deposit> {
     const [newDeposit] = await db.insert(deposits).values(deposit).returning();
     return newDeposit;
   }
@@ -144,6 +145,11 @@ export class DatabaseStorage implements IStorage {
 
   async updateDepositStatus(id: number, status: "approved" | "rejected"): Promise<Deposit> {
     const [deposit] = await db.update(deposits).set({ status }).where(eq(deposits.id, id)).returning();
+    return deposit;
+  }
+
+  async getDepositByMoncashTransactionId(transactionId: string): Promise<Deposit | undefined> {
+    const [deposit] = await db.select().from(deposits).where(eq(deposits.moncashTransactionId, transactionId));
     return deposit;
   }
 

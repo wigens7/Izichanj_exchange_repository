@@ -8,7 +8,10 @@ import { setupAuth, isAuthenticated } from "./auth";
 import { registerObjectStorageRoutes } from "./replit_integrations/object_storage";
 import crypto from "crypto";
 import bcrypt from "bcryptjs";
-import { WITHDRAWAL_MIN_USDT, WITHDRAWAL_MAX_USDT, usdtToHtg, formatHtg, WITHDRAWAL_MIN_HTG, WITHDRAWAL_MAX_HTG } from "@shared/constants";
+import { WITHDRAWAL_MIN_USDT, WITHDRAWAL_MAX_USDT, usdtToHtg, htgToUsdt, formatHtg, WITHDRAWAL_MIN_HTG, WITHDRAWAL_MAX_HTG } from "@shared/constants";
+import { deposits } from "@shared/schema";
+import { db } from "./db";
+import { eq } from "drizzle-orm";
 import * as otplibModule from "otplib";
 import QRCode from "qrcode";
 import {
@@ -76,8 +79,163 @@ export async function registerRoutes(
   setupAuth(app);
   registerObjectStorageRoutes(app);
 
+  // --- MonCash Payment Integration ---
+  const MONCASH_CLIENT_ID = process.env.MONCASH_CLIENT_ID;
+  const MONCASH_CLIENT_SECRET = process.env.MONCASH_CLIENT_SECRET;
+  const MONCASH_BASE_URL = "https://sandbox.moncashbutton.digicelgroup.com";
+
+  async function getMoncashAccessToken(): Promise<string> {
+    const credentials = Buffer.from(`${MONCASH_CLIENT_ID}:${MONCASH_CLIENT_SECRET}`).toString("base64");
+    const response = await fetch(`${MONCASH_BASE_URL}/Api/oauth/token`, {
+      method: "POST",
+      headers: {
+        "Authorization": `Basic ${credentials}`,
+        "Content-Type": "application/x-www-form-urlencoded",
+        "Accept": "application/json",
+      },
+      body: "scope=read,write&grant_type=client_credentials",
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      console.error("MonCash token error:", text);
+      throw new Error("Failed to get MonCash access token");
+    }
+    const data = await response.json() as any;
+    return data.access_token;
+  }
+
+  async function createMoncashPayment(amount: number, orderId: string): Promise<{ redirectUrl: string }> {
+    const token = await getMoncashAccessToken();
+    const response = await fetch(`${MONCASH_BASE_URL}/Api/v1/CreatePayment`, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${token}`,
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+      },
+      body: JSON.stringify({ amount, orderId }),
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      console.error("MonCash create payment error:", text);
+      throw new Error("Failed to create MonCash payment");
+    }
+    const data = await response.json() as any;
+    const paymentToken = data.payment_token?.token;
+    if (!paymentToken) throw new Error("No payment token returned");
+    return { redirectUrl: `${MONCASH_BASE_URL}/Moncash-middleware/Payment/Redirect?token=${paymentToken}` };
+  }
+
+  async function verifyMoncashPayment(transactionId: string): Promise<any> {
+    const token = await getMoncashAccessToken();
+    const response = await fetch(`${MONCASH_BASE_URL}/Api/v1/RetrieveTransactionPayment`, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${token}`,
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+      },
+      body: JSON.stringify({ transactionId }),
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      console.error("MonCash verify error:", text);
+      throw new Error("Failed to verify MonCash payment");
+    }
+    return await response.json();
+  }
+
+  app.post("/api/moncash/create-payment", isAuthenticated, async (req: any, res) => {
+    try {
+      const profile = await getProfileFromReq(req);
+      if (!profile) return res.status(401).json({ message: "Unauthorized" });
+      if (profile.kycStatus !== "verified") return res.status(403).json({ message: "KYC verification required before making deposits" });
+
+      const { amountHtg } = req.body;
+      if (!amountHtg || isNaN(Number(amountHtg)) || Number(amountHtg) < 100) {
+        return res.status(400).json({ message: "Minimum deposit is 100 HTG" });
+      }
+
+      const htgAmount = Number(amountHtg);
+      const usdtAmount = htgToUsdt(htgAmount);
+      const orderId = `MCH-${profile.id}-${Date.now()}`;
+
+      const { redirectUrl } = await createMoncashPayment(htgAmount, orderId);
+
+      const deposit = await storage.createDeposit({
+        profileId: profile.id,
+        amountUsdt: usdtAmount.toFixed(2),
+        txHash: orderId,
+        depositMethod: "moncash",
+        amountHtg: htgAmount.toFixed(2),
+      });
+
+      res.json({ redirectUrl, depositId: deposit.id, orderId });
+    } catch (e: any) {
+      console.error("MonCash create payment error:", e);
+      res.status(500).json({ message: e.message || "Failed to create payment" });
+    }
+  });
+
+  app.get("/api/moncash/verify", isAuthenticated, async (req: any, res) => {
+    try {
+      const { transactionId } = req.query;
+      if (!transactionId) return res.status(400).json({ message: "Transaction ID required" });
+
+      const paymentData = await verifyMoncashPayment(transactionId as string);
+      const payment = paymentData?.payment;
+      if (!payment) return res.status(400).json({ message: "Payment not found" });
+
+      const orderId = payment.payer;
+      const existing = await storage.getDepositByMoncashTransactionId(transactionId as string);
+      if (existing) return res.json({ status: "already_processed", deposit: existing });
+
+      const allDeposits = await storage.getDeposits();
+      const deposit = allDeposits.find(d => d.txHash === payment.reference);
+      if (!deposit) return res.status(404).json({ message: "Deposit record not found" });
+
+      const profile = await storage.getProfile(deposit.profileId);
+      if (!profile) return res.status(404).json({ message: "Profile not found" });
+
+      const [updatedDeposit] = await db.update(deposits).set({
+        moncashTransactionId: transactionId as string,
+        status: "approved",
+      }).where(eq(deposits.id, deposit.id)).returning();
+
+      const depositAmount = parseFloat(deposit.amountUsdt);
+      const currentBalance = parseFloat(profile.balance);
+      const newBalance = currentBalance + depositAmount;
+      await storage.updateProfileBalance(deposit.profileId, newBalance);
+
+      const htgAmount = formatHtg(usdtToHtg(depositAmount));
+      await storage.createNotification({
+        profileId: deposit.profileId,
+        type: "deposit_approved",
+        title: "MonCash Deposit Approved",
+        message: `Your MonCash deposit of ${htgAmount} HTG (${depositAmount.toFixed(2)} USDT) has been automatically approved and added to your balance.`,
+      });
+
+      const admins = await storage.getAllProfiles();
+      const adminList = admins.filter(a => a.role === "admin");
+      for (const admin of adminList) {
+        await storage.createNotification({
+          profileId: admin.id,
+          type: "custom_message",
+          title: "MonCash Deposit Auto-Approved",
+          message: `User ${profile.fullName} deposited ${htgAmount} HTG via MonCash (auto-approved). Transaction: ${transactionId}`,
+        });
+      }
+
+      res.json({ status: "approved", deposit: updatedDeposit });
+    } catch (e: any) {
+      console.error("MonCash verify error:", e);
+      res.status(500).json({ message: e.message || "Failed to verify payment" });
+    }
+  });
+
   app.get("/payment-success", (_req, res) => {
-    res.send("Payment successful. Thank you!");
+    const transactionId = _req.query.transactionId || "";
+    res.redirect(`/deposit?moncash_txn=${transactionId}`);
   });
 
   app.post("/api/auth/register", async (req, res) => {
@@ -301,7 +459,8 @@ export async function registerRoutes(
       if (!profile) return res.status(401).json({ message: "Unauthorized" });
       if (profile.kycStatus !== "verified") return res.status(403).json({ message: "KYC verification required before making deposits" });
       const input = api.deposits.create.input.parse(req.body);
-      const deposit = await storage.createDeposit({ ...input, profileId: profile.id });
+      if (!input.txHash || input.txHash.length < 10) return res.status(400).json({ message: "Transaction hash is required for USDT deposits" });
+      const deposit = await storage.createDeposit({ ...input, profileId: profile.id, depositMethod: "usdt" });
 
       // Notify admin
       const admins = await storage.getAllProfiles();

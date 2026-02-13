@@ -10,6 +10,7 @@ export const txnStatusEnum = pgEnum("txn_status", ["pending", "approved", "rejec
 export const currencyEnum = pgEnum("currency", ["MonCash", "NatCash"]);
 export const withdrawMethodEnum = pgEnum("withdraw_method", ["phone", "qrcode"]);
 export const userRoleEnum = pgEnum("user_role", ["user", "admin"]);
+export const depositMethodEnum = pgEnum("deposit_method", ["usdt", "moncash"]);
 
 export const profiles = pgTable("profiles", {
   id: serial("id").primaryKey(),
@@ -74,7 +75,10 @@ export const deposits = pgTable("deposits", {
   id: serial("id").primaryKey(),
   profileId: integer("profile_id").references(() => profiles.id).notNull(),
   amountUsdt: decimal("amount_usdt", { precision: 10, scale: 2 }).notNull(),
-  txHash: text("tx_hash").notNull(),
+  txHash: text("tx_hash"),
+  depositMethod: depositMethodEnum("deposit_method").default("usdt").notNull(),
+  amountHtg: decimal("amount_htg", { precision: 12, scale: 2 }),
+  moncashTransactionId: text("moncash_transaction_id"),
   status: txnStatusEnum("status").default("pending").notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
@@ -136,7 +140,7 @@ export const supportMessages = pgTable("support_messages", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
-export const insertDepositSchema = createInsertSchema(deposits).omit({ id: true, profileId: true, status: true, createdAt: true });
+export const insertDepositSchema = createInsertSchema(deposits).omit({ id: true, profileId: true, status: true, createdAt: true, depositMethod: true, amountHtg: true, moncashTransactionId: true });
 export const insertWithdrawalSchema = createInsertSchema(withdrawals).omit({ id: true, profileId: true, status: true, createdAt: true });
 export const insertKycSchema = createInsertSchema(kycDocuments).omit({ id: true, profileId: true, submittedAt: true });
 
