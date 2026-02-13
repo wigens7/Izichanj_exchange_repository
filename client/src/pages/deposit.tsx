@@ -1,107 +1,123 @@
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { useState, useEffect } from "react";
-import { useCreateDeposit } from "@/hooks/use-transactions";
+import { useState, useEffect, useRef } from "react";
 import { useUser } from "@/hooks/use-auth";
 import { useLanguage } from "@/lib/i18n";
-import { EXCHANGE_RATE_USDT_HTG, usdtToHtg, htgToUsdt, formatHtg, formatUsdt } from "@shared/constants";
+import { EXCHANGE_RATE_USDT_HTG, usdtToHtg, formatHtg, formatUsdt } from "@shared/constants";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Copy, Loader2, ShieldAlert, ArrowRight, Smartphone, Bitcoin, CheckCircle2, AlertCircle } from "lucide-react";
+import { Copy, Loader2, ShieldAlert, ArrowRight, Smartphone, Bitcoin, CheckCircle2, AlertCircle, Clock, RefreshCw } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { useToast } from "@/hooks/use-toast";
-import { Link, useLocation } from "wouter";
+import { Link } from "wouter";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { Badge } from "@/components/ui/badge";
 
-const depositSchema = z.object({
-  amountUsdt: z.string().refine((val) => !isNaN(Number(val)) && Number(val) > 0, "Amount must be greater than 0"),
-  txHash: z.string().min(10, "Transaction hash invalid"),
-});
+interface NowPaymentInfo {
+  depositId: number;
+  paymentId: string;
+  payAddress: string;
+  payAmount: number;
+  payCurrency: string;
+  expirationDate: string;
+}
 
 export default function DepositPage() {
   const { data: user } = useUser();
-  const { mutate: createDeposit, isPending } = useCreateDeposit();
   const { toast } = useToast();
   const { t } = useLanguage();
-  const [, setLocation] = useLocation();
   const kycVerified = user?.kycStatus === "verified";
-  const [depositMethod, setDepositMethod] = useState<"usdt" | "moncash">("usdt");
-  const [moncashAmount, setMoncashAmount] = useState("");
-  const [moncashLoading, setMoncashLoading] = useState(false);
-  const [moncashVerifying, setMoncashVerifying] = useState(false);
-  const [moncashResult, setMoncashResult] = useState<"success" | "error" | null>(null);
+  const [depositMethod, setDepositMethod] = useState<"crypto" | "moncash">("crypto");
 
-  const form = useForm<z.infer<typeof depositSchema>>({
-    resolver: zodResolver(depositSchema),
-    defaultValues: { amountUsdt: "", txHash: "" },
-  });
+  const [cryptoAmount, setCryptoAmount] = useState("");
+  const [cryptoLoading, setCryptoLoading] = useState(false);
+  const [paymentInfo, setPaymentInfo] = useState<NowPaymentInfo | null>(null);
+  const [paymentStatus, setPaymentStatus] = useState<string>("waiting");
+  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const watchedAmount = form.watch("amountUsdt");
-  const amountUsdt = parseFloat(watchedAmount) || 0;
-  const amountHtg = usdtToHtg(amountUsdt);
-
-  const moncashHtg = parseFloat(moncashAmount) || 0;
-  const moncashUsdt = htgToUsdt(moncashHtg);
+  const cryptoUsdt = parseFloat(cryptoAmount) || 0;
+  const cryptoHtg = usdtToHtg(cryptoUsdt);
 
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const txnId = params.get("moncash_txn");
-    if (txnId) {
-      setDepositMethod("moncash");
-      setMoncashVerifying(true);
-      fetch(`/api/moncash/verify?transactionId=${encodeURIComponent(txnId)}`, { credentials: "include" })
-        .then(res => res.json())
-        .then(data => {
-          if (data.status === "approved" || data.status === "already_processed") {
-            setMoncashResult("success");
-            queryClient.invalidateQueries({ queryKey: ["/api/deposits"] });
-            queryClient.invalidateQueries({ queryKey: ["/api/user"] });
-          } else {
-            setMoncashResult("error");
-          }
-        })
-        .catch(() => setMoncashResult("error"))
-        .finally(() => setMoncashVerifying(false));
-      window.history.replaceState({}, "", "/deposit");
-    }
+    return () => {
+      if (pollingRef.current) clearInterval(pollingRef.current);
+    };
   }, []);
 
-  const onSubmit = (data: z.infer<typeof depositSchema>) => {
-    createDeposit({
-      amountUsdt: data.amountUsdt,
-      txHash: data.txHash
-    }, {
-      onSuccess: () => form.reset()
-    });
+  const startPolling = (paymentId: string) => {
+    if (pollingRef.current) clearInterval(pollingRef.current);
+    pollingRef.current = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/nowpayments/payment-status/${paymentId}`, { credentials: "include" });
+        const data = await res.json();
+        setPaymentStatus(data.paymentStatus || "waiting");
+        if (data.paymentStatus === "finished" || data.paymentStatus === "confirmed") {
+          if (pollingRef.current) clearInterval(pollingRef.current);
+          queryClient.invalidateQueries({ queryKey: ["/api/deposits"] });
+          queryClient.invalidateQueries({ queryKey: ["/api/user"] });
+        }
+        if (data.paymentStatus === "failed" || data.paymentStatus === "expired") {
+          if (pollingRef.current) clearInterval(pollingRef.current);
+        }
+      } catch {}
+    }, 15000);
   };
 
-  const handleMoncashPayment = async () => {
-    if (moncashHtg < 100) {
-      toast({ title: "Error", description: t.deposit.moncashMinimum, variant: "destructive" });
-      return;
-    }
-    setMoncashLoading(true);
+  const handleCreatePayment = async () => {
+    if (cryptoUsdt <= 0) return;
+    setCryptoLoading(true);
     try {
-      const res = await apiRequest("POST", "/api/moncash/create-payment", { amountHtg: moncashAmount });
+      const res = await apiRequest("POST", "/api/nowpayments/create-payment", {
+        amountUsdt: cryptoAmount,
+        payCurrency: "usdttrc20",
+      });
       const data = await res.json();
-      if (data.redirectUrl) {
-        window.location.href = data.redirectUrl;
+      if (data.payAddress) {
+        setPaymentInfo(data);
+        setPaymentStatus("waiting");
+        startPolling(String(data.paymentId));
       } else {
         toast({ title: "Error", description: data.message || "Failed to create payment", variant: "destructive" });
       }
     } catch (e: any) {
       toast({ title: "Error", description: e.message || "Failed to create payment", variant: "destructive" });
     } finally {
-      setMoncashLoading(false);
+      setCryptoLoading(false);
     }
+  };
+
+  const handleNewPayment = () => {
+    if (pollingRef.current) clearInterval(pollingRef.current);
+    setPaymentInfo(null);
+    setPaymentStatus("waiting");
+    setCryptoAmount("");
   };
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
     toast({ title: t.deposit.copied, description: t.deposit.copiedDescription });
+  };
+
+  const getStatusInfo = (status: string) => {
+    switch (status) {
+      case "waiting":
+        return { label: t.deposit.npStatusWaiting, color: "text-amber-600 dark:text-amber-400", icon: Clock };
+      case "confirming":
+        return { label: t.deposit.npStatusConfirming, color: "text-blue-600 dark:text-blue-400", icon: RefreshCw };
+      case "confirmed":
+      case "sending":
+        return { label: t.deposit.npStatusConfirmed, color: "text-emerald-600 dark:text-emerald-400", icon: CheckCircle2 };
+      case "finished":
+        return { label: t.deposit.npStatusFinished, color: "text-emerald-600 dark:text-emerald-400", icon: CheckCircle2 };
+      case "failed":
+        return { label: t.deposit.npStatusFailed, color: "text-red-600 dark:text-red-400", icon: AlertCircle };
+      case "expired":
+        return { label: t.deposit.npStatusExpired, color: "text-red-600 dark:text-red-400", icon: AlertCircle };
+      default:
+        return { label: status, color: "text-muted-foreground", icon: Clock };
+    }
   };
 
   return (
@@ -122,37 +138,15 @@ export default function DepositPage() {
         </Alert>
       )}
 
-      {moncashVerifying && (
-        <Alert className="border-blue-200 dark:border-blue-800/50 text-blue-800 dark:text-blue-300">
-          <Loader2 className="h-4 w-4 animate-spin" />
-          <AlertTitle>{t.deposit.moncashVerifying}</AlertTitle>
-        </Alert>
-      )}
-
-      {moncashResult === "success" && (
-        <Alert className="bg-emerald-500/8 border-emerald-200 dark:border-emerald-800/50 text-emerald-800 dark:text-emerald-300" data-testid="alert-moncash-success">
-          <CheckCircle2 className="h-4 w-4" />
-          <AlertTitle>{t.deposit.moncashSuccess}</AlertTitle>
-          <AlertDescription>{t.deposit.moncashSuccessDesc}</AlertDescription>
-        </Alert>
-      )}
-
-      {moncashResult === "error" && (
-        <Alert className="bg-red-500/8 border-red-200 dark:border-red-800/50 text-red-800 dark:text-red-300" data-testid="alert-moncash-error">
-          <AlertCircle className="h-4 w-4" />
-          <AlertTitle>{t.deposit.moncashError}</AlertTitle>
-        </Alert>
-      )}
-
       <div className="flex gap-2" data-testid="deposit-method-tabs">
         <Button
-          variant={depositMethod === "usdt" ? "default" : "outline"}
-          onClick={() => setDepositMethod("usdt")}
+          variant={depositMethod === "crypto" ? "default" : "outline"}
+          onClick={() => setDepositMethod("crypto")}
           className="flex-1"
-          data-testid="button-method-usdt"
+          data-testid="button-method-crypto"
         >
           <Bitcoin className="w-4 h-4 mr-2" />
-          {t.deposit.methodUsdt}
+          {t.deposit.methodCrypto}
         </Button>
         <Button
           variant={depositMethod === "moncash" ? "default" : "outline"}
@@ -165,76 +159,134 @@ export default function DepositPage() {
         </Button>
       </div>
 
-      {depositMethod === "usdt" && (
-        <>
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base">{t.deposit.walletAddresses}</CardTitle>
-              <CardDescription className="text-xs">{t.deposit.subtitle}</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <AddressCard network="TRC20" address="TRydVikZb957Y298cKsFL81aajz3sfaUmq" onCopy={copyToClipboard} />
-              <AddressCard network="BEP20" address="0xbd1a6e9f3bcb8179883799585ef9d6dc06b8a974" onCopy={copyToClipboard} />
-            </CardContent>
-          </Card>
+      {depositMethod === "crypto" && !paymentInfo && (
+        <Card className={!kycVerified ? "opacity-50 pointer-events-none" : ""}>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">{t.deposit.npTitle}</CardTitle>
+            <CardDescription className="text-xs">{t.deposit.npSubtitle}</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div>
+              <label className="text-sm font-medium">{t.deposit.npAmount}</label>
+              <Input
+                type="number"
+                step="0.01"
+                min="1"
+                placeholder="10.00"
+                value={cryptoAmount}
+                onChange={(e) => setCryptoAmount(e.target.value)}
+                className="mt-1.5"
+                data-testid="input-crypto-amount"
+              />
+              <p className="text-xs text-muted-foreground mt-1">{t.deposit.npCurrency}</p>
+            </div>
 
-          <Card className={!kycVerified ? "opacity-50 pointer-events-none" : ""}>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base">{t.deposit.submitTransaction}</CardTitle>
-              <CardDescription className="text-xs">{t.deposit.verifyDescription}</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Form {...form}>
-                <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-                  <FormField
-                    control={form.control}
-                    name="amountUsdt"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>{t.deposit.amountSent}</FormLabel>
-                        <FormControl>
-                          <Input type="number" step="0.01" placeholder="100.00" {...field} data-testid="input-deposit-amount" />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
+            {cryptoUsdt > 0 && (
+              <div className="p-3 bg-muted/50 rounded-md border border-border" data-testid="crypto-conversion-preview">
+                <div className="flex items-center justify-between flex-wrap gap-2 text-sm">
+                  <span className="text-muted-foreground">1 USDT = {EXCHANGE_RATE_USDT_HTG.toFixed(2)} HTG</span>
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium">{formatUsdt(cryptoUsdt)} USDT</span>
+                    <ArrowRight className="w-3 h-3 text-muted-foreground" />
+                    <span className="font-bold text-emerald-600 dark:text-emerald-400" data-testid="text-crypto-htg">{formatHtg(cryptoHtg)} HTG</span>
+                  </div>
+                </div>
+              </div>
+            )}
 
-                  {amountUsdt > 0 && (
-                    <div className="p-3 bg-muted/50 rounded-md border border-border" data-testid="deposit-conversion-preview">
-                      <div className="flex items-center justify-between flex-wrap gap-2 text-sm">
-                        <span className="text-muted-foreground">1 USDT = {EXCHANGE_RATE_USDT_HTG.toFixed(2)} HTG</span>
-                        <div className="flex items-center gap-2">
-                          <span className="font-medium">{amountUsdt.toFixed(2)} USDT</span>
-                          <ArrowRight className="w-3 h-3 text-muted-foreground" />
-                          <span className="font-bold text-emerald-600 dark:text-emerald-400" data-testid="text-deposit-htg">{formatHtg(amountHtg)} HTG</span>
-                        </div>
-                      </div>
-                    </div>
-                  )}
+            <Button
+              className="w-full primary-gradient"
+              disabled={cryptoLoading || !kycVerified || cryptoUsdt <= 0}
+              onClick={handleCreatePayment}
+              data-testid="button-create-crypto-payment"
+            >
+              {cryptoLoading ? (
+                <>
+                  <Loader2 className="animate-spin mr-2 w-4 h-4" />
+                  {t.deposit.npCreating}
+                </>
+              ) : (
+                <>
+                  <Bitcoin className="w-4 h-4 mr-2" />
+                  {t.deposit.npPayButton}
+                </>
+              )}
+            </Button>
+          </CardContent>
+        </Card>
+      )}
 
-                  <FormField
-                    control={form.control}
-                    name="txHash"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>{t.deposit.txHash}</FormLabel>
-                        <FormControl>
-                          <Input placeholder={t.deposit.txHashPlaceholder} {...field} data-testid="input-deposit-txhash" />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
+      {depositMethod === "crypto" && paymentInfo && (
+        <Card>
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <CardTitle className="text-base">{t.deposit.npPaymentCreated}</CardTitle>
+              {(() => {
+                const info = getStatusInfo(paymentStatus);
+                const StatusIcon = info.icon;
+                return (
+                  <Badge variant="outline" className={info.color} data-testid="badge-payment-status">
+                    <StatusIcon className="w-3 h-3 mr-1" />
+                    {info.label}
+                  </Badge>
+                );
+              })()}
+            </div>
+            <CardDescription className="text-xs">{t.deposit.npSendToAddress}</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {(paymentStatus === "finished" || paymentStatus === "confirmed") && (
+              <Alert className="bg-emerald-500/8 border-emerald-200 dark:border-emerald-800/50 text-emerald-800 dark:text-emerald-300" data-testid="alert-crypto-success">
+                <CheckCircle2 className="h-4 w-4" />
+                <AlertTitle>{t.deposit.npSuccess}</AlertTitle>
+                <AlertDescription>{t.deposit.npSuccessDesc}</AlertDescription>
+              </Alert>
+            )}
 
-                  <Button type="submit" className="w-full primary-gradient" disabled={isPending || !kycVerified} data-testid="button-submit-deposit">
-                    {isPending ? <Loader2 className="animate-spin mr-2" /> : t.deposit.verifyDeposit}
+            {(paymentStatus === "failed" || paymentStatus === "expired") && (
+              <Alert className="bg-red-500/8 border-red-200 dark:border-red-800/50 text-red-800 dark:text-red-300" data-testid="alert-crypto-failed">
+                <AlertCircle className="h-4 w-4" />
+                <AlertTitle>{paymentStatus === "expired" ? t.deposit.npStatusExpired : t.deposit.npStatusFailed}</AlertTitle>
+              </Alert>
+            )}
+
+            <div className="space-y-3">
+              <div>
+                <p className="text-xs text-muted-foreground mb-1">{t.deposit.npPayAddress}</p>
+                <div className="flex items-center gap-2 p-3 rounded-md border border-border bg-muted/30">
+                  <p className="font-mono text-xs break-all flex-1" data-testid="text-pay-address">{paymentInfo.payAddress}</p>
+                  <Button variant="ghost" size="icon" onClick={() => copyToClipboard(paymentInfo.payAddress)} className="flex-shrink-0" data-testid="button-copy-address">
+                    <Copy className="w-4 h-4" />
                   </Button>
-                </form>
-              </Form>
-            </CardContent>
-          </Card>
-        </>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="p-3 rounded-md border border-border bg-muted/30">
+                  <p className="text-xs text-muted-foreground mb-0.5">{t.deposit.npAmountToSend}</p>
+                  <p className="font-mono text-sm font-bold" data-testid="text-pay-amount">{paymentInfo.payAmount} {paymentInfo.payCurrency.toUpperCase()}</p>
+                </div>
+                <div className="p-3 rounded-md border border-border bg-muted/30">
+                  <p className="text-xs text-muted-foreground mb-0.5">{t.deposit.npYouReceive}</p>
+                  <p className="font-mono text-sm font-bold text-emerald-600 dark:text-emerald-400" data-testid="text-receive-amount">{formatHtg(usdtToHtg(parseFloat(String(cryptoAmount)) || 0))} HTG</p>
+                </div>
+              </div>
+            </div>
+
+            {paymentStatus === "waiting" && (
+              <p className="text-xs text-muted-foreground text-center">{t.deposit.npWaitingNote}</p>
+            )}
+
+            <Button
+              variant="outline"
+              className="w-full"
+              onClick={handleNewPayment}
+              data-testid="button-new-payment"
+            >
+              {t.deposit.npNewPayment}
+            </Button>
+          </CardContent>
+        </Card>
       )}
 
       {depositMethod === "moncash" && (
@@ -251,44 +303,16 @@ export default function DepositPage() {
           <CardContent className="space-y-4 opacity-30 pointer-events-none select-none">
             <div>
               <label className="text-sm font-medium">{t.deposit.moncashAmount}</label>
-              <Input
-                type="number"
-                step="1"
-                min="100"
-                placeholder={t.deposit.moncashAmountPlaceholder}
-                value={moncashAmount}
-                onChange={(e) => setMoncashAmount(e.target.value)}
-                className="mt-1.5"
-                data-testid="input-moncash-amount"
-              />
+              <Input type="number" disabled placeholder="1000" className="mt-1.5" data-testid="input-moncash-amount" />
               <p className="text-xs text-muted-foreground mt-1">{t.deposit.moncashMinimum}</p>
             </div>
-
-            <Button
-              className="w-full primary-gradient"
-              disabled
-              data-testid="button-moncash-pay"
-            >
+            <Button className="w-full primary-gradient" disabled data-testid="button-moncash-pay">
               <Smartphone className="w-4 h-4 mr-2" />
               {t.deposit.moncashPayButton}
             </Button>
           </CardContent>
         </Card>
       )}
-    </div>
-  );
-}
-
-function AddressCard({ network, address, onCopy }: { network: string; address: string; onCopy: (text: string) => void }) {
-  return (
-    <div className="flex items-center justify-between gap-3 p-3 rounded-md border border-border bg-muted/30">
-      <div className="min-w-0 flex-1">
-        <span className="inline-block text-[10px] font-bold uppercase tracking-wider text-primary bg-primary/10 px-1.5 py-0.5 rounded mb-1.5">{network}</span>
-        <p className="font-mono text-xs break-all text-muted-foreground leading-relaxed">{address}</p>
-      </div>
-      <Button variant="ghost" size="icon" onClick={() => onCopy(address)} className="flex-shrink-0" data-testid={`button-copy-${network.toLowerCase()}`}>
-        <Copy className="w-4 h-4" />
-      </Button>
     </div>
   );
 }

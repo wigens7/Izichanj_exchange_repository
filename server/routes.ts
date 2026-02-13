@@ -244,6 +244,172 @@ export async function registerRoutes(
     res.redirect(`/deposit?moncash_txn=${transactionId}`);
   });
 
+  // ============ NOWPayments Integration ============
+  const NOWPAYMENTS_API_KEY = process.env.NOWPAYMENTS_API_KEY || "";
+  const NOWPAYMENTS_BASE_URL = "https://api.nowpayments.io/v1";
+
+  app.post("/api/nowpayments/create-payment", isAuthenticated, async (req: any, res) => {
+    try {
+      const profile = await getProfileFromReq(req);
+      if (!profile) return res.status(401).json({ message: "Unauthorized" });
+      if (profile.kycStatus !== "verified") return res.status(403).json({ message: "KYC verification required before making deposits" });
+
+      const { amountUsdt, payCurrency } = req.body;
+      if (!amountUsdt || isNaN(Number(amountUsdt)) || Number(amountUsdt) <= 0) {
+        return res.status(400).json({ message: "Amount must be greater than 0" });
+      }
+
+      const currency = payCurrency || "usdttrc20";
+      const orderId = `NP-${profile.id}-${Date.now()}`;
+      const amount = Number(amountUsdt);
+      const htgAmount = usdtToHtg(amount);
+
+      const response = await fetch(`${NOWPAYMENTS_BASE_URL}/payment`, {
+        method: "POST",
+        headers: {
+          "x-api-key": NOWPAYMENTS_API_KEY,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          price_amount: amount,
+          price_currency: "usd",
+          pay_currency: currency,
+          order_id: orderId,
+          order_description: `Deposit ${amount} USDT for ${profile.fullName}`,
+        }),
+      });
+
+      if (!response.ok) {
+        const text = await response.text();
+        console.error("NOWPayments create payment error:", text);
+        try {
+          const errData = JSON.parse(text);
+          if (errData.message) return res.status(400).json({ message: errData.message });
+        } catch {}
+        return res.status(500).json({ message: "Failed to create crypto payment" });
+      }
+
+      const paymentData = await response.json() as any;
+
+      const deposit = await storage.createDeposit({
+        profileId: profile.id,
+        amountUsdt: amount.toFixed(2),
+        txHash: orderId,
+        depositMethod: "nowpayments",
+        amountHtg: htgAmount.toFixed(2),
+        nowpaymentsPaymentId: String(paymentData.payment_id),
+        payAddress: paymentData.pay_address,
+        payCurrency: paymentData.pay_currency,
+      });
+
+      res.json({
+        depositId: deposit.id,
+        paymentId: paymentData.payment_id,
+        payAddress: paymentData.pay_address,
+        payAmount: paymentData.pay_amount,
+        payCurrency: paymentData.pay_currency,
+        expirationDate: paymentData.expiration_estimate_date,
+        orderId,
+      });
+    } catch (e: any) {
+      console.error("NOWPayments create payment error:", e);
+      res.status(500).json({ message: e.message || "Failed to create crypto payment" });
+    }
+  });
+
+  app.get("/api/nowpayments/payment-status/:paymentId", isAuthenticated, async (req: any, res) => {
+    try {
+      const { paymentId } = req.params;
+      const response = await fetch(`${NOWPAYMENTS_BASE_URL}/payment/${paymentId}`, {
+        headers: { "x-api-key": NOWPAYMENTS_API_KEY },
+      });
+      if (!response.ok) {
+        return res.status(500).json({ message: "Failed to check payment status" });
+      }
+      const data = await response.json() as any;
+      res.json({
+        paymentStatus: data.payment_status,
+        actuallyPaid: data.actually_paid,
+        payAmount: data.pay_amount,
+        payCurrency: data.pay_currency,
+        outcomeAmount: data.outcome_amount,
+      });
+    } catch (e: any) {
+      console.error("NOWPayments status check error:", e);
+      res.status(500).json({ message: "Failed to check payment status" });
+    }
+  });
+
+  app.post("/api/nowpayments/ipn", async (req, res) => {
+    try {
+      const ipnSecret = process.env.NOWPAYMENTS_IPN_SECRET;
+      if (ipnSecret) {
+        const receivedSig = req.headers["x-nowpayments-sig"] as string;
+        if (!receivedSig) {
+          console.error("[NOWPayments IPN] Missing signature header");
+          return res.sendStatus(400);
+        }
+        const sortedBody = JSON.stringify(req.body, Object.keys(req.body).sort());
+        const expectedSig = crypto.createHmac("sha512", ipnSecret).update(sortedBody).digest("hex");
+        if (receivedSig !== expectedSig) {
+          console.error("[NOWPayments IPN] Invalid signature");
+          return res.sendStatus(400);
+        }
+      }
+
+      const { payment_id, payment_status, order_id, actually_paid, pay_amount, outcome_amount } = req.body;
+      console.log(`[NOWPayments IPN] Payment ${payment_id} status: ${payment_status}, order: ${order_id}`);
+
+      if (payment_status === "finished" || payment_status === "confirmed") {
+        const deposit = await storage.getDepositByNowpaymentsPaymentId(String(payment_id));
+        if (!deposit) {
+          console.error(`[NOWPayments IPN] Deposit not found for payment_id: ${payment_id}`);
+          return res.sendStatus(200);
+        }
+
+        if (deposit.status === "approved") {
+          return res.sendStatus(200);
+        }
+
+        const [updatedDeposit] = await db.update(deposits).set({
+          status: "approved",
+        }).where(eq(deposits.id, deposit.id)).returning();
+
+        const profile = await storage.getProfile(deposit.profileId);
+        if (profile) {
+          const depositAmount = parseFloat(deposit.amountUsdt);
+          const currentBalance = parseFloat(profile.balance);
+          const newBalance = currentBalance + depositAmount;
+          await storage.updateProfileBalance(deposit.profileId, newBalance);
+
+          const htgAmount = formatHtg(usdtToHtg(depositAmount));
+          await storage.createNotification({
+            profileId: deposit.profileId,
+            type: "deposit_approved",
+            title: "Crypto Deposit Approved",
+            message: `Your crypto deposit of ${depositAmount.toFixed(2)} USDT (${htgAmount} HTG) has been automatically confirmed and added to your balance.`,
+          });
+
+          const admins = await storage.getAllProfiles();
+          const adminList = admins.filter(a => a.role === "admin");
+          for (const admin of adminList) {
+            await storage.createNotification({
+              profileId: admin.id,
+              type: "custom_message",
+              title: "Crypto Deposit Auto-Approved",
+              message: `User ${profile.fullName} deposited ${depositAmount.toFixed(2)} USDT via NOWPayments (auto-approved). Payment ID: ${payment_id}`,
+            });
+          }
+        }
+      }
+
+      res.sendStatus(200);
+    } catch (e: any) {
+      console.error("NOWPayments IPN error:", e);
+      res.sendStatus(200);
+    }
+  });
+
   app.post("/api/auth/register", async (req, res) => {
     try {
       const input = registerSchema.parse(req.body);

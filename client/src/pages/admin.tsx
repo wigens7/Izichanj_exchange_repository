@@ -552,8 +552,8 @@ function DepositsTab() {
                   <TableCell className="font-mono text-xs">{deposit.id}</TableCell>
                   <TableCell>{deposit.profileId}</TableCell>
                   <TableCell>
-                    <Badge variant={deposit.depositMethod === "moncash" ? "secondary" : "outline"} className="text-xs">
-                      {deposit.depositMethod === "moncash" ? "MonCash" : "USDT"}
+                    <Badge variant={deposit.depositMethod === "moncash" ? "secondary" : deposit.depositMethod === "nowpayments" ? "default" : "outline"} className="text-xs">
+                      {deposit.depositMethod === "moncash" ? "MonCash" : deposit.depositMethod === "nowpayments" ? "Crypto (Auto)" : "USDT"}
                     </Badge>
                   </TableCell>
                   <TableCell className="font-medium">${Number(deposit.amountUsdt).toFixed(2)}</TableCell>

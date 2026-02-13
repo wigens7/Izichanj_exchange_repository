@@ -16,10 +16,11 @@ export interface IStorage {
   getValidOtp(profileId: number, code: string): Promise<typeof otps.$inferSelect | undefined>;
   markOtpVerified(id: number): Promise<void>;
 
-  createDeposit(deposit: InsertDeposit & { profileId: number; depositMethod?: "usdt" | "moncash"; amountHtg?: string; moncashTransactionId?: string }): Promise<Deposit>;
+  createDeposit(deposit: InsertDeposit & { profileId: number; depositMethod?: "usdt" | "moncash" | "nowpayments"; amountHtg?: string; moncashTransactionId?: string; nowpaymentsPaymentId?: string; payAddress?: string; payCurrency?: string }): Promise<Deposit>;
   getDeposits(profileId?: number): Promise<Deposit[]>;
   updateDepositStatus(id: number, status: "approved" | "rejected"): Promise<Deposit>;
   getDepositByMoncashTransactionId(transactionId: string): Promise<Deposit | undefined>;
+  getDepositByNowpaymentsPaymentId(paymentId: string): Promise<Deposit | undefined>;
 
   createWithdrawal(withdrawal: InsertWithdrawal & { profileId: number }): Promise<Withdrawal>;
   getWithdrawals(profileId?: number): Promise<Withdrawal[]>;
@@ -150,6 +151,11 @@ export class DatabaseStorage implements IStorage {
 
   async getDepositByMoncashTransactionId(transactionId: string): Promise<Deposit | undefined> {
     const [deposit] = await db.select().from(deposits).where(eq(deposits.moncashTransactionId, transactionId));
+    return deposit;
+  }
+
+  async getDepositByNowpaymentsPaymentId(paymentId: string): Promise<Deposit | undefined> {
+    const [deposit] = await db.select().from(deposits).where(eq(deposits.nowpaymentsPaymentId, paymentId));
     return deposit;
   }
 
