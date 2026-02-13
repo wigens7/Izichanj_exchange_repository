@@ -238,12 +238,17 @@ export default function DepositPage() {
       )}
 
       {depositMethod === "moncash" && (
-        <Card className={!kycVerified ? "opacity-50 pointer-events-none" : ""}>
+        <Card className="relative overflow-visible">
+          <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-background/80 backdrop-blur-sm rounded-md">
+            <Smartphone className="w-10 h-10 text-primary mb-3" />
+            <p className="text-lg font-bold" data-testid="text-moncash-coming-soon">{t.deposit.moncashComingSoon}</p>
+            <p className="text-sm text-muted-foreground mt-1">{t.deposit.moncashComingSoonDesc}</p>
+          </div>
           <CardHeader className="pb-3">
             <CardTitle className="text-base">{t.deposit.moncashTitle}</CardTitle>
             <CardDescription className="text-xs">{t.deposit.moncashSubtitle}</CardDescription>
           </CardHeader>
-          <CardContent className="space-y-4">
+          <CardContent className="space-y-4 opacity-30 pointer-events-none select-none">
             <div>
               <label className="text-sm font-medium">{t.deposit.moncashAmount}</label>
               <Input
@@ -259,36 +264,13 @@ export default function DepositPage() {
               <p className="text-xs text-muted-foreground mt-1">{t.deposit.moncashMinimum}</p>
             </div>
 
-            {moncashHtg >= 100 && (
-              <div className="p-3 bg-muted/50 rounded-md border border-border" data-testid="moncash-conversion-preview">
-                <div className="flex items-center justify-between flex-wrap gap-2 text-sm">
-                  <span className="text-muted-foreground">1 USDT = {EXCHANGE_RATE_USDT_HTG.toFixed(2)} HTG</span>
-                  <div className="flex items-center gap-2">
-                    <span className="font-medium">{formatHtg(moncashHtg)} HTG</span>
-                    <ArrowRight className="w-3 h-3 text-muted-foreground" />
-                    <span className="font-bold text-emerald-600 dark:text-emerald-400" data-testid="text-moncash-usdt">{formatUsdt(moncashUsdt)} USDT</span>
-                  </div>
-                </div>
-              </div>
-            )}
-
             <Button
               className="w-full primary-gradient"
-              disabled={moncashLoading || !kycVerified || moncashHtg < 100}
-              onClick={handleMoncashPayment}
+              disabled
               data-testid="button-moncash-pay"
             >
-              {moncashLoading ? (
-                <>
-                  <Loader2 className="animate-spin mr-2 w-4 h-4" />
-                  {t.deposit.moncashProcessing}
-                </>
-              ) : (
-                <>
-                  <Smartphone className="w-4 h-4 mr-2" />
-                  {t.deposit.moncashPayButton}
-                </>
-              )}
+              <Smartphone className="w-4 h-4 mr-2" />
+              {t.deposit.moncashPayButton}
             </Button>
           </CardContent>
         </Card>

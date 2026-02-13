@@ -60,6 +60,8 @@ const translations = {
       moncashMinimum: "Minimum: 100 HTG",
       moncashUsdtEquiv: "USDT Equivalent",
       moncashPayButton: "Pay with MonCash",
+      moncashComingSoon: "Coming Soon",
+      moncashComingSoonDesc: "MonCash deposits will be available shortly.",
       moncashProcessing: "Processing...",
       moncashRedirecting: "Redirecting to MonCash...",
       moncashSuccess: "MonCash Deposit Successful",
@@ -327,6 +329,8 @@ const translations = {
       moncashMinimum: "Minimum: 100 HTG",
       moncashUsdtEquiv: "\u00c9quivalent USDT",
       moncashPayButton: "Payer avec MonCash",
+      moncashComingSoon: "Bient\u00f4t disponible",
+      moncashComingSoonDesc: "Les d\u00e9p\u00f4ts MonCash seront disponibles sous peu.",
       moncashProcessing: "Traitement...",
       moncashRedirecting: "Redirection vers MonCash...",
       moncashSuccess: "D\u00e9p\u00f4t MonCash r\u00e9ussi",
@@ -594,6 +598,8 @@ const translations = {
       moncashMinimum: "Minimom: 100 HTG",
       moncashUsdtEquiv: "Ekivalan USDT",
       moncashPayButton: "Peye ak MonCash",
+      moncashComingSoon: "Ap vini byento",
+      moncashComingSoonDesc: "Depo MonCash ap disponib talè konsa.",
       moncashProcessing: "Ap trete...",
       moncashRedirecting: "Redireksyon nan MonCash...",
       moncashSuccess: "Depo MonCash Reyisi",
@@ -815,7 +821,7 @@ const translations = {
 type TranslationSet = {
   nav: { dashboard: string; deposit: string; withdraw: string; profileKyc: string; adminPanel: string; signOut: string; cryptoToCash: string; faq?: string; virtualCard?: string };
   dashboard: { title: string; welcomeBack: string; currentBalance: string; totalDeposited: string; totalWithdrawn: string; transactionHistory: string; all: string; deposits: string; withdrawals: string; noTransactions: string; usdtDeposit: string; withdrawal: string };
-  deposit: { title: string; subtitle: string; walletAddresses: string; submitTransaction: string; verifyDescription: string; amountSent: string; htgEquivalent: string; exchangeRate: string; txHash: string; txHashPlaceholder: string; verifyDeposit: string; copied: string; copiedDescription: string; amountError: string; txHashError: string; methodUsdt: string; methodMoncash: string; moncashTitle: string; moncashSubtitle: string; moncashAmount: string; moncashAmountPlaceholder: string; moncashMinimum: string; moncashUsdtEquiv: string; moncashPayButton: string; moncashProcessing: string; moncashRedirecting: string; moncashSuccess: string; moncashSuccessDesc: string; moncashVerifying: string; moncashError: string };
+  deposit: { title: string; subtitle: string; walletAddresses: string; submitTransaction: string; verifyDescription: string; amountSent: string; htgEquivalent: string; exchangeRate: string; txHash: string; txHashPlaceholder: string; verifyDeposit: string; copied: string; copiedDescription: string; amountError: string; txHashError: string; methodUsdt: string; methodMoncash: string; moncashTitle: string; moncashSubtitle: string; moncashAmount: string; moncashAmountPlaceholder: string; moncashMinimum: string; moncashUsdtEquiv: string; moncashPayButton: string; moncashComingSoon: string; moncashComingSoonDesc: string; moncashProcessing: string; moncashRedirecting: string; moncashSuccess: string; moncashSuccessDesc: string; moncashVerifying: string; moncashError: string };
   withdraw: { title: string; subtitle: string; securityVerification: string; securityDescription: string; walletType: string; selectWallet: string; amountUsdt: string; htgEquivalent: string; exchangeRate: string; youWillReceive: string; withdrawMethod: string; phoneMethod: string; qrCodeMethod: string; phoneNumber: string; qrCodeUpload: string; qrCodeDescription: string; qrCodeUploaded: string; clickToUploadQr: string; verification: string; sendOtp: string; enterCode: string; codeSent: string; confirmWithdrawal: string; amountError: string; phoneError: string; qrCodeError: string; otpError: string };
   profile: { status: string; joined: string; language: string; selectLanguage: string; kycTitle: string; kycDescription: string; verified: string; verifiedDescription: string; underReview: string; underReviewDescription: string; idFront: string; idBack: string; selfie: string; clickToUpload: string; uploaded: string; uploading: string; submitVerification: string };
   security: { title: string; description: string; twoFactorAuth: string; twoFactorDescription: string; twoFactorEnabled: string; twoFactorDisabled: string; enable2FA: string; disable2FA: string; scanQRCode: string; manualKey: string; enterCode: string; verify: string; disableConfirm: string; confirmDisable: string; cancel: string; fingerprint: string; fingerprintDescription: string; registerFingerprint: string; registeredDevices: string; noDevices: string; removeDevice: string; twoFARequired: string; enter2FACode: string; verifyLogin: string; fingerprintLogin: string };
