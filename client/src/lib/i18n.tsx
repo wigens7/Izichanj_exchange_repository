@@ -159,6 +159,8 @@ const translations = {
       cardCost: "Card Cost",
       yourBalance: "Your Balance",
       insufficientBalance: "You need at least $20 USDT in your account to apply for a virtual card. Please deposit funds first.",
+      maintenanceTitle: "Under Maintenance",
+      maintenanceDesc: "Virtual cards are currently under maintenance. Please try again later.",
     },
     faq: {
       title: "Frequently Asked Questions",
@@ -428,6 +430,8 @@ const translations = {
       cardCost: "Co\u00fbt de la carte",
       yourBalance: "Votre solde",
       insufficientBalance: "Vous avez besoin d'au moins 20 $ USDT sur votre compte pour demander une carte virtuelle. Veuillez d'abord d\u00e9poser des fonds.",
+      maintenanceTitle: "En maintenance",
+      maintenanceDesc: "Les cartes virtuelles sont actuellement en maintenance. Veuillez r\u00e9essayer plus tard.",
     },
     faq: {
       title: "Foire Aux Questions",
@@ -697,6 +701,8 @@ const translations = {
       cardCost: "Pri kat la",
       yourBalance: "Balans ou",
       insufficientBalance: "Ou bezwen omwen $20 USDT nan kont ou pou aplike pou yon kat vity\u00e8l. Tanpri depoze lajan anvan.",
+      maintenanceTitle: "Anba reparasyon",
+      maintenanceDesc: "Kat vity\u00e8l yo anba reparasyon kounye a. Tanpri eseye ank\u00f2 pita.",
     },
     faq: {
       title: "Kesyon moun poze souvan",
@@ -826,7 +832,7 @@ type TranslationSet = {
   profile: { status: string; joined: string; language: string; selectLanguage: string; kycTitle: string; kycDescription: string; verified: string; verifiedDescription: string; underReview: string; underReviewDescription: string; idFront: string; idBack: string; selfie: string; clickToUpload: string; uploaded: string; uploading: string; submitVerification: string };
   security: { title: string; description: string; twoFactorAuth: string; twoFactorDescription: string; twoFactorEnabled: string; twoFactorDisabled: string; enable2FA: string; disable2FA: string; scanQRCode: string; manualKey: string; enterCode: string; verify: string; disableConfirm: string; confirmDisable: string; cancel: string; fingerprint: string; fingerprintDescription: string; registerFingerprint: string; registeredDevices: string; noDevices: string; removeDevice: string; twoFARequired: string; enter2FACode: string; verifyLogin: string; fingerprintLogin: string };
   kyc: { required: string; depositMessage: string; withdrawMessage: string; goToProfile: string };
-  virtualCard: { title: string; subtitle: string; applyTitle: string; applyDescription: string; initialFunding: string; minFunding: string; applyButton: string; applying: string; myCards: string; noCards: string; cardBalance: string; fundCard: string; freezeCard: string; unfreezeCard: string; viewDetails: string; transactions: string; fundAmount: string; fundButton: string; funding: string; cardNumber: string; expiry: string; cvv: string; noTransactions: string; kycRequired: string; cardCreated: string; cardFunded: string; frozen: string; active: string; cardCost: string; yourBalance: string; insufficientBalance: string };
+  virtualCard: { title: string; subtitle: string; applyTitle: string; applyDescription: string; initialFunding: string; minFunding: string; applyButton: string; applying: string; myCards: string; noCards: string; cardBalance: string; fundCard: string; freezeCard: string; unfreezeCard: string; viewDetails: string; transactions: string; fundAmount: string; fundButton: string; funding: string; cardNumber: string; expiry: string; cvv: string; noTransactions: string; kycRequired: string; cardCreated: string; cardFunded: string; frozen: string; active: string; cardCost: string; yourBalance: string; insufficientBalance: string; maintenanceTitle: string; maintenanceDesc: string };
   support: { title: string; subtitle: string; welcomeTitle: string; welcomeMessage: string; quickDeposit: string; quickWithdraw: string; quickKyc: string; talkToAgent: string; placeholder: string; waitingAgent: string; agentLabel: string; endChat: string; rateTitle: string; rateMessage: string; cancelRating: string; submitRating: string; chatEnded: string; startNewChat: string };
   login: { appTitle: string; appSubtitle: string; signIn: string; signUp: string; welcomeBack: string; signInDescription: string; createAccount: string; signUpDescription: string; email: string; emailOrPhone: string; password: string; fullName: string; confirmPassword: string; whatsappNumber: string; forgotPassword: string; forgotDescription: string; sendResetCode: string; enterResetCode: string; newPassword: string; confirmPasswordPlaceholder: string; passwordMinLength: string; passwordsDoNotMatch: string; resetPassword: string; backToLogin: string; codeSentTitle: string; codeSentWhatsApp: string; passwordResetSuccess: string; passwordResetDescription: string; phoneRequired: string };
   verifyEmail: { title: string; description: string; verifyButton: string; didntReceive: string; resendIn: string; resendCode: string };

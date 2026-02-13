@@ -48,40 +48,16 @@ export default function VirtualCardsPage() {
         <p className="text-muted-foreground mt-1">{vc.subtitle}</p>
       </div>
 
-      {!kycVerified && (
-        <Card>
-          <CardContent className="flex items-center gap-3 p-4">
-            <AlertCircle className="w-5 h-5 text-amber-500 flex-shrink-0" />
-            <p className="text-sm text-muted-foreground">{vc.kycRequired}</p>
-          </CardContent>
-        </Card>
-      )}
-
-      {kycVerified && <ApplyCardSection />}
-
-      <div>
-        <h2 className="text-lg font-semibold mb-3">{vc.myCards}</h2>
-        {isLoading ? (
-          <div className="space-y-3">
-            {Array.from({ length: 2 }).map((_, i) => (
-              <Skeleton key={i} className="h-48 w-full rounded-md" />
-            ))}
+      <Card>
+        <CardContent className="flex flex-col items-center justify-center py-16 text-center">
+          <div className="w-16 h-16 mx-auto bg-amber-500/10 rounded-xl flex items-center justify-center mb-4">
+            <AlertCircle className="w-8 h-8 text-amber-500" />
           </div>
-        ) : cards && cards.length > 0 ? (
-          <div className="space-y-4">
-            {cards.map((card) => (
-              <CardItem key={card.id} card={card} />
-            ))}
-          </div>
-        ) : (
-          <Card>
-            <CardContent className="flex flex-col items-center justify-center py-12 text-muted-foreground">
-              <CreditCard className="w-10 h-10 mb-3 opacity-40" />
-              <p className="text-sm">{vc.noCards}</p>
-            </CardContent>
-          </Card>
-        )}
-      </div>
+          <h2 className="text-xl font-bold mb-2" data-testid="text-virtual-cards-maintenance">{vc.maintenanceTitle}</h2>
+          <p className="text-muted-foreground max-w-md">{vc.maintenanceDesc}</p>
+        </CardContent>
+      </Card>
+
     </div>
   );
 }
