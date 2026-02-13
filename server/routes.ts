@@ -76,6 +76,10 @@ export async function registerRoutes(
   setupAuth(app);
   registerObjectStorageRoutes(app);
 
+  app.get("/payment-success", (_req, res) => {
+    res.send("Payment successful. Thank you!");
+  });
+
   app.post("/api/auth/register", async (req, res) => {
     try {
       const input = registerSchema.parse(req.body);
