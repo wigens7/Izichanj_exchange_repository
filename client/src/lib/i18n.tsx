@@ -155,6 +155,7 @@ const translations = {
       cvv: "CVV",
       noTransactions: "No transactions yet.",
       kycRequired: "KYC verification is required to apply for a virtual card.",
+      kycRequiredDesc: "Complete your KYC verification to apply for virtual cards.",
       cardCreated: "Virtual card created successfully!",
       cardFunded: "Card funded successfully!",
       frozen: "Frozen",
@@ -429,6 +430,7 @@ const translations = {
       cvv: "CVV",
       noTransactions: "Aucune transaction pour le moment.",
       kycRequired: "La v\u00e9rification KYC est requise pour demander une carte virtuelle.",
+      kycRequiredDesc: "Compl\u00e9tez votre v\u00e9rification KYC pour demander des cartes virtuelles.",
       cardCreated: "Carte virtuelle cr\u00e9\u00e9e avec succ\u00e8s !",
       cardFunded: "Carte recharg\u00e9e avec succ\u00e8s !",
       frozen: "Gel\u00e9e",
@@ -703,6 +705,7 @@ const translations = {
       cvv: "CVV",
       noTransactions: "Pa gen tranzaksyon ank\u00f2.",
       kycRequired: "Verifikasyon KYC obligatwa pou aplike pou yon kat vity\u00e8l.",
+      kycRequiredDesc: "Konplete verifikasyon KYC ou pou aplike pou kat vity\u00e8l.",
       cardCreated: "Kat vity\u00e8l kreye avek sikse!",
       cardFunded: "Kat rechaje avek sikse!",
       frozen: "Jele",
@@ -836,12 +839,12 @@ const translations = {
 type TranslationSet = {
   nav: { dashboard: string; deposit: string; withdraw: string; profileKyc: string; adminPanel: string; signOut: string; cryptoToCash: string; faq?: string; virtualCard?: string };
   dashboard: { title: string; welcomeBack: string; currentBalance: string; totalDeposited: string; totalWithdrawn: string; transactionHistory: string; all: string; deposits: string; withdrawals: string; noTransactions: string; usdtDeposit: string; withdrawal: string };
-  deposit: { title: string; subtitle: string; walletAddresses: string; submitTransaction: string; verifyDescription: string; amountSent: string; htgEquivalent: string; exchangeRate: string; txHash: string; txHashPlaceholder: string; verifyDeposit: string; copied: string; copiedDescription: string; amountError: string; txHashError: string; methodUsdt: string; methodMoncash: string; moncashTitle: string; moncashSubtitle: string; moncashAmount: string; moncashAmountPlaceholder: string; moncashMinimum: string; moncashUsdtEquiv: string; moncashPayButton: string; moncashComingSoon: string; moncashComingSoonDesc: string; moncashProcessing: string; moncashRedirecting: string; moncashSuccess: string; moncashSuccessDesc: string; moncashVerifying: string; moncashError: string };
+  deposit: { title: string; subtitle: string; copied: string; copiedDescription: string; methodCrypto: string; methodMoncash: string; npTitle: string; npSubtitle: string; npAmount: string; npCurrency: string; npPayButton: string; npCreating: string; npPaymentCreated: string; npSendToAddress: string; npPayAddress: string; npAmountToSend: string; npYouReceive: string; npWaitingNote: string; npNewPayment: string; npSuccess: string; npSuccessDesc: string; npStatusWaiting: string; npStatusConfirming: string; npStatusConfirmed: string; npStatusFinished: string; npStatusFailed: string; npStatusExpired: string; moncashTitle: string; moncashSubtitle: string; moncashAmount: string; moncashAmountPlaceholder: string; moncashMinimum: string; moncashPayButton: string; moncashComingSoon: string; moncashComingSoonDesc: string };
   withdraw: { title: string; subtitle: string; securityVerification: string; securityDescription: string; walletType: string; selectWallet: string; amountUsdt: string; htgEquivalent: string; exchangeRate: string; youWillReceive: string; withdrawMethod: string; phoneMethod: string; qrCodeMethod: string; phoneNumber: string; qrCodeUpload: string; qrCodeDescription: string; qrCodeUploaded: string; clickToUploadQr: string; verification: string; sendOtp: string; enterCode: string; codeSent: string; confirmWithdrawal: string; amountError: string; phoneError: string; qrCodeError: string; otpError: string };
   profile: { status: string; joined: string; language: string; selectLanguage: string; kycTitle: string; kycDescription: string; verified: string; verifiedDescription: string; underReview: string; underReviewDescription: string; idFront: string; idBack: string; selfie: string; clickToUpload: string; uploaded: string; uploading: string; submitVerification: string };
   security: { title: string; description: string; twoFactorAuth: string; twoFactorDescription: string; twoFactorEnabled: string; twoFactorDisabled: string; enable2FA: string; disable2FA: string; scanQRCode: string; manualKey: string; enterCode: string; verify: string; disableConfirm: string; confirmDisable: string; cancel: string; fingerprint: string; fingerprintDescription: string; registerFingerprint: string; registeredDevices: string; noDevices: string; removeDevice: string; twoFARequired: string; enter2FACode: string; verifyLogin: string; fingerprintLogin: string };
   kyc: { required: string; depositMessage: string; withdrawMessage: string; goToProfile: string };
-  virtualCard: { title: string; subtitle: string; applyTitle: string; applyDescription: string; initialFunding: string; minFunding: string; applyButton: string; applying: string; myCards: string; noCards: string; cardBalance: string; fundCard: string; freezeCard: string; unfreezeCard: string; viewDetails: string; transactions: string; fundAmount: string; fundButton: string; funding: string; cardNumber: string; expiry: string; cvv: string; noTransactions: string; kycRequired: string; cardCreated: string; cardFunded: string; frozen: string; active: string; cardCost: string; yourBalance: string; insufficientBalance: string; maintenanceTitle: string; maintenanceDesc: string };
+  virtualCard: { title: string; subtitle: string; applyTitle: string; applyDescription: string; initialFunding: string; minFunding: string; applyButton: string; applying: string; myCards: string; noCards: string; cardBalance: string; fundCard: string; freezeCard: string; unfreezeCard: string; viewDetails: string; transactions: string; fundAmount: string; fundButton: string; funding: string; cardNumber: string; expiry: string; cvv: string; noTransactions: string; kycRequired: string; kycRequiredDesc: string; cardCreated: string; cardFunded: string; frozen: string; active: string; cardCost: string; yourBalance: string; insufficientBalance: string; maintenanceTitle: string; maintenanceDesc: string };
   support: { title: string; subtitle: string; welcomeTitle: string; welcomeMessage: string; quickDeposit: string; quickWithdraw: string; quickKyc: string; talkToAgent: string; placeholder: string; waitingAgent: string; agentLabel: string; endChat: string; rateTitle: string; rateMessage: string; cancelRating: string; submitRating: string; chatEnded: string; startNewChat: string };
   login: { appTitle: string; appSubtitle: string; signIn: string; signUp: string; welcomeBack: string; signInDescription: string; createAccount: string; signUpDescription: string; email: string; emailOrPhone: string; password: string; fullName: string; confirmPassword: string; whatsappNumber: string; forgotPassword: string; forgotDescription: string; sendResetCode: string; enterResetCode: string; newPassword: string; confirmPasswordPlaceholder: string; passwordMinLength: string; passwordsDoNotMatch: string; resetPassword: string; backToLogin: string; codeSentTitle: string; codeSentWhatsApp: string; passwordResetSuccess: string; passwordResetDescription: string; phoneRequired: string };
   verifyEmail: { title: string; description: string; verifyButton: string; didntReceive: string; resendIn: string; resendCode: string };
