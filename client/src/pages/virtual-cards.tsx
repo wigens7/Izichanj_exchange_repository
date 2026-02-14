@@ -48,37 +48,15 @@ export default function VirtualCardsPage() {
         <p className="text-muted-foreground mt-1">{vc.subtitle}</p>
       </div>
 
-      {!kycVerified && (
-        <Card>
-          <CardContent className="flex flex-col items-center justify-center py-10 text-center">
-            <AlertCircle className="w-10 h-10 text-amber-500 mb-3" />
-            <p className="font-medium mb-1" data-testid="text-kyc-required-cards">{vc.kycRequired || "KYC verification required"}</p>
-            <p className="text-sm text-muted-foreground">{vc.kycRequiredDesc || "Complete your KYC verification to apply for virtual cards."}</p>
-          </CardContent>
-        </Card>
-      )}
-
-      {kycVerified && <ApplyCardSection />}
-
-      {isLoading ? (
-        <div className="space-y-4">
-          <Skeleton className="h-48 w-full" />
-          <Skeleton className="h-48 w-full" />
-        </div>
-      ) : cards && cards.length > 0 ? (
-        <div className="space-y-4">
-          {cards.map((card) => (
-            <CardItem key={card.id} card={card} />
-          ))}
-        </div>
-      ) : kycVerified ? (
-        <Card>
-          <CardContent className="flex flex-col items-center justify-center py-10 text-center">
-            <CreditCard className="w-10 h-10 text-muted-foreground mb-3" />
-            <p className="text-muted-foreground" data-testid="text-no-cards">{vc.noCards || "No virtual cards yet. Apply for one above."}</p>
-          </CardContent>
-        </Card>
-      ) : null}
+      <Card>
+        <CardContent className="flex flex-col items-center justify-center py-16 text-center">
+          <div className="w-16 h-16 mx-auto bg-amber-500/10 rounded-xl flex items-center justify-center mb-4">
+            <AlertCircle className="w-8 h-8 text-amber-500" />
+          </div>
+          <h2 className="text-xl font-bold mb-2" data-testid="text-virtual-cards-maintenance">{vc.maintenanceTitle}</h2>
+          <p className="text-muted-foreground max-w-md">{vc.maintenanceDesc}</p>
+        </CardContent>
+      </Card>
     </div>
   );
 }
