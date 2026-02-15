@@ -30,6 +30,7 @@ export const profiles = pgTable("profiles", {
   balance: decimal("balance", { precision: 10, scale: 2 }).default("0").notNull(),
   twoFactorSecret: text("two_factor_secret"),
   twoFactorEnabled: boolean("two_factor_enabled").default(false).notNull(),
+  pinHash: text("pin_hash"),
   isBanned: boolean("is_banned").default(false).notNull(),
   isDeleted: boolean("is_deleted").default(false).notNull(),
   deletedAt: timestamp("deleted_at"),
