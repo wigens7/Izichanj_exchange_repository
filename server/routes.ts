@@ -28,8 +28,14 @@ if (process.env.SENDGRID_API_KEY) {
 }
 
 const rpName = "Izichanj";
-const rpID = process.env.REPLIT_DEV_DOMAIN?.replace(/^https?:\/\//, "") || "localhost";
-const origin = process.env.REPLIT_DEV_DOMAIN ? `https://${rpID}` : "http://localhost:5000";
+
+function getWebAuthnConfig(req: any) {
+  const host = req.get("host") || req.hostname || "localhost";
+  const rpID = host.split(":")[0];
+  const protocol = req.protocol || "https";
+  const origin = `${protocol}://${host}`;
+  return { rpID, origin };
+}
 
 async function sendWhatsAppOtp(phone: string, code: string) {
   const instanceId = process.env.ULTRAMSG_INSTANCE_ID;
@@ -1336,6 +1342,7 @@ export async function registerRoutes(
 
       const existingCreds = await storage.getWebAuthnCredentials(profile.id);
 
+      const { rpID, origin } = getWebAuthnConfig(req);
       const options = await generateRegistrationOptions({
         rpName,
         rpID,
@@ -1368,6 +1375,7 @@ export async function registerRoutes(
       const expectedChallenge = req.session.currentChallenge;
       if (!expectedChallenge) return res.status(400).json({ message: "No challenge found. Please try again." });
 
+      const { rpID, origin } = getWebAuthnConfig(req);
       const verification = await verifyRegistrationResponse({
         response: req.body.credential,
         expectedChallenge,
@@ -1408,6 +1416,7 @@ export async function registerRoutes(
       const creds = await storage.getWebAuthnCredentials(profile.id);
       if (creds.length === 0) return res.status(400).json({ message: "No fingerprints registered" });
 
+      const { rpID } = getWebAuthnConfig(req);
       const options = await generateAuthenticationOptions({
         rpID,
         allowCredentials: creds.map(c => ({
@@ -1439,6 +1448,7 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Unknown credential" });
       }
 
+      const { rpID, origin } = getWebAuthnConfig(req);
       const verification = await verifyAuthenticationResponse({
         response: req.body,
         expectedChallenge,
