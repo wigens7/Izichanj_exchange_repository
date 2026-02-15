@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, Shield, ShieldCheck, ShieldOff, Fingerprint, Trash2 } from "lucide-react";
+import { Loader2, Shield, ShieldCheck, ShieldOff, Fingerprint, Trash2, KeyRound } from "lucide-react";
 import { useState } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -20,6 +20,9 @@ export default function SecurityPage() {
   const [totpCode, setTotpCode] = useState("");
   const [disableCode, setDisableCode] = useState("");
   const [showDisable, setShowDisable] = useState(false);
+  const [pinDigits, setPinDigits] = useState(["", "", "", ""]);
+  const [pinPassword, setPinPassword] = useState("");
+  const [showPinSetup, setShowPinSetup] = useState(false);
 
   const { data: webauthnCreds, isLoading: credsLoading } = useQuery<{ id: number; deviceName: string; createdAt: string }[]>({
     queryKey: ["/api/security/webauthn/credentials"],
@@ -84,6 +87,48 @@ export default function SecurityPage() {
     onSuccess: () => {
       toast({ title: "Success", description: "Fingerprint registered successfully" });
       queryClient.invalidateQueries({ queryKey: ["/api/security/webauthn/credentials"] });
+    },
+    onError: (e: Error) => {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    },
+  });
+
+  const hasPin = !!(user as any)?.pinHash;
+
+  const setPin = useMutation({
+    mutationFn: async () => {
+      const pin = pinDigits.join("");
+      const res = await apiRequest("POST", "/api/security/pin/set", { pin, password: pinPassword });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.message);
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: t.security.pinSetSuccess || "PIN Set", description: t.security.pinSetSuccessDesc || "You can now use your PIN to sign in quickly." });
+      setPinDigits(["", "", "", ""]);
+      setPinPassword("");
+      setShowPinSetup(false);
+      queryClient.invalidateQueries({ queryKey: ["/api/user"] });
+    },
+    onError: (e: Error) => {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    },
+  });
+
+  const removePin = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/security/pin/remove");
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.message);
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: t.security.pinRemoved || "PIN Removed", description: t.security.pinRemovedDesc || "PIN login has been disabled." });
+      queryClient.invalidateQueries({ queryKey: ["/api/user"] });
     },
     onError: (e: Error) => {
       toast({ title: "Error", description: e.message, variant: "destructive" });
@@ -262,6 +307,117 @@ export default function SecurityPage() {
               <p className="text-sm text-muted-foreground" data-testid="text-no-devices">{t.security.noDevices}</p>
             )}
           </div>
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between gap-2 pb-3">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-md bg-primary/10 flex items-center justify-center">
+              <KeyRound className="w-4 h-4 text-primary" />
+            </div>
+            <div>
+              <CardTitle className="text-base">{t.security.pinLogin || "PIN Login"}</CardTitle>
+              <CardDescription className="text-xs">{t.security.pinDescription || "Set a 4-digit PIN to quickly sign in after being logged out."}</CardDescription>
+            </div>
+          </div>
+          <Badge variant={hasPin ? "default" : "secondary"} data-testid="badge-pin-status">
+            {hasPin ? t.security.pinEnabled || "Enabled" : t.security.pinDisabledBadge || "Disabled"}
+          </Badge>
+        </CardHeader>
+        <CardContent>
+          {hasPin ? (
+            <div className="space-y-3">
+              <p className="text-sm text-muted-foreground">{t.security.pinActive || "Your PIN is active. You can use it to sign in quickly."}</p>
+              <div className="flex gap-2 flex-wrap">
+                <Button
+                  onClick={() => { setShowPinSetup(true); }}
+                  variant="outline"
+                  data-testid="button-change-pin"
+                >
+                  <KeyRound className="w-4 h-4 mr-2" />
+                  {t.security.changePin || "Change PIN"}
+                </Button>
+                <Button
+                  variant="destructive"
+                  onClick={() => removePin.mutate()}
+                  disabled={removePin.isPending}
+                  data-testid="button-remove-pin"
+                >
+                  {removePin.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Trash2 className="w-4 h-4 mr-2" />}
+                  {t.security.removePin || "Remove PIN"}
+                </Button>
+              </div>
+            </div>
+          ) : !showPinSetup ? (
+            <Button onClick={() => setShowPinSetup(true)} data-testid="button-setup-pin">
+              <KeyRound className="w-4 h-4 mr-2" />
+              {t.security.setupPin || "Set Up PIN"}
+            </Button>
+          ) : null}
+
+          {showPinSetup && (
+            <div className="space-y-4 mt-2">
+              <div>
+                <p className="text-sm font-medium mb-2">{t.security.enterPin || "Enter a 4-digit PIN"}</p>
+                <div className="flex gap-3 justify-center">
+                  {pinDigits.map((digit, i) => (
+                    <Input
+                      key={i}
+                      type="password"
+                      inputMode="numeric"
+                      maxLength={1}
+                      value={digit}
+                      className="w-12 h-12 text-center text-lg font-bold"
+                      data-testid={`input-pin-digit-${i}`}
+                      onChange={(e) => {
+                        const val = e.target.value.replace(/\D/g, "");
+                        const newDigits = [...pinDigits];
+                        newDigits[i] = val;
+                        setPinDigits(newDigits);
+                        if (val && i < 3) {
+                          const next = e.target.parentElement?.querySelector(`[data-testid="input-pin-digit-${i + 1}"]`) as HTMLInputElement;
+                          next?.focus();
+                        }
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Backspace" && !pinDigits[i] && i > 0) {
+                          const prev = (e.target as HTMLElement).parentElement?.querySelector(`[data-testid="input-pin-digit-${i - 1}"]`) as HTMLInputElement;
+                          prev?.focus();
+                        }
+                      }}
+                    />
+                  ))}
+                </div>
+              </div>
+              <div>
+                <p className="text-sm font-medium mb-2">{t.security.confirmPassword || "Confirm your password"}</p>
+                <Input
+                  type="password"
+                  placeholder={t.security.passwordPlaceholder || "Enter your password"}
+                  value={pinPassword}
+                  onChange={(e) => setPinPassword(e.target.value)}
+                  data-testid="input-pin-password"
+                />
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  onClick={() => setPin.mutate()}
+                  disabled={pinDigits.join("").length !== 4 || !pinPassword || setPin.isPending}
+                  data-testid="button-save-pin"
+                >
+                  {setPin.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
+                  {t.security.savePin || "Save PIN"}
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => { setShowPinSetup(false); setPinDigits(["", "", "", ""]); setPinPassword(""); }}
+                  data-testid="button-cancel-pin"
+                >
+                  {t.security.cancel}
+                </Button>
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>

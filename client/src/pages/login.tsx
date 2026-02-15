@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Loader2, LogIn, UserPlus, Eye, EyeOff, Shield, Fingerprint, Wallet, ArrowRightLeft, ShieldCheck, Zap, Phone } from "lucide-react";
+import { Loader2, LogIn, UserPlus, Eye, EyeOff, Shield, Fingerprint, Wallet, ArrowRightLeft, ShieldCheck, Zap, Phone, KeyRound } from "lucide-react";
 import logoImg from "@/assets/logo.png";
 import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
@@ -66,6 +66,122 @@ function TwoFAStep({ onSuccess }: { onSuccess: (profile: any) => void }) {
       >
         {isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Shield className="w-4 h-4 mr-2" />}
         {t.security.verifyLogin}
+      </Button>
+    </div>
+  );
+}
+
+function PinLoginForm({ email, onSwitchToPassword }: { email: string; onSwitchToPassword: () => void }) {
+  const [pinDigits, setPinDigits] = useState(["", "", "", ""]);
+  const [isPending, setIsPending] = useState(false);
+  const [needs2FA, setNeeds2FA] = useState(false);
+  const [, setLocation] = useLocation();
+  const { toast } = useToast();
+  const { t } = useLanguage();
+
+  const handlePinLogin = async () => {
+    const pin = pinDigits.join("");
+    if (pin.length !== 4) return;
+    setIsPending(true);
+    try {
+      const res = await apiRequest("POST", "/api/auth/pin-login", { email, pin });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.message);
+      }
+      const profile = await res.json();
+      if (profile.needs2fa || profile.needs2FA) {
+        setNeeds2FA(true);
+        return;
+      }
+      queryClient.setQueryData(["/api/user"], profile);
+      toast({ title: "Welcome back!", description: `Signed in as ${profile.fullName}` });
+      setLocation("/");
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message || "PIN login failed", variant: "destructive" });
+      setPinDigits(["", "", "", ""]);
+    } finally {
+      setIsPending(false);
+    }
+  };
+
+  if (needs2FA) {
+    return (
+      <TwoFAStep
+        onSuccess={(profile) => {
+          toast({ title: "Welcome back!", description: `Signed in as ${profile.fullName}` });
+          setLocation("/");
+        }}
+      />
+    );
+  }
+
+  return (
+    <div className="space-y-5 text-center">
+      <div className="w-14 h-14 mx-auto bg-primary/10 rounded-xl flex items-center justify-center">
+        <KeyRound className="w-7 h-7 text-primary" />
+      </div>
+      <div>
+        <h3 className="text-lg font-bold" data-testid="text-pin-title">{t.security.pinWelcome || "Welcome back"}</h3>
+        <p className="text-sm text-muted-foreground mt-1">{t.security.enterYourPin || "Enter your 4-digit PIN to sign in"}</p>
+        <p className="text-xs text-muted-foreground mt-0.5">{email}</p>
+      </div>
+      <div className="flex gap-3 justify-center">
+        {pinDigits.map((digit, i) => (
+          <Input
+            key={i}
+            type="password"
+            inputMode="numeric"
+            maxLength={1}
+            value={digit}
+            className="w-14 h-14 text-center text-2xl font-bold"
+            data-testid={`input-pin-login-${i}`}
+            onChange={(e) => {
+              const val = e.target.value.replace(/\D/g, "");
+              const newDigits = [...pinDigits];
+              newDigits[i] = val;
+              setPinDigits(newDigits);
+              if (val && i < 3) {
+                const next = e.target.parentElement?.querySelector(`[data-testid="input-pin-login-${i + 1}"]`) as HTMLInputElement;
+                next?.focus();
+              }
+              if (val && i === 3) {
+                const fullPin = [...newDigits];
+                fullPin[3] = val;
+                if (fullPin.join("").length === 4) {
+                  setTimeout(() => {
+                    const btn = document.querySelector('[data-testid="button-pin-submit"]') as HTMLButtonElement;
+                    btn?.click();
+                  }, 100);
+                }
+              }
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Backspace" && !pinDigits[i] && i > 0) {
+                const prev = (e.target as HTMLElement).parentElement?.querySelector(`[data-testid="input-pin-login-${i - 1}"]`) as HTMLInputElement;
+                prev?.focus();
+              }
+            }}
+          />
+        ))}
+      </div>
+      <Button
+        className="w-full primary-gradient"
+        onClick={handlePinLogin}
+        disabled={pinDigits.join("").length !== 4 || isPending}
+        data-testid="button-pin-submit"
+      >
+        {isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <KeyRound className="w-4 h-4 mr-2" />}
+        {t.security.signInWithPin || "Sign in with PIN"}
+      </Button>
+      <Button
+        type="button"
+        variant="ghost"
+        className="w-full"
+        onClick={onSwitchToPassword}
+        data-testid="button-use-password"
+      >
+        {t.security.usePassword || "Use password instead"}
       </Button>
     </div>
   );
@@ -408,6 +524,8 @@ export default function LoginPage() {
   const { data: user, isLoading } = useUser();
   const [, setLocation] = useLocation();
   const { t } = useLanguage();
+  const [showPinLogin, setShowPinLogin] = useState(false);
+  const [savedEmail, setSavedEmail] = useState("");
 
   useEffect(() => {
     if (user) {
@@ -418,6 +536,21 @@ export default function LoginPage() {
       }
     }
   }, [user, setLocation]);
+
+  useEffect(() => {
+    const lastEmail = localStorage.getItem("izichanj_last_email");
+    if (lastEmail) {
+      fetch(`/api/auth/has-pin?email=${encodeURIComponent(lastEmail)}`)
+        .then(r => r.json())
+        .then(data => {
+          if (data.hasPin) {
+            setSavedEmail(lastEmail);
+            setShowPinLogin(true);
+          }
+        })
+        .catch(() => {});
+    }
+  }, []);
 
   if (isLoading) {
     return (
@@ -471,34 +604,48 @@ export default function LoginPage() {
             <p className="text-sm text-muted-foreground mt-2">{t.login.appSubtitle}</p>
           </div>
 
-          <Card className="border shadow-sm">
-            <Tabs defaultValue="signin" className="w-full">
-              <CardHeader className="pb-3">
-                <TabsList className="grid w-full grid-cols-2" data-testid="tabs-auth">
-                  <TabsTrigger value="signin" data-testid="tab-signin">{t.login.signIn}</TabsTrigger>
-                  <TabsTrigger value="signup" data-testid="tab-signup">{t.login.signUp}</TabsTrigger>
-                </TabsList>
-              </CardHeader>
-
-              <CardContent>
-                <TabsContent value="signin" className="mt-0">
-                  <div className="mb-5">
-                    <CardTitle className="text-xl" data-testid="text-signin-title">{t.login.welcomeBack}</CardTitle>
-                    <CardDescription className="mt-1">{t.login.signInDescription}</CardDescription>
-                  </div>
-                  <SignInForm />
-                </TabsContent>
-
-                <TabsContent value="signup" className="mt-0">
-                  <div className="mb-5">
-                    <CardTitle className="text-xl" data-testid="text-signup-title">{t.login.createAccount}</CardTitle>
-                    <CardDescription className="mt-1">{t.login.signUpDescription}</CardDescription>
-                  </div>
-                  <SignUpForm />
-                </TabsContent>
+          {showPinLogin ? (
+            <Card className="border shadow-sm">
+              <CardContent className="pt-6">
+                <PinLoginForm
+                  email={savedEmail}
+                  onSwitchToPassword={() => {
+                    setShowPinLogin(false);
+                    localStorage.removeItem("izichanj_last_email");
+                  }}
+                />
               </CardContent>
-            </Tabs>
-          </Card>
+            </Card>
+          ) : (
+            <Card className="border shadow-sm">
+              <Tabs defaultValue="signin" className="w-full">
+                <CardHeader className="pb-3">
+                  <TabsList className="grid w-full grid-cols-2" data-testid="tabs-auth">
+                    <TabsTrigger value="signin" data-testid="tab-signin">{t.login.signIn}</TabsTrigger>
+                    <TabsTrigger value="signup" data-testid="tab-signup">{t.login.signUp}</TabsTrigger>
+                  </TabsList>
+                </CardHeader>
+
+                <CardContent>
+                  <TabsContent value="signin" className="mt-0">
+                    <div className="mb-5">
+                      <CardTitle className="text-xl" data-testid="text-signin-title">{t.login.welcomeBack}</CardTitle>
+                      <CardDescription className="mt-1">{t.login.signInDescription}</CardDescription>
+                    </div>
+                    <SignInForm />
+                  </TabsContent>
+
+                  <TabsContent value="signup" className="mt-0">
+                    <div className="mb-5">
+                      <CardTitle className="text-xl" data-testid="text-signup-title">{t.login.createAccount}</CardTitle>
+                      <CardDescription className="mt-1">{t.login.signUpDescription}</CardDescription>
+                    </div>
+                    <SignUpForm />
+                  </TabsContent>
+                </CardContent>
+              </Tabs>
+            </Card>
+          )}
         </div>
       </div>
     </div>

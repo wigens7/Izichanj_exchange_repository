@@ -140,6 +140,10 @@ export function useLogout() {
 
   return useMutation({
     mutationFn: async () => {
+      const user = queryClient.getQueryData(["/api/user"]) as any;
+      if (user?.email) {
+        localStorage.setItem("izichanj_last_email", user.email);
+      }
       await apiRequest("POST", "/api/auth/logout");
     },
     onSuccess: () => {

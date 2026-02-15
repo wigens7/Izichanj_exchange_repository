@@ -9,7 +9,7 @@ import { registerObjectStorageRoutes } from "./replit_integrations/object_storag
 import crypto from "crypto";
 import bcrypt from "bcryptjs";
 import { WITHDRAWAL_MIN_USDT, WITHDRAWAL_MAX_USDT, usdtToHtg, htgToUsdt, formatHtg, WITHDRAWAL_MIN_HTG, WITHDRAWAL_MAX_HTG } from "@shared/constants";
-import { deposits } from "@shared/schema";
+import { deposits, profiles } from "@shared/schema";
 import { db } from "./db";
 import { eq } from "drizzle-orm";
 import * as otplibModule from "otplib";
@@ -620,8 +620,8 @@ export async function registerRoutes(
   app.get(api.auth.me.path, isAuthenticated, async (req: any, res) => {
     const profile = await getProfileFromReq(req);
     if (!profile) return res.status(401).json({ message: "Unauthorized" });
-    const { passwordHash: _, twoFactorSecret: _s, ...safeProfile } = profile;
-    res.json(safeProfile);
+    const { passwordHash: _, twoFactorSecret: _s, pinHash, ...safeProfile } = profile;
+    res.json({ ...safeProfile, pinHash: !!pinHash });
   });
 
   app.get(api.deposits.list.path, isAuthenticated, async (req: any, res) => {
@@ -1324,6 +1324,84 @@ export async function registerRoutes(
     } catch (e) {
       console.error("2FA disable error:", e);
       res.status(500).json({ message: "Internal Error" });
+    }
+  });
+
+  // ======= PIN Login Routes =======
+  app.post("/api/security/pin/set", isAuthenticated, async (req: any, res) => {
+    try {
+      const profile = await getProfileFromReq(req);
+      if (!profile) return res.status(401).json({ message: "Unauthorized" });
+
+      const { pin, password } = req.body;
+      if (!pin || !password) return res.status(400).json({ message: "PIN and password are required" });
+      if (!/^\d{4}$/.test(pin)) return res.status(400).json({ message: "PIN must be exactly 4 digits" });
+
+      const validPassword = await bcrypt.compare(password, profile.passwordHash);
+      if (!validPassword) return res.status(400).json({ message: "Incorrect password" });
+
+      const pinHash = await bcrypt.hash(pin, 10);
+      await db.update(profiles).set({ pinHash }).where(eq(profiles.id, profile.id));
+      res.json({ message: "PIN set successfully" });
+    } catch (e) {
+      console.error("PIN set error:", e);
+      res.status(500).json({ message: "Internal Error" });
+    }
+  });
+
+  app.post("/api/security/pin/remove", isAuthenticated, async (req: any, res) => {
+    try {
+      const profile = await getProfileFromReq(req);
+      if (!profile) return res.status(401).json({ message: "Unauthorized" });
+
+      await db.update(profiles).set({ pinHash: null }).where(eq(profiles.id, profile.id));
+      res.json({ message: "PIN removed successfully" });
+    } catch (e) {
+      console.error("PIN remove error:", e);
+      res.status(500).json({ message: "Internal Error" });
+    }
+  });
+
+  app.post("/api/auth/pin-login", async (req: any, res) => {
+    try {
+      const { email, pin } = req.body;
+      if (!email || !pin) return res.status(400).json({ message: "Email and PIN are required" });
+
+      const profile = await storage.getProfileByEmail(email);
+      if (!profile) return res.status(400).json({ message: "Invalid credentials" });
+      if (profile.isDeleted) return res.status(400).json({ message: "Account has been deleted" });
+      if (!profile.pinHash) return res.status(400).json({ message: "PIN login not set up" });
+
+      const validPin = await bcrypt.compare(pin, profile.pinHash);
+      if (!validPin) return res.status(400).json({ message: "Incorrect PIN" });
+
+      if (profile.isBanned) {
+        req.session.profileId = profile.id;
+      }
+
+      if (profile.twoFactorEnabled) {
+        req.session.pending2faProfileId = profile.id;
+        return res.json({ needs2fa: true });
+      }
+
+      req.session.profileId = profile.id;
+      const { passwordHash: _, twoFactorSecret: _s, pinHash: _p, ...safeProfile } = profile;
+      res.json(safeProfile);
+    } catch (e) {
+      console.error("PIN login error:", e);
+      res.status(500).json({ message: "Internal Error" });
+    }
+  });
+
+  app.get("/api/auth/has-pin", async (req, res) => {
+    try {
+      const { email } = req.query;
+      if (!email || typeof email !== "string") return res.json({ hasPin: false });
+      const profile = await storage.getProfileByEmail(email);
+      if (!profile || profile.isDeleted) return res.json({ hasPin: false });
+      res.json({ hasPin: !!profile.pinHash });
+    } catch (e) {
+      res.json({ hasPin: false });
     }
   });
 
