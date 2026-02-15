@@ -71,7 +71,176 @@ function TwoFAStep({ onSuccess }: { onSuccess: (profile: any) => void }) {
   );
 }
 
-function PinLoginForm({ email, onSwitchToPassword }: { email: string; onSwitchToPassword: () => void }) {
+function ForgotPinForm({ email, onBack }: { email: string; onBack: () => void }) {
+  const [step, setStep] = useState<"phone" | "reset" | "success">("phone");
+  const [phone, setPhone] = useState("");
+  const [code, setCode] = useState("");
+  const [newPin, setNewPin] = useState("");
+  const [confirmPin, setConfirmPin] = useState("");
+  const [isPending, setIsPending] = useState(false);
+  const { toast } = useToast();
+  const { t } = useLanguage();
+
+  const handleSendCode = async () => {
+    if (!phone || phone.length < 8) return;
+    setIsPending(true);
+    try {
+      const res = await apiRequest("POST", "/api/auth/forgot-pin", { phone });
+      const data = await res.json();
+      toast({ title: t.security.forgotPinCodeSent });
+      setStep("reset");
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    } finally {
+      setIsPending(false);
+    }
+  };
+
+  const handleResetPin = async () => {
+    if (code.length !== 6 || newPin.length !== 4 || newPin !== confirmPin) return;
+    setIsPending(true);
+    try {
+      const res = await apiRequest("POST", "/api/auth/reset-pin", {
+        phone,
+        code,
+        newPin,
+        confirmPin,
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.message);
+      }
+      toast({ title: t.security.forgotPinSuccess, description: t.security.forgotPinSuccessDesc });
+      setStep("success");
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    } finally {
+      setIsPending(false);
+    }
+  };
+
+  if (step === "success") {
+    return (
+      <div className="space-y-5 text-center">
+        <div className="w-14 h-14 mx-auto bg-green-500/10 rounded-xl flex items-center justify-center">
+          <ShieldCheck className="w-7 h-7 text-green-500" />
+        </div>
+        <div>
+          <h3 className="text-lg font-bold" data-testid="text-pin-reset-success">{t.security.forgotPinSuccess}</h3>
+          <p className="text-sm text-muted-foreground mt-1">{t.security.forgotPinSuccessDesc}</p>
+        </div>
+        <Button className="w-full primary-gradient" onClick={onBack} data-testid="button-back-to-login">
+          <LogIn className="w-4 h-4 mr-2" />
+          {t.security.forgotPinBackToLogin}
+        </Button>
+      </div>
+    );
+  }
+
+  if (step === "reset") {
+    return (
+      <div className="space-y-5">
+        <div className="text-center">
+          <div className="w-14 h-14 mx-auto bg-primary/10 rounded-xl flex items-center justify-center">
+            <KeyRound className="w-7 h-7 text-primary" />
+          </div>
+          <h3 className="text-lg font-bold mt-3" data-testid="text-reset-pin-title">{t.security.forgotPinTitle}</h3>
+          <p className="text-xs text-muted-foreground mt-1">{t.security.forgotPinCodeSent}</p>
+        </div>
+        <div className="space-y-3">
+          <div>
+            <label className="text-sm font-medium">{t.security.forgotPinEnterCode}</label>
+            <Input
+              placeholder="000000"
+              maxLength={6}
+              value={code}
+              onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
+              className="text-center text-xl tracking-[0.3em] font-mono mt-1"
+              data-testid="input-reset-pin-code"
+            />
+          </div>
+          <div>
+            <label className="text-sm font-medium">{t.security.forgotPinNewPin}</label>
+            <Input
+              type="password"
+              inputMode="numeric"
+              placeholder="----"
+              maxLength={4}
+              value={newPin}
+              onChange={(e) => setNewPin(e.target.value.replace(/\D/g, ""))}
+              className="text-center text-xl tracking-[0.3em] font-mono mt-1"
+              data-testid="input-reset-pin-new"
+            />
+          </div>
+          <div>
+            <label className="text-sm font-medium">{t.security.forgotPinConfirmPin}</label>
+            <Input
+              type="password"
+              inputMode="numeric"
+              placeholder="----"
+              maxLength={4}
+              value={confirmPin}
+              onChange={(e) => setConfirmPin(e.target.value.replace(/\D/g, ""))}
+              className="text-center text-xl tracking-[0.3em] font-mono mt-1"
+              data-testid="input-reset-pin-confirm"
+            />
+          </div>
+        </div>
+        <Button
+          className="w-full primary-gradient"
+          onClick={handleResetPin}
+          disabled={code.length !== 6 || newPin.length !== 4 || newPin !== confirmPin || isPending}
+          data-testid="button-reset-pin-submit"
+        >
+          {isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <KeyRound className="w-4 h-4 mr-2" />}
+          {t.security.forgotPinResetButton}
+        </Button>
+        <Button type="button" variant="ghost" className="w-full" onClick={onBack} data-testid="button-forgot-pin-back">
+          {t.security.forgotPinBackToLogin}
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-5">
+      <div className="text-center">
+        <div className="w-14 h-14 mx-auto bg-primary/10 rounded-xl flex items-center justify-center">
+          <KeyRound className="w-7 h-7 text-primary" />
+        </div>
+        <h3 className="text-lg font-bold mt-3" data-testid="text-forgot-pin-title">{t.security.forgotPinTitle}</h3>
+        <p className="text-sm text-muted-foreground mt-1">{t.security.forgotPinSubtitle}</p>
+      </div>
+      <div>
+        <label className="text-sm font-medium">{t.security.forgotPinPhone}</label>
+        <div className="relative mt-1">
+          <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+          <Input
+            placeholder="+509XXXXXXXX"
+            value={phone}
+            onChange={(e) => setPhone(e.target.value)}
+            className="pl-10"
+            data-testid="input-forgot-pin-phone"
+          />
+        </div>
+      </div>
+      <Button
+        className="w-full primary-gradient"
+        onClick={handleSendCode}
+        disabled={phone.length < 8 || isPending}
+        data-testid="button-forgot-pin-send"
+      >
+        {isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Shield className="w-4 h-4 mr-2" />}
+        {t.security.forgotPinSendCode}
+      </Button>
+      <Button type="button" variant="ghost" className="w-full" onClick={onBack} data-testid="button-forgot-pin-cancel">
+        {t.security.forgotPinBackToLogin}
+      </Button>
+    </div>
+  );
+}
+
+function PinLoginForm({ email, onSwitchToPassword, onForgotPin }: { email: string; onSwitchToPassword: () => void; onForgotPin: () => void }) {
   const [pinDigits, setPinDigits] = useState(["", "", "", ""]);
   const [isPending, setIsPending] = useState(false);
   const [needs2FA, setNeeds2FA] = useState(false);
@@ -174,6 +343,16 @@ function PinLoginForm({ email, onSwitchToPassword }: { email: string; onSwitchTo
         {isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <KeyRound className="w-4 h-4 mr-2" />}
         {t.security.signInWithPin || "Sign in with PIN"}
       </Button>
+      <div className="flex items-center justify-center">
+        <button
+          type="button"
+          className="text-xs text-primary hover:underline"
+          onClick={onForgotPin}
+          data-testid="link-forgot-pin"
+        >
+          {t.security.forgotPin}
+        </button>
+      </div>
       <Button
         type="button"
         variant="ghost"
@@ -525,6 +704,7 @@ export default function LoginPage() {
   const [, setLocation] = useLocation();
   const { t } = useLanguage();
   const [showPinLogin, setShowPinLogin] = useState(false);
+  const [showForgotPin, setShowForgotPin] = useState(false);
   const [savedEmail, setSavedEmail] = useState("");
 
   useEffect(() => {
@@ -604,7 +784,19 @@ export default function LoginPage() {
             <p className="text-sm text-muted-foreground mt-2">{t.login.appSubtitle}</p>
           </div>
 
-          {showPinLogin ? (
+          {showForgotPin ? (
+            <Card className="border shadow-sm">
+              <CardContent className="pt-6">
+                <ForgotPinForm
+                  email={savedEmail}
+                  onBack={() => {
+                    setShowForgotPin(false);
+                    setShowPinLogin(true);
+                  }}
+                />
+              </CardContent>
+            </Card>
+          ) : showPinLogin ? (
             <Card className="border shadow-sm">
               <CardContent className="pt-6">
                 <PinLoginForm
@@ -612,6 +804,10 @@ export default function LoginPage() {
                   onSwitchToPassword={() => {
                     setShowPinLogin(false);
                     localStorage.removeItem("izichanj_last_email");
+                  }}
+                  onForgotPin={() => {
+                    setShowPinLogin(false);
+                    setShowForgotPin(true);
                   }}
                 />
               </CardContent>

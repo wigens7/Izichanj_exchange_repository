@@ -237,6 +237,19 @@ const translations = {
       enterYourPin: "Enter your 4-digit PIN to sign in",
       signInWithPin: "Sign in with PIN",
       usePassword: "Use password instead",
+      forgotPin: "Forgot PIN?",
+      forgotPinTitle: "Reset Your PIN",
+      forgotPinSubtitle: "Enter your WhatsApp number to receive a verification code",
+      forgotPinPhone: "WhatsApp Number",
+      forgotPinSendCode: "Send Code",
+      forgotPinCodeSent: "Code sent! Check your WhatsApp",
+      forgotPinEnterCode: "Enter verification code",
+      forgotPinNewPin: "New 4-digit PIN",
+      forgotPinConfirmPin: "Confirm new PIN",
+      forgotPinResetButton: "Reset PIN",
+      forgotPinSuccess: "PIN Reset",
+      forgotPinSuccessDesc: "Your PIN has been reset. You can now sign in with your new PIN.",
+      forgotPinBackToLogin: "Back to Login",
     },
     kyc: {
       required: "KYC Verification Required",
@@ -532,6 +545,19 @@ const translations = {
       enterYourPin: "Entrez votre PIN \u00e0 4 chiffres pour vous connecter",
       signInWithPin: "Se connecter avec le PIN",
       usePassword: "Utiliser le mot de passe",
+      forgotPin: "PIN oubli\u00e9 ?",
+      forgotPinTitle: "R\u00e9initialiser votre PIN",
+      forgotPinSubtitle: "Entrez votre num\u00e9ro WhatsApp pour recevoir un code de v\u00e9rification",
+      forgotPinPhone: "Num\u00e9ro WhatsApp",
+      forgotPinSendCode: "Envoyer le code",
+      forgotPinCodeSent: "Code envoy\u00e9 ! V\u00e9rifiez votre WhatsApp",
+      forgotPinEnterCode: "Entrez le code de v\u00e9rification",
+      forgotPinNewPin: "Nouveau PIN \u00e0 4 chiffres",
+      forgotPinConfirmPin: "Confirmer le nouveau PIN",
+      forgotPinResetButton: "R\u00e9initialiser le PIN",
+      forgotPinSuccess: "PIN r\u00e9initialis\u00e9",
+      forgotPinSuccessDesc: "Votre PIN a \u00e9t\u00e9 r\u00e9initialis\u00e9. Vous pouvez maintenant vous connecter avec votre nouveau PIN.",
+      forgotPinBackToLogin: "Retour \u00e0 la connexion",
     },
     kyc: {
       required: "V\u00e9rification KYC requise",
@@ -827,6 +853,19 @@ const translations = {
       enterYourPin: "Antre PIN 4 chif ou pou konekte",
       signInWithPin: "Konekte ak PIN",
       usePassword: "Itilize modpas",
+      forgotPin: "Bliye PIN?",
+      forgotPinTitle: "Reyinisyalize PIN ou",
+      forgotPinSubtitle: "Antre nimewo WhatsApp ou pou resevwa yon k\u00f2d verifikasyon",
+      forgotPinPhone: "Nimewo WhatsApp",
+      forgotPinSendCode: "Voye k\u00f2d",
+      forgotPinCodeSent: "K\u00f2d voye! Tcheke WhatsApp ou",
+      forgotPinEnterCode: "Antre k\u00f2d verifikasyon an",
+      forgotPinNewPin: "Nouvo PIN 4 chif",
+      forgotPinConfirmPin: "Konf\u00e8me nouvo PIN",
+      forgotPinResetButton: "Reyinisyalize PIN",
+      forgotPinSuccess: "PIN reyinisyalize",
+      forgotPinSuccessDesc: "PIN ou reyinisyalize. Ou ka konekte ak nouvo PIN ou kounye a.",
+      forgotPinBackToLogin: "Retounen nan koneksyon",
     },
     kyc: {
       required: "Verifikasyon KYC obligatwa",
@@ -902,7 +941,7 @@ type TranslationSet = {
   deposit: { title: string; subtitle: string; copied: string; copiedDescription: string; methodCrypto: string; methodMoncash: string; npTitle: string; npSubtitle: string; npAmount: string; npCurrency: string; npPayButton: string; npCreating: string; npPaymentCreated: string; npSendToAddress: string; npPayAddress: string; npAmountToSend: string; npYouReceive: string; npWaitingNote: string; npNewPayment: string; npSuccess: string; npSuccessDesc: string; npStatusWaiting: string; npStatusConfirming: string; npStatusConfirmed: string; npStatusFinished: string; npStatusFailed: string; npStatusExpired: string; moncashTitle: string; moncashSubtitle: string; moncashAmount: string; moncashAmountPlaceholder: string; moncashMinimum: string; moncashPayButton: string; moncashComingSoon: string; moncashComingSoonDesc: string };
   withdraw: { title: string; subtitle: string; securityVerification: string; securityDescription: string; walletType: string; selectWallet: string; amountUsdt: string; htgEquivalent: string; exchangeRate: string; youWillReceive: string; withdrawMethod: string; phoneMethod: string; qrCodeMethod: string; phoneNumber: string; qrCodeUpload: string; qrCodeDescription: string; qrCodeUploaded: string; clickToUploadQr: string; verification: string; sendOtp: string; enterCode: string; codeSent: string; confirmWithdrawal: string; amountError: string; phoneError: string; qrCodeError: string; otpError: string };
   profile: { status: string; joined: string; language: string; selectLanguage: string; kycTitle: string; kycDescription: string; verified: string; verifiedDescription: string; underReview: string; underReviewDescription: string; idFront: string; idBack: string; selfie: string; clickToUpload: string; uploaded: string; uploading: string; submitVerification: string };
-  security: { title: string; description: string; twoFactorAuth: string; twoFactorDescription: string; twoFactorEnabled: string; twoFactorDisabled: string; enable2FA: string; disable2FA: string; scanQRCode: string; manualKey: string; enterCode: string; verify: string; disableConfirm: string; confirmDisable: string; cancel: string; fingerprint: string; fingerprintDescription: string; registerFingerprint: string; registeredDevices: string; noDevices: string; removeDevice: string; twoFARequired: string; enter2FACode: string; verifyLogin: string; fingerprintLogin: string; pinLogin: string; pinDescription: string; pinEnabled: string; pinDisabledBadge: string; pinActive: string; setupPin: string; changePin: string; removePin: string; enterPin: string; confirmPassword: string; passwordPlaceholder: string; savePin: string; pinSetSuccess: string; pinSetSuccessDesc: string; pinRemoved: string; pinRemovedDesc: string; pinWelcome: string; enterYourPin: string; signInWithPin: string; usePassword: string };
+  security: { title: string; description: string; twoFactorAuth: string; twoFactorDescription: string; twoFactorEnabled: string; twoFactorDisabled: string; enable2FA: string; disable2FA: string; scanQRCode: string; manualKey: string; enterCode: string; verify: string; disableConfirm: string; confirmDisable: string; cancel: string; fingerprint: string; fingerprintDescription: string; registerFingerprint: string; registeredDevices: string; noDevices: string; removeDevice: string; twoFARequired: string; enter2FACode: string; verifyLogin: string; fingerprintLogin: string; pinLogin: string; pinDescription: string; pinEnabled: string; pinDisabledBadge: string; pinActive: string; setupPin: string; changePin: string; removePin: string; enterPin: string; confirmPassword: string; passwordPlaceholder: string; savePin: string; pinSetSuccess: string; pinSetSuccessDesc: string; pinRemoved: string; pinRemovedDesc: string; pinWelcome: string; enterYourPin: string; signInWithPin: string; usePassword: string; forgotPin: string; forgotPinTitle: string; forgotPinSubtitle: string; forgotPinPhone: string; forgotPinSendCode: string; forgotPinCodeSent: string; forgotPinEnterCode: string; forgotPinNewPin: string; forgotPinConfirmPin: string; forgotPinResetButton: string; forgotPinSuccess: string; forgotPinSuccessDesc: string; forgotPinBackToLogin: string };
   kyc: { required: string; depositMessage: string; withdrawMessage: string; goToProfile: string };
   virtualCard: { title: string; subtitle: string; applyTitle: string; applyDescription: string; initialFunding: string; minFunding: string; applyButton: string; applying: string; myCards: string; noCards: string; cardBalance: string; fundCard: string; freezeCard: string; unfreezeCard: string; viewDetails: string; transactions: string; fundAmount: string; fundButton: string; funding: string; cardNumber: string; expiry: string; cvv: string; noTransactions: string; kycRequired: string; kycRequiredDesc: string; cardCreated: string; cardFunded: string; frozen: string; active: string; cardCost: string; yourBalance: string; insufficientBalance: string; maintenanceTitle: string; maintenanceDesc: string };
   support: { title: string; subtitle: string; welcomeTitle: string; welcomeMessage: string; quickDeposit: string; quickWithdraw: string; quickKyc: string; talkToAgent: string; placeholder: string; waitingAgent: string; agentLabel: string; endChat: string; rateTitle: string; rateMessage: string; cancelRating: string; submitRating: string; chatEnded: string; startNewChat: string };

@@ -173,6 +173,16 @@ export const resetPasswordSchema = z.object({
   path: ["confirmPassword"],
 });
 
+export const resetPinSchema = z.object({
+  phone: z.string().min(8, "Phone number must be at least 8 digits"),
+  code: z.string().length(6, "Code must be 6 digits"),
+  newPin: z.string().length(4, "PIN must be exactly 4 digits").regex(/^\d{4}$/, "PIN must be 4 digits"),
+  confirmPin: z.string(),
+}).refine((data) => data.newPin === data.confirmPin, {
+  message: "PINs do not match",
+  path: ["confirmPin"],
+});
+
 export const loginSchema = z.object({
   identifier: z.string().min(1, "Email or phone is required"),
   password: z.string().min(1, "Password is required"),

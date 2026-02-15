@@ -2,7 +2,7 @@ import type { Express } from "express";
 import type { Server } from "http";
 import { storage } from "./storage";
 import { api } from "@shared/routes";
-import { registerSchema, loginSchema, forgotPasswordSchema, resetPasswordSchema } from "@shared/schema";
+import { registerSchema, loginSchema, forgotPasswordSchema, resetPasswordSchema, resetPinSchema } from "@shared/schema";
 import { z } from "zod";
 import { setupAuth, isAuthenticated } from "./auth";
 import { registerObjectStorageRoutes } from "./replit_integrations/object_storage";
@@ -1402,6 +1402,49 @@ export async function registerRoutes(
       res.json({ hasPin: !!profile.pinHash });
     } catch (e) {
       res.json({ hasPin: false });
+    }
+  });
+
+  app.post("/api/auth/forgot-pin", async (req, res) => {
+    try {
+      const input = forgotPasswordSchema.parse(req.body);
+      const profile = await storage.getProfileByPhone(input.phone);
+      if (!profile || profile.isDeleted) {
+        return res.json({ message: "If an account exists with this number, you will receive a code." });
+      }
+      if (!profile.pinHash) {
+        return res.json({ message: "If an account exists with this number, you will receive a code." });
+      }
+      const code = crypto.randomInt(100000, 999999).toString();
+      await storage.createOtp(profile.id, code);
+      await sendWhatsAppOtp(input.phone, code);
+      res.json({ message: "If an account exists with this number, you will receive a code." });
+    } catch (e) {
+      if (e instanceof z.ZodError) return res.status(400).json({ message: e.errors[0].message });
+      console.error("Forgot PIN error:", e);
+      res.status(500).json({ message: "Internal Error" });
+    }
+  });
+
+  app.post("/api/auth/reset-pin", async (req, res) => {
+    try {
+      const input = resetPinSchema.parse(req.body);
+      const profile = await storage.getProfileByPhone(input.phone);
+      if (!profile || profile.isDeleted) {
+        return res.status(400).json({ message: "Invalid phone number or code" });
+      }
+      const validOtp = await storage.getValidOtp(profile.id, input.code);
+      if (!validOtp) {
+        return res.status(400).json({ message: "Invalid or expired code" });
+      }
+      await storage.markOtpVerified(validOtp.id);
+      const pinHash = await bcrypt.hash(input.newPin, 12);
+      await db.update(profiles).set({ pinHash }).where(eq(profiles.id, profile.id));
+      res.json({ message: "PIN reset successfully" });
+    } catch (e) {
+      if (e instanceof z.ZodError) return res.status(400).json({ message: e.errors[0].message });
+      console.error("Reset PIN error:", e);
+      res.status(500).json({ message: "Internal Error" });
     }
   });
 
