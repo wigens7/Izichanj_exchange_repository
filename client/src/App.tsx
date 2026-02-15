@@ -4,8 +4,9 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { LanguageProvider } from "@/lib/i18n";
-import { useUser } from "@/hooks/use-auth";
+import { useUser, useLogout } from "@/hooks/use-auth";
 import { Loader2 } from "lucide-react";
+import { useEffect, useRef, useCallback } from "react";
 
 import LoginPage from "@/pages/login";
 import VerifyEmailPage from "@/pages/verify-email";
@@ -20,6 +21,38 @@ import FAQPage from "@/pages/faq";
 import VirtualCardsPage from "@/pages/virtual-cards";
 import NotFound from "@/pages/not-found";
 import { LayoutShell } from "@/components/layout-shell";
+
+const INACTIVITY_TIMEOUT = 5 * 60 * 1000;
+
+function InactivityGuard({ children }: { children: React.ReactNode }) {
+  const { data: user } = useUser();
+  const logout = useLogout();
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const resetTimer = useCallback(() => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    if (user) {
+      timerRef.current = setTimeout(() => {
+        logout.mutate();
+        window.location.href = "/login";
+      }, INACTIVITY_TIMEOUT);
+    }
+  }, [user, logout]);
+
+  useEffect(() => {
+    if (!user) return;
+    const events = ["mousedown", "keydown", "touchstart", "scroll", "mousemove"];
+    const handler = () => resetTimer();
+    events.forEach(e => window.addEventListener(e, handler, { passive: true }));
+    resetTimer();
+    return () => {
+      events.forEach(e => window.removeEventListener(e, handler));
+      if (timerRef.current) clearTimeout(timerRef.current);
+    };
+  }, [user, resetTimer]);
+
+  return <>{children}</>;
+}
 
 function ProtectedRoute({ component: Component, adminOnly = false }: { component: any, adminOnly?: boolean }) {
   const { data: user, isLoading } = useUser();
@@ -94,7 +127,9 @@ function App() {
       <LanguageProvider>
         <TooltipProvider>
           <Toaster />
-          <Router />
+          <InactivityGuard>
+            <Router />
+          </InactivityGuard>
         </TooltipProvider>
       </LanguageProvider>
     </QueryClientProvider>

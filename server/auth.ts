@@ -14,7 +14,7 @@ declare module "express-session" {
 export function setupAuth(app: Express) {
   app.set("trust proxy", 1);
 
-  const sessionTtl = 7 * 24 * 60 * 60 * 1000;
+  const sessionTtl = 5 * 60;
   const pgStore = connectPg(session);
   const sessionStore = new pgStore({
     conString: process.env.DATABASE_URL,
@@ -27,13 +27,14 @@ export function setupAuth(app: Express) {
     session({
       secret: process.env.SESSION_SECRET!,
       store: sessionStore,
-      resave: false,
+      resave: true,
       saveUninitialized: false,
+      rolling: true,
       cookie: {
         httpOnly: true,
         secure: true,
         sameSite: "lax",
-        maxAge: sessionTtl,
+        maxAge: sessionTtl * 1000,
       },
     })
   );
