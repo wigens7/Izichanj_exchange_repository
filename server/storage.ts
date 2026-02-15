@@ -1,4 +1,4 @@
-import { profiles, deposits, withdrawals, kycDocuments, otps, webauthnCredentials, notifications, supportConversations, supportMessages, virtualCards, blacklistedUsers, type Profile, type Deposit, type InsertDeposit, type Withdrawal, type InsertWithdrawal, type KycDocument, type WebAuthnCredential, type Notification, type SupportConversation, type SupportMessage, type VirtualCard, type BlacklistedUser } from "@shared/schema";
+import { profiles, deposits, withdrawals, kycDocuments, otps, webauthnCredentials, notifications, supportConversations, supportMessages, virtualCards, blacklistedUsers, p2pTransfers, type Profile, type Deposit, type InsertDeposit, type Withdrawal, type InsertWithdrawal, type KycDocument, type WebAuthnCredential, type Notification, type SupportConversation, type SupportMessage, type VirtualCard, type BlacklistedUser, type P2PTransfer } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, sql, or, ilike } from "drizzle-orm";
 import crypto from "crypto";
@@ -65,6 +65,9 @@ export interface IStorage {
   getVirtualCard(id: number, profileId: number): Promise<VirtualCard | undefined>;
   getVirtualCardByCardId(cardId: string): Promise<VirtualCard | undefined>;
   updateVirtualCard(id: number, data: Partial<VirtualCard>): Promise<VirtualCard>;
+
+  createP2PTransfer(data: { senderProfileId: number; receiverProfileId: number; amount: string; note?: string }): Promise<P2PTransfer>;
+  getP2PTransfers(profileId: number): Promise<P2PTransfer[]>;
 
   getProfileByReferenceId(referenceId: string): Promise<Profile | undefined>;
   searchProfiles(query: string): Promise<Profile[]>;
@@ -411,6 +414,20 @@ export class DatabaseStorage implements IStorage {
   async addToBlacklist(data: { email?: string; phone?: string; firstName?: string; lastName?: string; dateOfBirth?: string; idDocumentUrl?: string; idDocumentBackUrl?: string; selfieUrl?: string; reason?: string; originalProfileId?: number; referenceId?: string }): Promise<BlacklistedUser> {
     const [entry] = await db.insert(blacklistedUsers).values(data).returning();
     return entry;
+  }
+
+  async createP2PTransfer(data: { senderProfileId: number; receiverProfileId: number; amount: string; note?: string }): Promise<P2PTransfer> {
+    const [transfer] = await db.insert(p2pTransfers).values(data).returning();
+    return transfer;
+  }
+
+  async getP2PTransfers(profileId: number): Promise<P2PTransfer[]> {
+    return db.select().from(p2pTransfers).where(
+      or(
+        eq(p2pTransfers.senderProfileId, profileId),
+        eq(p2pTransfers.receiverProfileId, profileId)
+      )
+    ).orderBy(desc(p2pTransfers.createdAt));
   }
 
   async isBlacklisted(email: string, phone?: string, firstName?: string, lastName?: string, dateOfBirth?: string): Promise<boolean> {

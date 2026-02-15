@@ -19,6 +19,7 @@ import SecurityPage from "@/pages/security";
 import AdminPage from "@/pages/admin";
 import FAQPage from "@/pages/faq";
 import VirtualCardsPage from "@/pages/virtual-cards";
+import SendFundsPage from "@/pages/send-funds";
 import NotFound from "@/pages/not-found";
 import { LayoutShell } from "@/components/layout-shell";
 
@@ -111,6 +112,9 @@ function Router() {
       </Route>
       <Route path="/faq">
         <ProtectedRoute component={FAQPage} />
+      </Route>
+      <Route path="/send-funds">
+        <ProtectedRoute component={SendFundsPage} />
       </Route>
       <Route path="/virtual-cards">
         <ProtectedRoute component={VirtualCardsPage} />

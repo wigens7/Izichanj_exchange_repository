@@ -108,7 +108,16 @@ export const kycDocuments = pgTable("kyc_documents", {
   submittedAt: timestamp("submitted_at").defaultNow().notNull(),
 });
 
-export const notificationTypeEnum = pgEnum("notification_type", ["deposit_approved", "deposit_rejected", "withdrawal_approved", "withdrawal_rejected", "kyc_verified", "kyc_rejected", "custom_message"]);
+export const notificationTypeEnum = pgEnum("notification_type", ["deposit_approved", "deposit_rejected", "withdrawal_approved", "withdrawal_rejected", "kyc_verified", "kyc_rejected", "custom_message", "transfer_received", "transfer_sent"]);
+
+export const p2pTransfers = pgTable("p2p_transfers", {
+  id: serial("id").primaryKey(),
+  senderProfileId: integer("sender_profile_id").references(() => profiles.id).notNull(),
+  receiverProfileId: integer("receiver_profile_id").references(() => profiles.id).notNull(),
+  amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
+  note: text("note"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
 
 export const notifications = pgTable("notifications", {
   id: serial("id").primaryKey(),
@@ -201,6 +210,7 @@ export type Notification = typeof notifications.$inferSelect;
 export type SupportConversation = typeof supportConversations.$inferSelect;
 export type SupportMessage = typeof supportMessages.$inferSelect;
 export type BlacklistedUser = typeof blacklistedUsers.$inferSelect;
+export type P2PTransfer = typeof p2pTransfers.$inferSelect;
 export const cardStatusEnum = pgEnum("card_status", ["pending", "active", "frozen", "terminated"]);
 
 export const virtualCards = pgTable("virtual_cards", {

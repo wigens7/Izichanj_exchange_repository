@@ -1448,6 +1448,134 @@ export async function registerRoutes(
     }
   });
 
+  // ======= P2P Transfer Routes =======
+  app.post("/api/transfers/lookup", isAuthenticated, async (req: any, res) => {
+    try {
+      const profile = await getProfileFromReq(req);
+      if (!profile) return res.status(401).json({ message: "Unauthorized" });
+
+      const { identifier } = req.body;
+      if (!identifier || typeof identifier !== "string") {
+        return res.status(400).json({ message: "Identifier is required" });
+      }
+
+      const trimmed = identifier.trim();
+      let recipient = await storage.getProfileByReferenceId(trimmed);
+      if (!recipient) recipient = await storage.getProfileByEmail(trimmed);
+      if (!recipient) recipient = await storage.getProfileByPhone(trimmed);
+
+      if (!recipient || recipient.isDeleted || recipient.id === profile.id) {
+        return res.status(404).json({ message: "User not found" });
+      }
+
+      res.json({
+        id: recipient.id,
+        fullName: recipient.fullName,
+        referenceId: recipient.referenceId,
+        email: recipient.email.replace(/(.{2}).*(@.*)/, "$1***$2"),
+      });
+    } catch (e) {
+      console.error("Transfer lookup error:", e);
+      res.status(500).json({ message: "Internal Error" });
+    }
+  });
+
+  app.post("/api/transfers/send", isAuthenticated, async (req: any, res) => {
+    try {
+      const profile = await getProfileFromReq(req);
+      if (!profile) return res.status(401).json({ message: "Unauthorized" });
+
+      if (profile.kycStatus !== "verified") {
+        return res.status(403).json({ message: "KYC verification required to send funds" });
+      }
+
+      if (profile.isBanned) {
+        return res.status(403).json({ message: "Your account is restricted" });
+      }
+
+      const { recipientId, amount, note } = req.body;
+      if (!recipientId || !amount) {
+        return res.status(400).json({ message: "Recipient and amount are required" });
+      }
+
+      const sendAmount = parseFloat(amount);
+      if (isNaN(sendAmount) || sendAmount <= 0) {
+        return res.status(400).json({ message: "Invalid amount" });
+      }
+
+      if (sendAmount < 1) {
+        return res.status(400).json({ message: "Minimum transfer amount is 1 USDT" });
+      }
+
+      const senderBalance = parseFloat(profile.balance);
+      if (senderBalance < sendAmount) {
+        return res.status(400).json({ message: "Insufficient balance" });
+      }
+
+      const recipient = await storage.getProfile(recipientId);
+      if (!recipient || recipient.isDeleted || recipient.id === profile.id) {
+        return res.status(404).json({ message: "Recipient not found" });
+      }
+
+      const newSenderBalance = senderBalance - sendAmount;
+      const newReceiverBalance = parseFloat(recipient.balance) + sendAmount;
+
+      await storage.updateProfileBalance(profile.id, newSenderBalance);
+      await storage.updateProfileBalance(recipient.id, newReceiverBalance);
+
+      const transfer = await storage.createP2PTransfer({
+        senderProfileId: profile.id,
+        receiverProfileId: recipient.id,
+        amount: sendAmount.toFixed(2),
+        note: note || undefined,
+      });
+
+      await storage.createNotification({
+        profileId: recipient.id,
+        type: "transfer_received",
+        title: "Funds Received",
+        message: `You received ${sendAmount.toFixed(2)} USDT from ${profile.fullName}${note ? ` - "${note}"` : ""}`,
+      });
+
+      await storage.createNotification({
+        profileId: profile.id,
+        type: "transfer_sent",
+        title: "Funds Sent",
+        message: `You sent ${sendAmount.toFixed(2)} USDT to ${recipient.fullName}`,
+      });
+
+      res.json({ message: "Transfer successful", transfer });
+    } catch (e) {
+      console.error("Transfer send error:", e);
+      res.status(500).json({ message: "Internal Error" });
+    }
+  });
+
+  app.get("/api/transfers", isAuthenticated, async (req: any, res) => {
+    try {
+      const profile = await getProfileFromReq(req);
+      if (!profile) return res.status(401).json({ message: "Unauthorized" });
+
+      const transfers = await storage.getP2PTransfers(profile.id);
+
+      const enriched = await Promise.all(transfers.map(async (t) => {
+        const sender = await storage.getProfile(t.senderProfileId);
+        const receiver = await storage.getProfile(t.receiverProfileId);
+        return {
+          ...t,
+          senderName: sender?.fullName || "Unknown",
+          receiverName: receiver?.fullName || "Unknown",
+          direction: t.senderProfileId === profile.id ? "sent" : "received",
+        };
+      }));
+
+      res.json(enriched);
+    } catch (e) {
+      console.error("Get transfers error:", e);
+      res.status(500).json({ message: "Internal Error" });
+    }
+  });
+
   // ======= WebAuthn (Fingerprint) Routes =======
   app.get("/api/security/webauthn/credentials", isAuthenticated, async (req: any, res) => {
     const profile = await getProfileFromReq(req);

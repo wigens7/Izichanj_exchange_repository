@@ -8,7 +8,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { StatusBadge } from "@/components/status-badge";
-import { Loader2, UploadCloud, CheckCircle2, Globe, Clock, User, UserCheck } from "lucide-react";
+import { Loader2, UploadCloud, CheckCircle2, Globe, Clock, User, UserCheck, Copy, Check } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
 import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -22,7 +23,9 @@ export default function ProfilePage() {
   const { mutate: updateProfile, isPending: isUpdatingProfile } = useUpdateProfile();
   const { language, setLanguage, t } = useLanguage();
   
+  const { toast } = useToast();
   const { uploadFile, isUploading } = useUpload();
+  const [refCopied, setRefCopied] = useState(false);
   
   const [idUrl, setIdUrl] = useState<string>("");
   const [idBackUrl, setIdBackUrl] = useState<string>("");
@@ -126,6 +129,28 @@ export default function ProfilePage() {
                   </Select>
                 </div>
               </div>
+              {user.kycStatus === 'verified' && user.referenceId && (
+                <div className="mt-4 pt-3 border-t border-border">
+                  <p className="text-[11px] uppercase tracking-wider text-muted-foreground mb-1.5">{t.profile.referenceId}</p>
+                  <div className="flex items-center gap-2">
+                    <code className="flex-1 text-sm font-mono bg-muted px-3 py-2 rounded-md" data-testid="text-reference-id">{user.referenceId}</code>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => {
+                        navigator.clipboard.writeText(user.referenceId!);
+                        setRefCopied(true);
+                        toast({ title: t.profile.copied, description: t.profile.copiedDesc });
+                        setTimeout(() => setRefCopied(false), 2000);
+                      }}
+                      data-testid="button-copy-reference-id"
+                    >
+                      {refCopied ? <Check className="w-4 h-4 text-emerald-500" /> : <Copy className="w-4 h-4" />}
+                    </Button>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground mt-1.5">{t.profile.referenceIdDescription}</p>
+                </div>
+              )}
             </CardContent>
           </Card>
         </div>
