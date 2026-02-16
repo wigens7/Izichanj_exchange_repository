@@ -1527,7 +1527,14 @@ export async function registerRoutes(
       await storage.updateProfileBalance(profile.id, newSenderBalance);
       await storage.updateProfileBalance(recipient.id, newReceiverBalance);
 
-      const txId = "IZ" + Math.floor(Math.random() * 10000000000).toString().padStart(10, "0");
+      const now = new Date();
+      const dd = String(now.getDate()).padStart(2, "0");
+      const mm = String(now.getMonth() + 1).padStart(2, "0");
+      const yyyy = now.getFullYear();
+      const hh = String(now.getHours()).padStart(2, "0");
+      const mi = String(now.getMinutes()).padStart(2, "0");
+      const ss = String(now.getSeconds()).padStart(2, "0");
+      const txId = `IZ${dd}${mm}${yyyy}${hh}${mi}${ss}`;
 
       const transfer = await storage.createP2PTransfer({
         senderProfileId: profile.id,

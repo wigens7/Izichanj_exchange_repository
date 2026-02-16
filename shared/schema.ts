@@ -112,7 +112,7 @@ export const notificationTypeEnum = pgEnum("notification_type", ["deposit_approv
 
 export const p2pTransfers = pgTable("p2p_transfers", {
   id: serial("id").primaryKey(),
-  transactionId: varchar("transaction_id", { length: 12 }).unique(),
+  transactionId: varchar("transaction_id", { length: 20 }).unique(),
   senderProfileId: integer("sender_profile_id").references(() => profiles.id).notNull(),
   receiverProfileId: integer("receiver_profile_id").references(() => profiles.id).notNull(),
   amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
