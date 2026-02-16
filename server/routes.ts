@@ -46,8 +46,7 @@ async function sendWhatsAppOtp(phone: string, code: string) {
     return;
   }
   try {
-    const text = `*Izichanj*\n\nYour verification code is: *${code}*\n\nThis code expires in 5 minutes.\nDo not share it with anyone.`;
-    const res = await fetch(`https://${baseUrl}/whatsapp/1/message/text`, {
+    const res = await fetch(`https://${baseUrl}/whatsapp/1/message/template`, {
       method: "POST",
       headers: {
         "Authorization": `App ${apiKey}`,
@@ -55,16 +54,28 @@ async function sendWhatsAppOtp(phone: string, code: string) {
         "Accept": "application/json",
       },
       body: JSON.stringify({
-        from: sender,
-        to: phone,
-        content: { text },
+        messages: [
+          {
+            from: sender,
+            to: phone,
+            content: {
+              templateName: "authentication",
+              templateData: {
+                body: {
+                  placeholders: [code],
+                },
+              },
+              language: "en",
+            },
+          },
+        ],
       }),
     });
     const data = await res.json();
     if (res.ok) {
-      console.log(`[WHATSAPP] OTP sent to ${phone} via Infobip`);
+      console.log(`[WHATSAPP] OTP sent to ${phone} via Infobip template`);
     } else {
-      console.error(`[WHATSAPP ERROR] Infobip response:`, data);
+      console.error(`[WHATSAPP ERROR] Infobip response:`, JSON.stringify(data));
       console.log(`[FALLBACK] WhatsApp delivery failed. OTP code for ${phone}: ${code}`);
     }
   } catch (error: any) {
