@@ -129,7 +129,7 @@ export default function ProfilePage() {
                   </Select>
                 </div>
               </div>
-              {user.kycStatus === 'verified' && user.referenceId && (
+              {user.referenceId && (
                 <div className="mt-4 pt-3 border-t border-border">
                   <p className="text-[11px] uppercase tracking-wider text-muted-foreground mb-1.5">{t.profile.referenceId}</p>
                   <div className="flex items-center gap-2">

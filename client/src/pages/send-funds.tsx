@@ -293,6 +293,9 @@ export default function SendFundsPage() {
                       </span>
                     </div>
                     {tr.note && <p className="text-xs text-muted-foreground mt-0.5 truncate">{tr.note}</p>}
+                    <p className="text-[11px] text-muted-foreground mt-0.5 font-mono" data-testid={`text-transfer-id-${tr.id}`}>
+                      ID: {tr.id}
+                    </p>
                   </div>
                   <div className="text-right shrink-0">
                     <p className={`text-sm font-bold ${
