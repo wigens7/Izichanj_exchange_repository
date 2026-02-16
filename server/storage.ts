@@ -88,7 +88,11 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getProfileByPhone(phone: string): Promise<Profile | undefined> {
-    const [profile] = await db.select().from(profiles).where(eq(profiles.phone, phone));
+    const cleanPhone = phone.replace(/[^0-9]/g, "");
+    const withPlus = "+" + cleanPhone;
+    const [profile] = await db.select().from(profiles).where(
+      or(eq(profiles.phone, phone), eq(profiles.phone, cleanPhone), eq(profiles.phone, withPlus))
+    );
     return profile;
   }
 
