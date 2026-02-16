@@ -38,87 +38,29 @@ function getWebAuthnConfig(req: any) {
 }
 
 async function sendWhatsAppOtp(phone: string, code: string) {
-  const apiKey = process.env.INFOBIP_API_KEY;
-  const baseUrl = process.env.INFOBIP_BASE_URL;
-  const sender = process.env.INFOBIP_WHATSAPP_SENDER;
-  if (!apiKey || !baseUrl || !sender) {
+  const instanceId = process.env.ULTRAMSG_INSTANCE_ID;
+  const token = process.env.ULTRAMSG_TOKEN;
+  if (!instanceId || !token) {
     console.log(`[MOCK WHATSAPP] Sending OTP ${code} to ${phone}`);
     return;
   }
-  const cleanPhone = phone.replace(/[^0-9]/g, "");
-
-  let whatsappSuccess = false;
   try {
-    console.log(`[WHATSAPP] Sending OTP to ${cleanPhone} via Infobip template...`);
-    const res = await fetch(`https://${baseUrl}/whatsapp/1/message/template`, {
+    const text = `*Izichanj*\n\nYour verification code is: *${code}*\n\nThis code expires in 5 minutes.\nDo not share it with anyone.`;
+    const res = await fetch(`https://api.ultramsg.com/${instanceId}/messages/chat`, {
       method: "POST",
-      headers: {
-        "Authorization": `App ${apiKey}`,
-        "Content-Type": "application/json",
-        "Accept": "application/json",
-      },
-      body: JSON.stringify({
-        messages: [
-          {
-            from: sender,
-            to: cleanPhone,
-            content: {
-              templateName: "authentication",
-              templateData: {
-                body: {
-                  placeholders: [code],
-                },
-              },
-              language: "en",
-            },
-          },
-        ],
-      }),
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token, to: phone, body: text }),
     });
     const data = await res.json();
-    const msg = data?.messages?.[0];
-    if (res.ok && msg?.status?.groupName !== "REJECTED") {
-      console.log(`[WHATSAPP] OTP sent to ${cleanPhone} via Infobip template, status: ${msg?.status?.groupName}`);
-      whatsappSuccess = true;
+    if (data.sent === "true" || data.sent === true) {
+      console.log(`[WHATSAPP] OTP sent to ${phone} via UltraMsg`);
     } else {
-      console.error(`[WHATSAPP ERROR] Template rejected:`, JSON.stringify(data));
+      console.error(`[WHATSAPP ERROR] UltraMsg response:`, JSON.stringify(data));
+      console.log(`[FALLBACK] WhatsApp delivery failed. OTP code for ${phone}: ${code}`);
     }
   } catch (error: any) {
-    console.error(`[WHATSAPP ERROR] Template send failed:`, error.message);
-  }
-
-  if (!whatsappSuccess) {
-    try {
-      console.log(`[SMS] Falling back to SMS for ${cleanPhone}...`);
-      const smsRes = await fetch(`https://${baseUrl}/sms/2/text/advanced`, {
-        method: "POST",
-        headers: {
-          "Authorization": `App ${apiKey}`,
-          "Content-Type": "application/json",
-          "Accept": "application/json",
-        },
-        body: JSON.stringify({
-          messages: [
-            {
-              destinations: [{ to: cleanPhone }],
-              from: "Izichanj",
-              text: `Your Izichanj verification code is: ${code}. This code expires in 5 minutes. Do not share it with anyone.`,
-            },
-          ],
-        }),
-      });
-      const smsData = await smsRes.json();
-      const smsMsg = smsData?.messages?.[0];
-      if (smsRes.ok && smsMsg?.status?.groupName !== "REJECTED") {
-        console.log(`[SMS] OTP sent to ${cleanPhone} via Infobip SMS, status: ${smsMsg?.status?.groupName}`);
-      } else {
-        console.error(`[SMS ERROR] Infobip SMS response:`, JSON.stringify(smsData));
-        console.log(`[FALLBACK] All delivery methods failed. OTP code for ${cleanPhone}: ${code}`);
-      }
-    } catch (smsError: any) {
-      console.error(`[SMS ERROR] Failed to send SMS to ${cleanPhone}:`, smsError.message);
-      console.log(`[FALLBACK] All delivery methods failed. OTP code for ${cleanPhone}: ${code}`);
-    }
+    console.error(`[WHATSAPP ERROR] Failed to send OTP to ${phone}:`, error.message);
+    console.log(`[FALLBACK] WhatsApp delivery failed. OTP code for ${phone}: ${code}`);
   }
 }
 
