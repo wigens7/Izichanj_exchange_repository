@@ -716,6 +716,10 @@ export async function registerRoutes(
       await storage.markOtpVerified(validOtp.id);
 
       const { otp, ...rest } = parsed;
+
+      const newBalance = currentBalance - amountUsdt;
+      await storage.updateProfileBalance(profile.id, newBalance);
+
       const withdrawal = await storage.createWithdrawal({ ...rest, profileId: profile.id });
 
       // Notify admin
@@ -917,13 +921,6 @@ export async function registerRoutes(
 
   app.patch(api.admin.approveWithdrawal.path, isAuthenticated, isAdmin, async (req: any, res) => {
     const withdrawal = await storage.updateWithdrawalStatus(Number(req.params.id), "approved");
-    const profile = await storage.getProfile(withdrawal.profileId);
-    if (profile) {
-      const currentBalance = parseFloat(profile.balance || "0");
-      const withdrawalAmount = parseFloat(withdrawal.amount);
-      const newBalance = Math.max(0, currentBalance - withdrawalAmount);
-      await storage.updateProfileBalance(withdrawal.profileId, newBalance);
-    }
     const htgAmount = formatHtg(usdtToHtg(Number(withdrawal.amount)));
     await storage.createNotification({
       profileId: withdrawal.profileId,
@@ -936,11 +933,18 @@ export async function registerRoutes(
 
   app.patch(api.admin.rejectWithdrawal.path, isAuthenticated, isAdmin, async (req: any, res) => {
     const withdrawal = await storage.updateWithdrawalStatus(Number(req.params.id), "rejected");
+    const profile = await storage.getProfile(withdrawal.profileId);
+    if (profile) {
+      const currentBalance = parseFloat(profile.balance || "0");
+      const refundAmount = parseFloat(withdrawal.amount);
+      await storage.updateProfileBalance(withdrawal.profileId, currentBalance + refundAmount);
+    }
+    const htgAmount = formatHtg(usdtToHtg(Number(withdrawal.amount)));
     await storage.createNotification({
       profileId: withdrawal.profileId,
       type: "withdrawal_rejected",
       title: "Withdrawal Rejected",
-      message: `Your withdrawal of ${Number(withdrawal.amount).toFixed(2)} USDT to ${withdrawal.currency} has been rejected. Please contact support.`,
+      message: `Your withdrawal of ${Number(withdrawal.amount).toFixed(2)} USDT (${htgAmount} HTG) to ${withdrawal.currency} has been rejected. Your balance has been refunded. Please contact support.`,
     });
     res.json(withdrawal);
   });
