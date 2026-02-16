@@ -46,6 +46,8 @@ async function sendWhatsAppOtp(phone: string, code: string) {
     return;
   }
   const cleanPhone = phone.replace(/[^0-9]/g, "");
+
+  let whatsappSuccess = false;
   try {
     console.log(`[WHATSAPP] Sending OTP to ${cleanPhone} via Infobip template...`);
     const res = await fetch(`https://${baseUrl}/whatsapp/1/message/template`, {
@@ -74,15 +76,49 @@ async function sendWhatsAppOtp(phone: string, code: string) {
       }),
     });
     const data = await res.json();
-    if (res.ok) {
-      console.log(`[WHATSAPP] OTP sent to ${phone} via Infobip template`);
+    const msg = data?.messages?.[0];
+    if (res.ok && msg?.status?.groupName !== "REJECTED") {
+      console.log(`[WHATSAPP] OTP sent to ${cleanPhone} via Infobip template, status: ${msg?.status?.groupName}`);
+      whatsappSuccess = true;
     } else {
-      console.error(`[WHATSAPP ERROR] Infobip response:`, JSON.stringify(data));
-      console.log(`[FALLBACK] WhatsApp delivery failed. OTP code for ${phone}: ${code}`);
+      console.error(`[WHATSAPP ERROR] Template rejected:`, JSON.stringify(data));
     }
   } catch (error: any) {
-    console.error(`[WHATSAPP ERROR] Failed to send OTP to ${phone}:`, error.message);
-    console.log(`[FALLBACK] WhatsApp delivery failed. OTP code for ${phone}: ${code}`);
+    console.error(`[WHATSAPP ERROR] Template send failed:`, error.message);
+  }
+
+  if (!whatsappSuccess) {
+    try {
+      console.log(`[SMS] Falling back to SMS for ${cleanPhone}...`);
+      const smsRes = await fetch(`https://${baseUrl}/sms/2/text/advanced`, {
+        method: "POST",
+        headers: {
+          "Authorization": `App ${apiKey}`,
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+        },
+        body: JSON.stringify({
+          messages: [
+            {
+              destinations: [{ to: cleanPhone }],
+              from: "Izichanj",
+              text: `Your Izichanj verification code is: ${code}. This code expires in 5 minutes. Do not share it with anyone.`,
+            },
+          ],
+        }),
+      });
+      const smsData = await smsRes.json();
+      const smsMsg = smsData?.messages?.[0];
+      if (smsRes.ok && smsMsg?.status?.groupName !== "REJECTED") {
+        console.log(`[SMS] OTP sent to ${cleanPhone} via Infobip SMS, status: ${smsMsg?.status?.groupName}`);
+      } else {
+        console.error(`[SMS ERROR] Infobip SMS response:`, JSON.stringify(smsData));
+        console.log(`[FALLBACK] All delivery methods failed. OTP code for ${cleanPhone}: ${code}`);
+      }
+    } catch (smsError: any) {
+      console.error(`[SMS ERROR] Failed to send SMS to ${cleanPhone}:`, smsError.message);
+      console.log(`[FALLBACK] All delivery methods failed. OTP code for ${cleanPhone}: ${code}`);
+    }
   }
 }
 
