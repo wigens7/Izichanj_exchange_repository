@@ -45,7 +45,9 @@ async function sendWhatsAppOtp(phone: string, code: string) {
     console.log(`[MOCK WHATSAPP] Sending OTP ${code} to ${phone}`);
     return;
   }
+  const cleanPhone = phone.replace(/[^0-9]/g, "");
   try {
+    console.log(`[WHATSAPP] Sending OTP to ${cleanPhone} via Infobip template...`);
     const res = await fetch(`https://${baseUrl}/whatsapp/1/message/template`, {
       method: "POST",
       headers: {
@@ -57,7 +59,7 @@ async function sendWhatsAppOtp(phone: string, code: string) {
         messages: [
           {
             from: sender,
-            to: phone,
+            to: cleanPhone,
             content: {
               templateName: "authentication",
               templateData: {
