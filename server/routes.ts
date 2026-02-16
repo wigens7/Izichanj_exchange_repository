@@ -38,24 +38,33 @@ function getWebAuthnConfig(req: any) {
 }
 
 async function sendWhatsAppOtp(phone: string, code: string) {
-  const instanceId = process.env.ULTRAMSG_INSTANCE_ID;
-  const token = process.env.ULTRAMSG_TOKEN;
-  if (!instanceId || !token) {
+  const apiKey = process.env.INFOBIP_API_KEY;
+  const baseUrl = process.env.INFOBIP_BASE_URL;
+  const sender = process.env.INFOBIP_WHATSAPP_SENDER;
+  if (!apiKey || !baseUrl || !sender) {
     console.log(`[MOCK WHATSAPP] Sending OTP ${code} to ${phone}`);
     return;
   }
   try {
-    const body = `*Izichanj*\n\nYour verification code is: *${code}*\n\nThis code expires in 5 minutes.\nDo not share it with anyone.`;
-    const res = await fetch(`https://api.ultramsg.com/${instanceId}/messages/chat`, {
+    const text = `*Izichanj*\n\nYour verification code is: *${code}*\n\nThis code expires in 5 minutes.\nDo not share it with anyone.`;
+    const res = await fetch(`https://${baseUrl}/whatsapp/1/message/text`, {
       method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({ token, to: phone, body }),
+      headers: {
+        "Authorization": `App ${apiKey}`,
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+      },
+      body: JSON.stringify({
+        from: sender,
+        to: phone,
+        content: { text },
+      }),
     });
     const data = await res.json();
-    if (data.sent === "true" || data.sent === true) {
-      console.log(`[WHATSAPP] OTP sent to ${phone}`);
+    if (res.ok) {
+      console.log(`[WHATSAPP] OTP sent to ${phone} via Infobip`);
     } else {
-      console.error(`[WHATSAPP ERROR] Response:`, data);
+      console.error(`[WHATSAPP ERROR] Infobip response:`, data);
       console.log(`[FALLBACK] WhatsApp delivery failed. OTP code for ${phone}: ${code}`);
     }
   } catch (error: any) {
