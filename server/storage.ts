@@ -66,7 +66,7 @@ export interface IStorage {
   getVirtualCardByCardId(cardId: string): Promise<VirtualCard | undefined>;
   updateVirtualCard(id: number, data: Partial<VirtualCard>): Promise<VirtualCard>;
 
-  createP2PTransfer(data: { senderProfileId: number; receiverProfileId: number; amount: string; note?: string }): Promise<P2PTransfer>;
+  createP2PTransfer(data: { senderProfileId: number; receiverProfileId: number; amount: string; note?: string; transactionId?: string }): Promise<P2PTransfer>;
   getP2PTransfers(profileId: number): Promise<P2PTransfer[]>;
 
   getProfileByReferenceId(referenceId: string): Promise<Profile | undefined>;
@@ -420,7 +420,7 @@ export class DatabaseStorage implements IStorage {
     return entry;
   }
 
-  async createP2PTransfer(data: { senderProfileId: number; receiverProfileId: number; amount: string; note?: string }): Promise<P2PTransfer> {
+  async createP2PTransfer(data: { senderProfileId: number; receiverProfileId: number; amount: string; note?: string; transactionId?: string }): Promise<P2PTransfer> {
     const [transfer] = await db.insert(p2pTransfers).values(data).returning();
     return transfer;
   }

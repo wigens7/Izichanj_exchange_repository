@@ -1527,11 +1527,14 @@ export async function registerRoutes(
       await storage.updateProfileBalance(profile.id, newSenderBalance);
       await storage.updateProfileBalance(recipient.id, newReceiverBalance);
 
+      const txId = "IZ" + Math.floor(Math.random() * 10000000000).toString().padStart(10, "0");
+
       const transfer = await storage.createP2PTransfer({
         senderProfileId: profile.id,
         receiverProfileId: recipient.id,
         amount: sendAmount.toFixed(2),
         note: note || undefined,
+        transactionId: txId,
       });
 
       await storage.createNotification({

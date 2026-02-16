@@ -294,7 +294,7 @@ export default function SendFundsPage() {
                     </div>
                     {tr.note && <p className="text-xs text-muted-foreground mt-0.5 truncate">{tr.note}</p>}
                     <p className="text-[11px] text-muted-foreground mt-0.5 font-mono" data-testid={`text-transfer-id-${tr.id}`}>
-                      ID: {tr.id}
+                      ID: {tr.transactionId || `IZ${String(tr.id).padStart(10, "0")}`}
                     </p>
                   </div>
                   <div className="text-right shrink-0">
