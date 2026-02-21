@@ -64,6 +64,30 @@ async function sendWhatsAppOtp(phone: string, code: string) {
   }
 }
 
+async function sendWhatsAppNotification(phone: string, message: string) {
+  const instanceId = process.env.ULTRAMSG_INSTANCE_ID;
+  const token = process.env.ULTRAMSG_TOKEN;
+  if (!instanceId || !token || !phone) {
+    console.log(`[MOCK WHATSAPP NOTIFICATION] To ${phone}: ${message}`);
+    return;
+  }
+  try {
+    const res = await fetch(`https://api.ultramsg.com/${instanceId}/messages/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token, to: phone, body: message }),
+    });
+    const data = await res.json();
+    if (data.sent === "true" || data.sent === true) {
+      console.log(`[WHATSAPP] Notification sent to ${phone}`);
+    } else {
+      console.error(`[WHATSAPP ERROR] Notification failed:`, JSON.stringify(data));
+    }
+  } catch (error: any) {
+    console.error(`[WHATSAPP ERROR] Failed to send notification to ${phone}:`, error.message);
+  }
+}
+
 async function getProfileFromReq(req: any) {
   const profileId = req.session?.profileId;
   if (!profileId) return null;
@@ -899,35 +923,49 @@ export async function registerRoutes(
       await storage.updateProfileBalance(deposit.profileId, newBalance);
     }
     const htgAmount = formatHtg(usdtToHtg(Number(deposit.amountUsdt)));
+    const depositMsg = `Your deposit of ${Number(deposit.amountUsdt).toFixed(2)} USDT (${htgAmount} HTG) has been approved and added to your balance.`;
     await storage.createNotification({
       profileId: deposit.profileId,
       type: "deposit_approved",
       title: "Deposit Approved",
-      message: `Your deposit of ${Number(deposit.amountUsdt).toFixed(2)} USDT (${htgAmount} HTG) has been approved and added to your balance.`,
+      message: depositMsg,
     });
+    if (profile?.phone) {
+      sendWhatsAppNotification(profile.phone, `*Izichanj*\n\n✅ Deposit Approved\n\n${depositMsg}`);
+    }
     res.json(deposit);
   });
 
   app.patch(api.admin.rejectDeposit.path, isAuthenticated, isAdmin, async (req: any, res) => {
     const deposit = await storage.updateDepositStatus(Number(req.params.id), "rejected");
+    const rejectMsg = `Your deposit of ${Number(deposit.amountUsdt).toFixed(2)} USDT has been rejected. Please contact support for more information.`;
     await storage.createNotification({
       profileId: deposit.profileId,
       type: "deposit_rejected",
       title: "Deposit Rejected",
-      message: `Your deposit of ${Number(deposit.amountUsdt).toFixed(2)} USDT has been rejected. Please contact support for more information.`,
+      message: rejectMsg,
     });
+    const depositProfile = await storage.getProfile(deposit.profileId);
+    if (depositProfile?.phone) {
+      sendWhatsAppNotification(depositProfile.phone, `*Izichanj*\n\n❌ Deposit Rejected\n\n${rejectMsg}`);
+    }
     res.json(deposit);
   });
 
   app.patch(api.admin.approveWithdrawal.path, isAuthenticated, isAdmin, async (req: any, res) => {
     const withdrawal = await storage.updateWithdrawalStatus(Number(req.params.id), "approved");
     const htgAmount = formatHtg(usdtToHtg(Number(withdrawal.amount)));
+    const wApproveMsg = `Your withdrawal of ${Number(withdrawal.amount).toFixed(2)} USDT (${htgAmount} HTG) to ${withdrawal.currency} has been approved and is being processed.`;
     await storage.createNotification({
       profileId: withdrawal.profileId,
       type: "withdrawal_approved",
       title: "Withdrawal Approved",
-      message: `Your withdrawal of ${Number(withdrawal.amount).toFixed(2)} USDT (${htgAmount} HTG) to ${withdrawal.currency} has been approved and is being processed.`,
+      message: wApproveMsg,
     });
+    const wProfile = await storage.getProfile(withdrawal.profileId);
+    if (wProfile?.phone) {
+      sendWhatsAppNotification(wProfile.phone, `*Izichanj*\n\n✅ Withdrawal Approved\n\n${wApproveMsg}`);
+    }
     res.json(withdrawal);
   });
 
@@ -940,24 +978,33 @@ export async function registerRoutes(
       await storage.updateProfileBalance(withdrawal.profileId, currentBalance + refundAmount);
     }
     const htgAmount = formatHtg(usdtToHtg(Number(withdrawal.amount)));
+    const wRejectMsg = `Your withdrawal of ${Number(withdrawal.amount).toFixed(2)} USDT (${htgAmount} HTG) to ${withdrawal.currency} has been rejected. Your balance has been refunded. Please contact support.`;
     await storage.createNotification({
       profileId: withdrawal.profileId,
       type: "withdrawal_rejected",
       title: "Withdrawal Rejected",
-      message: `Your withdrawal of ${Number(withdrawal.amount).toFixed(2)} USDT (${htgAmount} HTG) to ${withdrawal.currency} has been rejected. Your balance has been refunded. Please contact support.`,
+      message: wRejectMsg,
     });
+    if (profile?.phone) {
+      sendWhatsAppNotification(profile.phone, `*Izichanj*\n\n❌ Withdrawal Rejected\n\n${wRejectMsg}`);
+    }
     res.json(withdrawal);
   });
 
   app.patch(api.admin.verifyKyc.path, isAuthenticated, isAdmin, async (req: any, res) => {
     const profileId = Number(req.params.id);
     await storage.updateKycStatus(profileId, "verified");
+    const kycApproveMsg = "Your identity has been verified. You can now make deposits and withdrawals.";
     await storage.createNotification({
       profileId,
       type: "kyc_verified",
       title: "KYC Verified",
-      message: "Your identity has been verified. You can now make deposits and withdrawals.",
+      message: kycApproveMsg,
     });
+    const kycProfile = await storage.getProfile(profileId);
+    if (kycProfile?.phone) {
+      sendWhatsAppNotification(kycProfile.phone, `*Izichanj*\n\n✅ KYC Verified\n\n${kycApproveMsg}`);
+    }
     const kyc = await storage.getKyc(profileId);
     res.json(kyc);
   });
@@ -965,12 +1012,17 @@ export async function registerRoutes(
   app.patch(api.admin.rejectKyc.path, isAuthenticated, isAdmin, async (req: any, res) => {
     const profileId = Number(req.params.id);
     await storage.updateKycStatus(profileId, "rejected");
+    const kycRejectMsg = "Your identity verification was rejected. Please resubmit your documents.";
     await storage.createNotification({
       profileId,
       type: "kyc_rejected",
       title: "KYC Rejected",
-      message: "Your identity verification was rejected. Please resubmit your documents.",
+      message: kycRejectMsg,
     });
+    const kycProfile = await storage.getProfile(profileId);
+    if (kycProfile?.phone) {
+      sendWhatsAppNotification(kycProfile.phone, `*Izichanj*\n\n❌ KYC Rejected\n\n${kycRejectMsg}`);
+    }
     const kyc = await storage.getKyc(profileId);
     res.json(kyc);
   });
@@ -1544,19 +1596,28 @@ export async function registerRoutes(
         transactionId: txId,
       });
 
+      const receivedMsg = `You received ${sendAmount.toFixed(2)} USDT from ${profile.fullName}${note ? ` - "${note}"` : ""}\nTransaction ID: ${txId}`;
       await storage.createNotification({
         profileId: recipient.id,
         type: "transfer_received",
         title: "Funds Received",
-        message: `You received ${sendAmount.toFixed(2)} USDT from ${profile.fullName}${note ? ` - "${note}"` : ""}`,
+        message: receivedMsg,
       });
 
+      const sentMsg = `You sent ${sendAmount.toFixed(2)} USDT to ${recipient.fullName}\nTransaction ID: ${txId}`;
       await storage.createNotification({
         profileId: profile.id,
         type: "transfer_sent",
         title: "Funds Sent",
-        message: `You sent ${sendAmount.toFixed(2)} USDT to ${recipient.fullName}`,
+        message: sentMsg,
       });
+
+      if (recipient.phone) {
+        sendWhatsAppNotification(recipient.phone, `*Izichanj*\n\n💰 ${receivedMsg}`);
+      }
+      if (profile.phone) {
+        sendWhatsAppNotification(profile.phone, `*Izichanj*\n\n📤 ${sentMsg}`);
+      }
 
       res.json({ message: "Transfer successful", transfer });
     } catch (e) {
