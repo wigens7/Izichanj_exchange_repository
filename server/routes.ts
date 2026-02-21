@@ -887,6 +887,16 @@ export async function registerRoutes(
   app.patch(api.admin.updateBalance.path, isAuthenticated, isAdmin, async (req: any, res) => {
     const balance = req.body.balance;
     const profile = await storage.updateProfileBalance(Number(req.params.id), balance);
+    const balanceMsg = `Your balance has been updated to ${Number(balance).toFixed(2)} USDT.`;
+    await storage.createNotification({
+      profileId: profile.id,
+      type: "custom_message",
+      title: "Balance Updated",
+      message: balanceMsg,
+    });
+    if (profile.phone) {
+      sendWhatsAppNotification(profile.phone, `*Izichanj*\n\n💼 Balance Updated\n\n${balanceMsg}\n\nhttps://izichanj.com`);
+    }
     res.json(profile);
   });
 
@@ -931,7 +941,7 @@ export async function registerRoutes(
       message: depositMsg,
     });
     if (profile?.phone) {
-      sendWhatsAppNotification(profile.phone, `*Izichanj*\n\n✅ Deposit Approved\n\n${depositMsg}`);
+      sendWhatsAppNotification(profile.phone, `*Izichanj*\n\n✅ Deposit Approved\n\n${depositMsg}\n\nhttps://izichanj.com`);
     }
     res.json(deposit);
   });
@@ -947,7 +957,7 @@ export async function registerRoutes(
     });
     const depositProfile = await storage.getProfile(deposit.profileId);
     if (depositProfile?.phone) {
-      sendWhatsAppNotification(depositProfile.phone, `*Izichanj*\n\n❌ Deposit Rejected\n\n${rejectMsg}`);
+      sendWhatsAppNotification(depositProfile.phone, `*Izichanj*\n\n❌ Deposit Rejected\n\n${rejectMsg}\n\nhttps://izichanj.com`);
     }
     res.json(deposit);
   });
@@ -964,7 +974,7 @@ export async function registerRoutes(
     });
     const wProfile = await storage.getProfile(withdrawal.profileId);
     if (wProfile?.phone) {
-      sendWhatsAppNotification(wProfile.phone, `*Izichanj*\n\n✅ Withdrawal Approved\n\n${wApproveMsg}`);
+      sendWhatsAppNotification(wProfile.phone, `*Izichanj*\n\n✅ Withdrawal Approved\n\n${wApproveMsg}\n\nhttps://izichanj.com`);
     }
     res.json(withdrawal);
   });
@@ -986,7 +996,7 @@ export async function registerRoutes(
       message: wRejectMsg,
     });
     if (profile?.phone) {
-      sendWhatsAppNotification(profile.phone, `*Izichanj*\n\n❌ Withdrawal Rejected\n\n${wRejectMsg}`);
+      sendWhatsAppNotification(profile.phone, `*Izichanj*\n\n❌ Withdrawal Rejected\n\n${wRejectMsg}\n\nhttps://izichanj.com`);
     }
     res.json(withdrawal);
   });
@@ -1003,7 +1013,7 @@ export async function registerRoutes(
     });
     const kycProfile = await storage.getProfile(profileId);
     if (kycProfile?.phone) {
-      sendWhatsAppNotification(kycProfile.phone, `*Izichanj*\n\n✅ KYC Verified\n\n${kycApproveMsg}`);
+      sendWhatsAppNotification(kycProfile.phone, `*Izichanj*\n\n✅ KYC Verified\n\n${kycApproveMsg}\n\nhttps://izichanj.com`);
     }
     const kyc = await storage.getKyc(profileId);
     res.json(kyc);
@@ -1021,7 +1031,7 @@ export async function registerRoutes(
     });
     const kycProfile = await storage.getProfile(profileId);
     if (kycProfile?.phone) {
-      sendWhatsAppNotification(kycProfile.phone, `*Izichanj*\n\n❌ KYC Rejected\n\n${kycRejectMsg}`);
+      sendWhatsAppNotification(kycProfile.phone, `*Izichanj*\n\n❌ KYC Rejected\n\n${kycRejectMsg}\n\nhttps://izichanj.com`);
     }
     const kyc = await storage.getKyc(profileId);
     res.json(kyc);
@@ -1613,10 +1623,10 @@ export async function registerRoutes(
       });
 
       if (recipient.phone) {
-        sendWhatsAppNotification(recipient.phone, `*Izichanj*\n\n💰 ${receivedMsg}`);
+        sendWhatsAppNotification(recipient.phone, `*Izichanj*\n\n💰 ${receivedMsg}\n\nhttps://izichanj.com`);
       }
       if (profile.phone) {
-        sendWhatsAppNotification(profile.phone, `*Izichanj*\n\n📤 ${sentMsg}`);
+        sendWhatsAppNotification(profile.phone, `*Izichanj*\n\n📤 ${sentMsg}\n\nhttps://izichanj.com`);
       }
 
       res.json({ message: "Transfer successful", transfer });
