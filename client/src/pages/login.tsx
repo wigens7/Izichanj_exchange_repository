@@ -545,6 +545,7 @@ function SignUpForm() {
   const registerMutation = useRegister();
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [, setLocation] = useLocation();
   const { t } = useLanguage();
 
@@ -667,10 +668,36 @@ function SignUpForm() {
           )}
         />
 
+        <div className="flex items-start gap-3 py-1">
+          <input
+            type="checkbox"
+            id="accept-terms"
+            checked={acceptedTerms}
+            onChange={(e) => setAcceptedTerms(e.target.checked)}
+            className="mt-0.5 h-4 w-4 cursor-pointer accent-primary"
+            data-testid="checkbox-accept-terms"
+          />
+          <label htmlFor="accept-terms" className="text-sm text-muted-foreground leading-snug cursor-pointer select-none">
+            I agree to the{" "}
+            <a href="/faq" className="text-primary underline underline-offset-2 font-medium hover:opacity-80">
+              Terms & Conditions
+            </a>
+            ,{" "}
+            <a href="/faq" className="text-primary underline underline-offset-2 font-medium hover:opacity-80">
+              Privacy Policy
+            </a>
+            {" "}and{" "}
+            <a href="/faq" className="text-primary underline underline-offset-2 font-medium hover:opacity-80">
+              Refund Policy
+            </a>
+            {" "}of Izichanj.
+          </label>
+        </div>
+
         <Button
           type="submit"
           className="w-full primary-gradient"
-          disabled={registerMutation.isPending}
+          disabled={registerMutation.isPending || !acceptedTerms}
           data-testid="button-submit-register"
         >
           {registerMutation.isPending ? (
