@@ -147,7 +147,7 @@ function UsersTab() {
     return () => clearTimeout(timer);
   }, [searchQuery]);
 
-  const { data: users, isLoading } = useQuery<any[]>({
+  const { data: users, isLoading, isError, refetch } = useQuery<any[]>({
     queryKey: ["/api/admin/users", debouncedSearch],
     queryFn: async () => {
       const url = debouncedSearch
@@ -157,6 +157,7 @@ function UsersTab() {
       if (!res.ok) throw new Error("Failed to fetch users");
       return res.json();
     },
+    retry: 3,
   });
 
   const activeUsers = users?.filter((u: any) => !u.isDeleted) || [];
@@ -169,6 +170,25 @@ function UsersTab() {
           {Array.from({ length: 4 }).map((_, i) => (
             <Skeleton key={i} className="h-12 w-full rounded-md" />
           ))}
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (isError) {
+    return (
+      <Card>
+        <CardContent className="p-8 flex flex-col items-center gap-4 text-center">
+          <div className="w-12 h-12 rounded-full bg-destructive/10 flex items-center justify-center">
+            <Users className="w-6 h-6 text-destructive" />
+          </div>
+          <div>
+            <p className="font-medium">Could not load users</p>
+            <p className="text-sm text-muted-foreground mt-1">There was a problem connecting to the database. Please try again.</p>
+          </div>
+          <Button variant="outline" size="sm" onClick={() => refetch()}>
+            Retry
+          </Button>
         </CardContent>
       </Card>
     );
