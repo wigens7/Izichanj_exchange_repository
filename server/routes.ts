@@ -1,5 +1,6 @@
 import type { Express } from "express";
 import type { Server } from "http";
+import { ProxyAgent } from "undici";
 import { storage } from "./storage";
 import { api } from "@shared/routes";
 import { registerSchema, loginSchema, forgotPasswordSchema, resetPasswordSchema, resetPinSchema } from "@shared/schema";
@@ -1869,6 +1870,17 @@ export async function registerRoutes(
   const STROWALLET_BASE = "https://strowallet.com/api/bitvcard";
   const strowalletPublicKey = process.env.STROWALLET_PUBLIC_KEY || "";
 
+  // Proxied fetch — routes through static IP proxy when PROXY_URL is set
+  async function strowalletFetch(url: string, options: RequestInit = {}): Promise<Response> {
+    const proxyUrl = process.env.PROXY_URL;
+    if (proxyUrl) {
+      const { fetch: undiciFetch } = await import("undici");
+      const dispatcher = new ProxyAgent(proxyUrl);
+      return undiciFetch(url, { ...options, dispatcher } as any) as unknown as Response;
+    }
+    return fetch(url, options);
+  }
+
   app.get("/api/cards", isAuthenticated, async (req: any, res) => {
     try {
       const profile = await getProfileFromReq(req);
@@ -1902,7 +1914,7 @@ export async function registerRoutes(
 
       const nameOnCard = `${profile.firstName || ""} ${profile.lastName || ""}`.trim() || profile.fullName;
 
-      const response = await fetch(`${STROWALLET_BASE}/create-card/`, {
+      const response = await strowalletFetch(`${STROWALLET_BASE}/create-card/`, {
         method: "POST",
         headers: { "Content-Type": "application/json", "Accept": "application/json" },
         body: JSON.stringify({
@@ -1967,7 +1979,7 @@ export async function registerRoutes(
         return res.status(400).json({ message: `Insufficient USDT balance. Your current balance is $${balanceUsdt.toFixed(2)} USDT.` });
       }
 
-      const response = await fetch(`${STROWALLET_BASE}/fund-card/`, {
+      const response = await strowalletFetch(`${STROWALLET_BASE}/fund-card/`, {
         method: "POST",
         headers: { "Content-Type": "application/json", "Accept": "application/json" },
         body: JSON.stringify({
@@ -2007,7 +2019,7 @@ export async function registerRoutes(
       const card = await storage.getVirtualCard(Number(req.params.id), profile.id);
       if (!card) return res.status(404).json({ message: "Card not found" });
 
-      const response = await fetch(`${STROWALLET_BASE}/fetch-card-detail/`, {
+      const response = await strowalletFetch(`${STROWALLET_BASE}/fetch-card-detail/`, {
         method: "POST",
         headers: { "Content-Type": "application/json", "Accept": "application/json" },
         body: JSON.stringify({
@@ -2044,7 +2056,7 @@ export async function registerRoutes(
       const card = await storage.getVirtualCard(Number(req.params.id), profile.id);
       if (!card) return res.status(404).json({ message: "Card not found" });
 
-      const response = await fetch(`${STROWALLET_BASE}/card-transactions/`, {
+      const response = await strowalletFetch(`${STROWALLET_BASE}/card-transactions/`, {
         method: "POST",
         headers: { "Content-Type": "application/json", "Accept": "application/json" },
         body: JSON.stringify({
