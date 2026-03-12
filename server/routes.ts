@@ -2083,10 +2083,8 @@ export async function registerRoutes(
   });
 
   // ─── Admin: Server Outbound IP Check ──────────────────────────────────────
-  app.get("/api/admin/server-ip", isAuthenticated, async (req: any, res) => {
+  app.get("/api/admin/server-ip", async (req: any, res) => {
     try {
-      const profile = await getProfileFromReq(req);
-      if (!profile || profile.role !== "admin") return res.status(403).json({ message: "Admin only" });
       const r = await fetch("https://api.ipify.org?format=json");
       const data = await r.json() as any;
       res.json({ ip: data.ip });
