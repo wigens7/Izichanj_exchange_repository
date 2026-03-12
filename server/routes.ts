@@ -2082,5 +2082,120 @@ export async function registerRoutes(
     }
   });
 
+  // ─── Reloadly Mobile Top-Up ───────────────────────────────────────────────
+
+  async function getReloadlyToken(): Promise<string> {
+    const clientId = process.env.RELOADLY_CLIENT_ID;
+    const clientSecret = process.env.RELOADLY_CLIENT_SECRET;
+    if (!clientId || !clientSecret) throw new Error("Reloadly credentials not configured");
+
+    const res = await fetch("https://auth.reloadly.com/oauth/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        client_id: clientId,
+        client_secret: clientSecret,
+        grant_type: "client_credentials",
+        audience: "https://topups.reloadly.com",
+      }),
+    });
+    const data = await res.json() as any;
+    if (!data.access_token) throw new Error(data.error_description || "Failed to get Reloadly token");
+    return data.access_token;
+  }
+
+  app.get("/api/topup/operators", isAuthenticated, async (req: any, res) => {
+    try {
+      const countryCode = (req.query.countryCode as string) || "HT";
+      const token = await getReloadlyToken();
+      const r = await fetch(
+        `https://topups.reloadly.com/operators/countries/${countryCode}?suggestedAmountsMap=true&includePin=false`,
+        { headers: { Authorization: `Bearer ${token}`, Accept: "application/com.reloadly.topups-v1+json" } }
+      );
+      const data = await r.json() as any;
+      res.json(Array.isArray(data) ? data : []);
+    } catch (e: any) {
+      console.error("Reloadly operators error:", e.message);
+      res.status(500).json({ message: e.message || "Failed to fetch operators" });
+    }
+  });
+
+  app.post("/api/topup", isAuthenticated, async (req: any, res) => {
+    try {
+      const profile = await getProfileFromReq(req);
+      if (!profile) return res.status(401).json({ message: "Unauthorized" });
+
+      const { phoneNumber, operatorId, amount } = req.body;
+      if (!phoneNumber || !operatorId || !amount) {
+        return res.status(400).json({ message: "Phone number, operator, and amount are required" });
+      }
+
+      const phone = String(phoneNumber).replace(/\D/g, "");
+      if (phone.length < 7 || phone.length > 15) {
+        return res.status(400).json({ message: "Invalid phone number" });
+      }
+
+      const numAmount = Number(amount);
+      if (isNaN(numAmount) || numAmount <= 0) {
+        return res.status(400).json({ message: "Invalid amount" });
+      }
+
+      // Deduct from balance (in USD)
+      const currentBalance = Number(profile.balance);
+      if (currentBalance < numAmount) {
+        return res.status(400).json({ message: "Insufficient balance" });
+      }
+
+      const token = await getReloadlyToken();
+
+      const topupRes = await fetch("https://topups.reloadly.com/topups", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+          Accept: "application/com.reloadly.topups-v1+json",
+        },
+        body: JSON.stringify({
+          operatorId,
+          amount: numAmount,
+          useLocalAmount: false,
+          customIdentifier: `IZ-${profile.id}-${Date.now()}`,
+          recipientPhone: { countryCode: "HT", number: phone },
+          senderPhone: { countryCode: "HT", number: phone },
+        }),
+      });
+
+      const topupData = await topupRes.json() as any;
+
+      if (!topupRes.ok || topupData.errorCode) {
+        console.error("Reloadly topup error:", JSON.stringify(topupData));
+        return res.status(400).json({ message: topupData.message || "Top-up failed. Please try again." });
+      }
+
+      // Deduct balance
+      await storage.updateProfileBalance(profile.id, currentBalance - numAmount);
+
+      // Notify user via WhatsApp
+      if (profile.phone) {
+        sendWhatsAppNotification(
+          profile.phone,
+          `*Izichanj*\n\n📱 Top-Up Successful\n\nYou recharged ${phone} with $${numAmount} USD.\nTransaction ID: ${topupData.transactionId || "N/A"}\n\nhttps://izichanj.com`
+        );
+      }
+
+      res.json({
+        success: true,
+        transactionId: topupData.transactionId,
+        amount: numAmount,
+        phone,
+        operator: topupData.operatorName,
+        message: `Top-up of $${numAmount} sent successfully to ${phone}`,
+      });
+    } catch (e: any) {
+      console.error("Top-up error:", e.message);
+      res.status(500).json({ message: e.message || "Internal Error" });
+    }
+  });
+
   return httpServer;
 }

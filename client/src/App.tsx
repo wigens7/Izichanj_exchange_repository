@@ -20,6 +20,7 @@ import AdminPage from "@/pages/admin";
 import FAQPage from "@/pages/faq";
 import VirtualCardsPage from "@/pages/virtual-cards";
 import SendFundsPage from "@/pages/send-funds";
+import TopUpPage from "@/pages/top-up";
 import NotFound from "@/pages/not-found";
 import { LayoutShell } from "@/components/layout-shell";
 
@@ -118,6 +119,9 @@ function Router() {
       </Route>
       <Route path="/virtual-cards">
         <ProtectedRoute component={VirtualCardsPage} />
+      </Route>
+      <Route path="/top-up">
+        <ProtectedRoute component={TopUpPage} />
       </Route>
 
       <Route component={NotFound} />

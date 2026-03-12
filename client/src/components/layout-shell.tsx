@@ -16,6 +16,7 @@ import {
   HelpCircle,
   CreditCard,
   Send,
+  Smartphone,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
@@ -42,6 +43,7 @@ export function LayoutShell({ children }: LayoutShellProps) {
     { href: "/security", label: t.security.title, icon: Shield },
     { href: "/send-funds", label: t.nav.sendFunds ?? "Send Funds", icon: Send },
     { href: "/virtual-cards", label: t.nav.virtualCard ?? "Virtual Card", icon: CreditCard },
+    { href: "/top-up", label: "Mobile Top-Up", icon: Smartphone },
     { href: "/faq", label: t.nav.faq ?? "FAQ", icon: HelpCircle },
   ];
 
