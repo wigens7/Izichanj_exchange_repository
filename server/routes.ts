@@ -1058,7 +1058,13 @@ export async function registerRoutes(
         title: parsed.title,
         message: parsed.message,
       });
-      res.status(201).json(notification);
+      if (targetProfile.phone) {
+        sendWhatsAppNotification(
+          targetProfile.phone,
+          `*Izichanj*\n\n📢 ${parsed.title}\n\n${parsed.message}\n\nhttps://izichanj.com`
+        );
+      }
+      res.status(201).json({ ...notification, whatsappSent: !!targetProfile.phone });
     } catch (e) {
       if (e instanceof z.ZodError) return res.status(400).json({ message: e.errors[0].message });
       res.status(500).json({ message: "Internal Error" });
