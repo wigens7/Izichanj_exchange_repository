@@ -2097,11 +2097,37 @@ export async function registerRoutes(
   // ─── Admin: Server Outbound IP Check ──────────────────────────────────────
   app.get("/api/admin/server-ip", async (req: any, res) => {
     try {
-      const r = await fetch("https://api.ipify.org?format=json");
-      const data = await r.json() as any;
-      res.json({ ip: data.ip });
+      const proxyUrl = process.env.PROXY_URL;
+
+      // Direct server IP (Replit's IP)
+      const directRes = await fetch("https://api.ipify.org?format=json");
+      const directData = await directRes.json() as any;
+
+      let proxyIp: string | null = null;
+      let proxyError: string | null = null;
+
+      if (proxyUrl) {
+        try {
+          const { fetch: undiciFetch } = await import("undici");
+          const dispatcher = new ProxyAgent(proxyUrl);
+          const proxyRes = await undiciFetch("https://api.ipify.org?format=json", { dispatcher });
+          const proxyData = await proxyRes.json() as any;
+          proxyIp = proxyData.ip;
+        } catch (pe: any) {
+          proxyError = pe.message;
+        }
+      }
+
+      res.json({
+        server_ip: directData.ip,
+        proxy_ip: proxyIp,
+        proxy_configured: !!proxyUrl,
+        proxy_url_set: !!proxyUrl,
+        strowallet_sees: proxyIp || directData.ip,
+        proxy_error: proxyError,
+      });
     } catch (e: any) {
-      res.status(500).json({ message: "Could not determine outbound IP" });
+      res.status(500).json({ message: "Could not determine outbound IP", error: e.message });
     }
   });
 
