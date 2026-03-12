@@ -1071,6 +1071,36 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/admin/notifications/send-bulk", isAuthenticated, isAdmin, async (req: any, res) => {
+    try {
+      const { profileIds, sendToAll, title, message } = req.body;
+      if (!title || !message) return res.status(400).json({ message: "Title and message are required" });
+
+      let targets: any[] = [];
+      if (sendToAll) {
+        const all = await storage.getAllProfiles();
+        targets = all.filter((p: any) => !p.isDeleted && p.role !== "admin");
+      } else {
+        if (!Array.isArray(profileIds) || profileIds.length === 0)
+          return res.status(400).json({ message: "Select at least one user" });
+        const all = await storage.getAllProfiles();
+        targets = all.filter((p: any) => profileIds.includes(p.id));
+      }
+
+      let whatsappCount = 0;
+      for (const profile of targets) {
+        await storage.createNotification({ profileId: profile.id, type: "custom_message", title, message });
+        if (profile.phone) {
+          sendWhatsAppNotification(profile.phone, `*Izichanj*\n\n📢 ${title}\n\n${message}\n\nhttps://izichanj.com`);
+          whatsappCount++;
+        }
+      }
+      res.status(201).json({ sent: targets.length, whatsappSent: whatsappCount });
+    } catch (e) {
+      res.status(500).json({ message: "Internal Error" });
+    }
+  });
+
   app.get(api.notifications.list.path, isAuthenticated, async (req: any, res) => {
     const profile = await getProfileFromReq(req);
     if (!profile) return res.status(401).json({ message: "Unauthorized" });
