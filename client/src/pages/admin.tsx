@@ -977,7 +977,6 @@ const USER_CATEGORIES = [
   { key: "otp_verified",     label: "OTP Verified",        color: "bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300" },
   { key: "otp_not_verified", label: "OTP Not Verified",    color: "bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300" },
   { key: "kyc_verified",     label: "KYC Verified",        color: "bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300" },
-  { key: "kyc_submitted",    label: "KYC Submitted",       color: "bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300" },
   { key: "kyc_not_submitted","label": "KYC Not Submitted", color: "bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300" },
 ] as const;
 
