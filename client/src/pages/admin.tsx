@@ -988,8 +988,8 @@ function filterByCategory(users: any[], category: UserCategory): any[] {
     case "otp_verified":     return users.filter(u => u.emailVerified);
     case "otp_not_verified": return users.filter(u => !u.emailVerified);
     case "kyc_verified":     return users.filter(u => u.kycStatus === "verified");
-    case "kyc_submitted":    return users.filter(u => ["submitted", "verified", "rejected"].includes(u.kycStatus));
-    case "kyc_not_submitted":return users.filter(u => !u.kycStatus || u.kycStatus === "pending");
+    case "kyc_submitted":    return users.filter(u => ["pending", "verified", "rejected"].includes(u.kycStatus));
+    case "kyc_not_submitted":return users.filter(u => !u.kycStatus || u.kycStatus === "not_submitted");
     default:                 return users;
   }
 }
