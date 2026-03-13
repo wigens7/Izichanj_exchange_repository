@@ -31,6 +31,7 @@ export const profiles = pgTable("profiles", {
   twoFactorSecret: text("two_factor_secret"),
   twoFactorEnabled: boolean("two_factor_enabled").default(false).notNull(),
   pinHash: text("pin_hash"),
+  strowalletCustomerId: text("strowallet_customer_id"),
   isBanned: boolean("is_banned").default(false).notNull(),
   isDeleted: boolean("is_deleted").default(false).notNull(),
   deletedAt: timestamp("deleted_at"),

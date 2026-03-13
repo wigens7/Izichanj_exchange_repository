@@ -1895,6 +1895,77 @@ export async function registerRoutes(
     return fetch(url, options);
   }
 
+  // GET /api/cards/strowallet-status — check if user is registered as a Strowallet cardholder
+  app.get("/api/cards/strowallet-status", isAuthenticated, async (req: any, res) => {
+    try {
+      const profile = await getProfileFromReq(req);
+      if (!profile) return res.status(401).json({ message: "Unauthorized" });
+      res.json({
+        registered: !!profile.strowalletCustomerId,
+        customerId: profile.strowalletCustomerId || null,
+      });
+    } catch (e) {
+      res.status(500).json({ message: "Internal Error" });
+    }
+  });
+
+  // POST /api/cards/register-cardholder — submit KYC to Strowallet
+  app.post("/api/cards/register-cardholder", isAuthenticated, async (req: any, res) => {
+    try {
+      const profile = await getProfileFromReq(req);
+      if (!profile) return res.status(401).json({ message: "Unauthorized" });
+      if (profile.kycStatus !== "verified") return res.status(403).json({ message: "Complete your Izichanj KYC verification first" });
+
+      if (profile.strowalletCustomerId) {
+        return res.json({ success: true, customerId: profile.strowalletCustomerId, alreadyRegistered: true });
+      }
+
+      const { idType, idNumber } = req.body;
+      if (!idType || !idNumber) return res.status(400).json({ message: "ID type and ID number are required" });
+
+      const firstName = profile.firstName || profile.fullName.split(" ")[0] || "";
+      const lastName = profile.lastName || profile.fullName.split(" ").slice(1).join(" ") || firstName;
+      const dob = profile.dateOfBirth || "";
+      const country = profile.country || "Haiti";
+      const phone = profile.phone || "";
+
+      const payload = {
+        public_key: strowalletPublicKey,
+        first_name: firstName,
+        last_name: lastName,
+        customer_email: profile.email,
+        phone_number: phone,
+        date_of_birth: dob,
+        country,
+        id_type: idType,
+        id_number: idNumber,
+      };
+
+      console.log("[STROWALLET][CARDHOLDER] Registering:", { email: profile.email, idType });
+
+      const response = await strowalletFetch(`${STROWALLET_BASE}/create-user/`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Accept": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await response.json() as any;
+      console.log("[STROWALLET][CARDHOLDER] Response:", JSON.stringify(data));
+
+      if (!response.ok || data.status === "error" || data.status === false) {
+        return res.status(400).json({ message: data.message || data.error || "Strowallet KYC registration failed" });
+      }
+
+      const customerId = data.response?.customer_id || data.customer_id || data.data?.customer_id || String(profile.id);
+      await storage.updateProfile(profile.id, { strowalletCustomerId: customerId });
+
+      res.json({ success: true, customerId });
+    } catch (e: any) {
+      console.error("[STROWALLET][CARDHOLDER] Error:", e);
+      res.status(500).json({ message: e.message || "Internal Error" });
+    }
+  });
+
   app.get("/api/cards", isAuthenticated, async (req: any, res) => {
     try {
       const profile = await getProfileFromReq(req);
@@ -1928,16 +1999,23 @@ export async function registerRoutes(
 
       const nameOnCard = `${profile.firstName || ""} ${profile.lastName || ""}`.trim() || profile.fullName;
 
+      if (!profile.strowalletCustomerId) {
+        return res.status(400).json({ message: "Please complete the card KYC registration first before applying for a virtual card." });
+      }
+
+      const createCardPayload: Record<string, string> = {
+        name_on_card: nameOnCard,
+        card_type: "visa",
+        public_key: strowalletPublicKey,
+        amount: fundAmount.toString(),
+        customerEmail: profile.email,
+        customer_id: profile.strowalletCustomerId,
+      };
+
       const response = await strowalletFetch(`${STROWALLET_BASE}/create-card/`, {
         method: "POST",
         headers: { "Content-Type": "application/json", "Accept": "application/json" },
-        body: JSON.stringify({
-          name_on_card: nameOnCard,
-          card_type: "visa",
-          public_key: strowalletPublicKey,
-          amount: fundAmount.toString(),
-          customerEmail: profile.email,
-        }),
+        body: JSON.stringify(createCardPayload),
       });
 
       const data = await response.json();

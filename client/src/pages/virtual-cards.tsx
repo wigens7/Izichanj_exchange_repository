@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   CreditCard,
   Plus,
@@ -25,6 +26,8 @@ import {
   ArrowUpRight,
   ArrowDownLeft,
   Clock,
+  ShieldCheck,
+  FileText,
 } from "lucide-react";
 import { format } from "date-fns";
 import type { VirtualCard } from "@shared/schema";
@@ -94,6 +97,27 @@ function ApplyCardSection() {
   const userBalance = parseFloat(user?.balance || "0");
   const hasEnoughBalance = userBalance >= CARD_COST;
 
+  const [idType, setIdType] = useState("");
+  const [idNumber, setIdNumber] = useState("");
+
+  const { data: stroStatus, isLoading: stroLoading } = useQuery<{ registered: boolean; customerId: string | null }>({
+    queryKey: ["/api/cards/strowallet-status"],
+  });
+
+  const registerMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/cards/register-cardholder", { idType, idNumber });
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Card KYC registered successfully!" });
+      qc.invalidateQueries({ queryKey: ["/api/cards/strowallet-status"] });
+    },
+    onError: (err: Error) => {
+      toast({ title: err.message, variant: "destructive" });
+    },
+  });
+
   const createMutation = useMutation({
     mutationFn: async () => {
       const res = await apiRequest("POST", "/api/cards/create", { amount: String(CARD_COST) });
@@ -109,6 +133,8 @@ function ApplyCardSection() {
     },
   });
 
+  const isRegistered = stroStatus?.registered;
+
   return (
     <Card>
       <CardHeader>
@@ -119,44 +145,112 @@ function ApplyCardSection() {
         <CardDescription>{vc.applyDescription}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="bg-muted/30 rounded-md p-4 flex items-center justify-between gap-3 flex-wrap">
-          <div>
-            <p className="text-sm text-muted-foreground">{vc.cardCost}</p>
-            <p className="text-2xl font-bold font-display" data-testid="text-card-cost">$20.00 <span className="text-sm font-normal text-muted-foreground">USD</span></p>
-          </div>
-          <div className="text-right">
-            <p className="text-sm text-muted-foreground">{vc.yourBalance}</p>
-            <p className={`text-lg font-semibold ${hasEnoughBalance ? "text-emerald-600" : "text-red-500"}`} data-testid="text-your-balance">
-              ${userBalance.toFixed(2)} USDT
-            </p>
-          </div>
-        </div>
 
-        {!hasEnoughBalance && (
-          <div className="flex items-center gap-2 text-sm text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 rounded-md p-3">
-            <AlertCircle className="w-4 h-4 flex-shrink-0" />
-            <p>{vc.insufficientBalance}</p>
+        {/* Step 1 – Strowallet KYC (only if not yet registered) */}
+        {stroLoading ? (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
+            <Loader2 className="w-4 h-4 animate-spin" />
+            Checking card KYC status…
+          </div>
+        ) : !isRegistered ? (
+          <div className="border rounded-lg p-4 space-y-4 bg-amber-50/50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-800">
+            <div className="flex items-start gap-3">
+              <ShieldCheck className="w-5 h-5 text-amber-600 mt-0.5 flex-shrink-0" />
+              <div>
+                <p className="font-medium text-sm">Card Identity Verification Required</p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  To comply with card network regulations, we need to verify your ID before issuing a virtual card.
+                  Your name, date of birth, and country are already on file — just provide your ID details below.
+                </p>
+              </div>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label className="text-xs">ID Type</Label>
+                <Select value={idType} onValueChange={setIdType} data-testid="select-id-type">
+                  <SelectTrigger data-testid="trigger-id-type">
+                    <SelectValue placeholder="Select ID type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="passport">Passport</SelectItem>
+                    <SelectItem value="national_id">National ID Card</SelectItem>
+                    <SelectItem value="driver_license">Driver's License</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">ID Number</Label>
+                <div className="relative">
+                  <FileText className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                  <Input
+                    placeholder="e.g. A12345678"
+                    value={idNumber}
+                    onChange={e => setIdNumber(e.target.value)}
+                    className="pl-9"
+                    data-testid="input-id-number"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <Button
+              onClick={() => registerMutation.mutate()}
+              disabled={registerMutation.isPending || !idType || !idNumber.trim()}
+              className="w-full sm:w-auto"
+              data-testid="button-register-cardholder"
+            >
+              {registerMutation.isPending ? (
+                <><Loader2 className="w-4 h-4 animate-spin mr-2" />Submitting…</>
+              ) : (
+                <><ShieldCheck className="w-4 h-4 mr-2" />Submit Card KYC</>
+              )}
+            </Button>
+          </div>
+        ) : (
+          <div className="flex items-center gap-2 text-sm text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/30 rounded-md p-3">
+            <CheckCircle className="w-4 h-4 flex-shrink-0" />
+            <p>Card identity verification complete. You can now apply for a virtual card.</p>
           </div>
         )}
 
-        <Button
-          onClick={() => createMutation.mutate()}
-          disabled={createMutation.isPending || !hasEnoughBalance}
-          className="w-full sm:w-auto"
-          data-testid="button-apply-card"
-        >
-          {createMutation.isPending ? (
-            <>
-              <Loader2 className="w-4 h-4 animate-spin mr-2" />
-              {vc.applying}
-            </>
-          ) : (
-            <>
-              <CreditCard className="w-4 h-4 mr-2" />
-              {vc.applyButton} — $20.00
-            </>
-          )}
-        </Button>
+        {/* Step 2 – Apply card (only if Strowallet KYC done) */}
+        {isRegistered && (
+          <>
+            <div className="bg-muted/30 rounded-md p-4 flex items-center justify-between gap-3 flex-wrap">
+              <div>
+                <p className="text-sm text-muted-foreground">{vc.cardCost}</p>
+                <p className="text-2xl font-bold font-display" data-testid="text-card-cost">$20.00 <span className="text-sm font-normal text-muted-foreground">USD</span></p>
+              </div>
+              <div className="text-right">
+                <p className="text-sm text-muted-foreground">{vc.yourBalance}</p>
+                <p className={`text-lg font-semibold ${hasEnoughBalance ? "text-emerald-600" : "text-red-500"}`} data-testid="text-your-balance">
+                  ${userBalance.toFixed(2)} USDT
+                </p>
+              </div>
+            </div>
+
+            {!hasEnoughBalance && (
+              <div className="flex items-center gap-2 text-sm text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 rounded-md p-3">
+                <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                <p>{vc.insufficientBalance}</p>
+              </div>
+            )}
+
+            <Button
+              onClick={() => createMutation.mutate()}
+              disabled={createMutation.isPending || !hasEnoughBalance}
+              className="w-full sm:w-auto"
+              data-testid="button-apply-card"
+            >
+              {createMutation.isPending ? (
+                <><Loader2 className="w-4 h-4 animate-spin mr-2" />{vc.applying}</>
+              ) : (
+                <><CreditCard className="w-4 h-4 mr-2" />{vc.applyButton} — $20.00</>
+              )}
+            </Button>
+          </>
+        )}
       </CardContent>
     </Card>
   );
