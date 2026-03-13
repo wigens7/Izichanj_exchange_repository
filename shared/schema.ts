@@ -232,6 +232,15 @@ export const virtualCards = pgTable("virtual_cards", {
 export const insertVirtualCardSchema = createInsertSchema(virtualCards).omit({ id: true, profileId: true, createdAt: true });
 export type VirtualCard = typeof virtualCards.$inferSelect;
 
+export const loginLogs = pgTable("login_logs", {
+  id: serial("id").primaryKey(),
+  profileId: integer("profile_id").references(() => profiles.id).notNull(),
+  method: text("method").default("password").notNull(),
+  ipAddress: text("ip_address"),
+  loginAt: timestamp("login_at").defaultNow().notNull(),
+});
+export type LoginLog = typeof loginLogs.$inferSelect;
+
 export const profileInfoSchema = z.object({
   firstName: z.string().min(1, "First name is required"),
   lastName: z.string().min(1, "Last name is required"),

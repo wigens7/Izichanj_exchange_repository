@@ -1,4 +1,4 @@
-import { profiles, deposits, withdrawals, kycDocuments, otps, webauthnCredentials, notifications, supportConversations, supportMessages, virtualCards, blacklistedUsers, p2pTransfers, type Profile, type Deposit, type InsertDeposit, type Withdrawal, type InsertWithdrawal, type KycDocument, type WebAuthnCredential, type Notification, type SupportConversation, type SupportMessage, type VirtualCard, type BlacklistedUser, type P2PTransfer } from "@shared/schema";
+import { profiles, deposits, withdrawals, kycDocuments, otps, webauthnCredentials, notifications, supportConversations, supportMessages, virtualCards, blacklistedUsers, p2pTransfers, loginLogs, type Profile, type Deposit, type InsertDeposit, type Withdrawal, type InsertWithdrawal, type KycDocument, type WebAuthnCredential, type Notification, type SupportConversation, type SupportMessage, type VirtualCard, type BlacklistedUser, type P2PTransfer, type LoginLog } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, sql, or, ilike } from "drizzle-orm";
 import crypto from "crypto";
@@ -74,6 +74,10 @@ export interface IStorage {
   softDeleteProfile(id: number): Promise<void>;
   addToBlacklist(data: { email?: string; phone?: string; firstName?: string; lastName?: string; dateOfBirth?: string; idDocumentUrl?: string; idDocumentBackUrl?: string; selfieUrl?: string; reason?: string; originalProfileId?: number; referenceId?: string }): Promise<BlacklistedUser>;
   isBlacklisted(email: string, phone?: string, firstName?: string, lastName?: string, dateOfBirth?: string): Promise<boolean>;
+
+  createLoginLog(profileId: number, method: string, ipAddress?: string): Promise<void>;
+  getLoginActivity(limit?: number): Promise<(LoginLog & { profile: Pick<Profile, "id" | "fullName" | "email"> })[]>;
+  getLoginCount(profileId: number): Promise<number>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -452,6 +456,36 @@ export class DatabaseStorage implements IStorage {
     }
 
     return false;
+  }
+
+  async createLoginLog(profileId: number, method: string, ipAddress?: string): Promise<void> {
+    await db.insert(loginLogs).values({ profileId, method, ipAddress });
+  }
+
+  async getLoginActivity(limit = 200): Promise<(LoginLog & { profile: Pick<Profile, "id" | "fullName" | "email"> })[]> {
+    const rows = await db
+      .select({
+        id: loginLogs.id,
+        profileId: loginLogs.profileId,
+        method: loginLogs.method,
+        ipAddress: loginLogs.ipAddress,
+        loginAt: loginLogs.loginAt,
+        profile: {
+          id: profiles.id,
+          fullName: profiles.fullName,
+          email: profiles.email,
+        },
+      })
+      .from(loginLogs)
+      .leftJoin(profiles, eq(loginLogs.profileId, profiles.id))
+      .orderBy(desc(loginLogs.loginAt))
+      .limit(limit);
+    return rows as any;
+  }
+
+  async getLoginCount(profileId: number): Promise<number> {
+    const [row] = await db.select({ count: sql<number>`count(*)` }).from(loginLogs).where(eq(loginLogs.profileId, profileId));
+    return Number(row?.count ?? 0);
   }
 }
 

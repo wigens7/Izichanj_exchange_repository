@@ -56,6 +56,10 @@ import {
   Phone,
   MapPin,
   Mail,
+  Activity,
+  Monitor,
+  Clock,
+  LogIn,
 } from "lucide-react";
 import { format } from "date-fns";
 import { usdtToHtg, formatHtg, formatUsdt } from "@shared/constants";
@@ -87,7 +91,7 @@ export default function AdminPage() {
       </div>
 
       <Tabs defaultValue="users" className="w-full">
-        <TabsList className="mb-4 grid w-full grid-cols-6 gap-2">
+        <TabsList className="mb-4 grid w-full grid-cols-7 gap-1">
           <TabsTrigger value="users" className="gap-2" data-testid="tab-admin-users">
             <Users className="w-4 h-4" />
             <span className="hidden sm:inline">Users</span>
@@ -112,6 +116,10 @@ export default function AdminPage() {
             <Headphones className="w-4 h-4" />
             <span className="hidden sm:inline">Support</span>
           </TabsTrigger>
+          <TabsTrigger value="activity" className="gap-2" data-testid="tab-admin-activity">
+            <Activity className="w-4 h-4" />
+            <span className="hidden sm:inline">Activity</span>
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="users">
@@ -131,6 +139,9 @@ export default function AdminPage() {
         </TabsContent>
         <TabsContent value="support">
           <SupportTab />
+        </TabsContent>
+        <TabsContent value="activity">
+          <ActivityTab />
         </TabsContent>
       </Tabs>
     </div>
@@ -1645,6 +1656,121 @@ function SupportTab() {
             </CardContent>
           </>
         )}
+      </Card>
+    </div>
+  );
+}
+
+function ActivityTab() {
+  const { data: logs, isLoading } = useQuery<any[]>({ queryKey: ["/api/admin/login-activity"] });
+  const [search, setSearch] = useState("");
+
+  const filtered = (logs || []).filter((l: any) =>
+    `${l.profile?.fullName || ""} ${l.profile?.email || ""}`.toLowerCase().includes(search.toLowerCase())
+  );
+
+  const methodLabel = (m: string) => {
+    if (m === "pin") return { label: "PIN", color: "bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300" };
+    if (m === "2fa") return { label: "2FA", color: "bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300" };
+    if (m === "webauthn") return { label: "Biometric", color: "bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300" };
+    return { label: "Password", color: "bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200" };
+  };
+
+  const userLoginCounts = (logs || []).reduce((acc: Record<number, number>, l: any) => {
+    if (l.profileId) acc[l.profileId] = (acc[l.profileId] || 0) + 1;
+    return acc;
+  }, {});
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Activity className="w-4 h-4 text-primary" />
+            Login Activity
+          </CardTitle>
+          <p className="text-xs text-muted-foreground">All successful logins — most recent first</p>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <Input
+              placeholder="Search by name or email..."
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              className="pl-9"
+              data-testid="input-search-activity"
+            />
+          </div>
+
+          {isLoading ? (
+            <div className="space-y-2">
+              {[...Array(6)].map((_, i) => <Skeleton key={i} className="h-12 w-full" />)}
+            </div>
+          ) : filtered.length === 0 ? (
+            <div className="text-center py-8 text-muted-foreground">
+              <LogIn className="w-8 h-8 mx-auto mb-2 opacity-30" />
+              <p className="text-sm">No login activity yet</p>
+            </div>
+          ) : (
+            <div className="border rounded-md overflow-hidden">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>User</TableHead>
+                    <TableHead>Method</TableHead>
+                    <TableHead className="hidden md:table-cell">IP Address</TableHead>
+                    <TableHead>Date &amp; Time</TableHead>
+                    <TableHead className="text-right">Total Logins</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {filtered.map((log: any) => {
+                    const m = methodLabel(log.method);
+                    const count = userLoginCounts[log.profileId] || 1;
+                    return (
+                      <TableRow key={log.id} data-testid={`row-activity-${log.id}`}>
+                        <TableCell>
+                          <div className="flex flex-col">
+                            <span className="font-medium text-sm" data-testid={`text-activity-name-${log.id}`}>
+                              {log.profile?.fullName || "Unknown"}
+                            </span>
+                            <span className="text-xs text-muted-foreground">{log.profile?.email || ""}</span>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${m.color}`}>
+                            {m.label}
+                          </span>
+                        </TableCell>
+                        <TableCell className="hidden md:table-cell text-sm text-muted-foreground font-mono">
+                          {log.ipAddress || "—"}
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex flex-col">
+                            <span className="text-sm font-medium" data-testid={`text-activity-date-${log.id}`}>
+                              {log.loginAt ? format(new Date(log.loginAt), "dd/MM/yyyy") : "—"}
+                            </span>
+                            <span className="text-xs text-muted-foreground flex items-center gap-1">
+                              <Clock className="w-3 h-3" />
+                              {log.loginAt ? format(new Date(log.loginAt), "HH:mm:ss") : ""}
+                            </span>
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <span className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-primary/10 text-primary text-sm font-bold" data-testid={`text-activity-count-${log.id}`}>
+                            {count}
+                          </span>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+          <p className="text-xs text-muted-foreground text-right">Showing last {filtered.length} of {(logs || []).length} logins</p>
+        </CardContent>
       </Card>
     </div>
   );

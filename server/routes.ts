@@ -568,6 +568,7 @@ export async function registerRoutes(
       }
 
       req.session.profileId = profile.id;
+      storage.createLoginLog(profile.id, "password", req.ip).catch(() => {});
       const { passwordHash: _, twoFactorSecret: _s, ...safeProfile } = profile;
       res.json(safeProfile);
     } catch (e) {
@@ -635,7 +636,7 @@ export async function registerRoutes(
 
       req.session.profileId = profileId;
       delete req.session.pending2faProfileId;
-
+      storage.createLoginLog(profileId, "2fa", req.ip).catch(() => {});
       const { passwordHash: _, twoFactorSecret: _s, ...safeProfile } = profile;
       res.json(safeProfile);
     } catch (e) {
@@ -1500,6 +1501,7 @@ export async function registerRoutes(
       }
 
       req.session.profileId = profile.id;
+      storage.createLoginLog(profile.id, "pin", req.ip).catch(() => {});
       const { passwordHash: _, twoFactorSecret: _s, pinHash: _p, ...safeProfile } = profile;
       res.json(safeProfile);
     } catch (e) {
@@ -2140,6 +2142,16 @@ export async function registerRoutes(
       });
     } catch (e: any) {
       res.status(500).json({ message: "Could not determine outbound IP", error: e.message });
+    }
+  });
+
+  app.get("/api/admin/login-activity", isAuthenticated, isAdmin, async (req: any, res) => {
+    try {
+      const limit = parseInt(req.query.limit as string) || 200;
+      const logs = await storage.getLoginActivity(limit);
+      res.json(logs);
+    } catch (e) {
+      res.status(500).json({ message: "Internal Error" });
     }
   });
 
