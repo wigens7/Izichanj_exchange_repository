@@ -2217,8 +2217,35 @@ export async function registerRoutes(
       const topupData = await topupRes.json() as any;
 
       if (!topupRes.ok || topupData.errorCode) {
-        console.error("Reloadly topup error:", JSON.stringify(topupData));
-        return res.status(400).json({ message: topupData.message || "Top-up failed. Please try again." });
+        const errorCode = (topupData.errorCode || "").toLowerCase();
+        const errorMsg = (topupData.message || "").toLowerCase();
+
+        const isBalanceError =
+          errorCode.includes("insufficient") ||
+          errorCode.includes("balance") ||
+          errorCode.includes("low_balance") ||
+          errorCode.includes("no_balance") ||
+          errorMsg.includes("insufficient") ||
+          errorMsg.includes("balance") ||
+          errorMsg.includes("funds");
+
+        // Always log full error privately for admin visibility
+        console.error("[RELOADLY][TOPUP_ERROR] Real error (hidden from user):", JSON.stringify({
+          errorCode: topupData.errorCode,
+          message: topupData.message,
+          httpStatus: topupRes.status,
+          amount: numAmount,
+          phone,
+          operatorId,
+          isBalanceError,
+          timestamp: new Date().toISOString(),
+        }));
+
+        const userMessage = isBalanceError
+          ? "Une erreur technique est survenue. Veuillez réessayer dans quelques minutes."
+          : "Top-up échoué. Veuillez réessayer.";
+
+        return res.status(400).json({ message: userMessage });
       }
 
       // Deduct balance
@@ -2241,8 +2268,8 @@ export async function registerRoutes(
         message: `Top-up of $${numAmount} sent successfully to ${phone}`,
       });
     } catch (e: any) {
-      console.error("Top-up error:", e.message);
-      res.status(500).json({ message: e.message || "Internal Error" });
+      console.error("[RELOADLY][TOPUP_ERROR] Unexpected error (hidden from user):", e.message);
+      res.status(500).json({ message: "Une erreur technique est survenue. Veuillez réessayer dans quelques minutes." });
     }
   });
 
