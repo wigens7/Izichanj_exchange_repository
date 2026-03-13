@@ -38,7 +38,13 @@ function getWebAuthnConfig(req: any) {
   return { rpID, origin };
 }
 
-async function sendWhatsAppOtp(phone: string, code: string) {
+function buildGreeting(name?: string): string {
+  if (!name || !name.trim()) return "";
+  const firstName = name.trim().split(" ")[0];
+  return `Bonjour ${firstName} 👋,\n\n`;
+}
+
+async function sendWhatsAppOtp(phone: string, code: string, name?: string) {
   const instanceId = process.env.ULTRAMSG_INSTANCE_ID;
   const token = process.env.ULTRAMSG_TOKEN;
   if (!instanceId || !token) {
@@ -46,7 +52,8 @@ async function sendWhatsAppOtp(phone: string, code: string) {
     return;
   }
   try {
-    const text = `*Izichanj*\n\nYour verification code is: *${code}*\n\nThis code expires in 5 minutes.\nDo not share it with anyone.`;
+    const greeting = buildGreeting(name);
+    const text = `*Izichanj*\n\n${greeting}Your verification code is: *${code}*\n\nThis code expires in 5 minutes.\nDo not share it with anyone.`;
     const res = await fetch(`https://api.ultramsg.com/${instanceId}/messages/chat`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -65,7 +72,7 @@ async function sendWhatsAppOtp(phone: string, code: string) {
   }
 }
 
-async function sendWhatsAppNotification(phone: string, message: string) {
+async function sendWhatsAppNotification(phone: string, message: string, name?: string) {
   const instanceId = process.env.ULTRAMSG_INSTANCE_ID;
   const token = process.env.ULTRAMSG_TOKEN;
   if (!instanceId || !token || !phone) {
@@ -73,10 +80,15 @@ async function sendWhatsAppNotification(phone: string, message: string) {
     return;
   }
   try {
+    const greeting = buildGreeting(name);
+    // Insert greeting after the first line (*Izichanj*\n\n)
+    const body = message.startsWith("*Izichanj*\n\n")
+      ? `*Izichanj*\n\n${greeting}${message.slice("*Izichanj*\n\n".length)}`
+      : `${greeting}${message}`;
     const res = await fetch(`https://api.ultramsg.com/${instanceId}/messages/chat`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ token, to: phone, body: message }),
+      body: JSON.stringify({ token, to: phone, body }),
     });
     const data = await res.json();
     if (data.sent === "true" || data.sent === true) {
@@ -459,7 +471,7 @@ export async function registerRoutes(
         if (!existing.emailVerified) {
           const code = crypto.randomInt(100000, 999999).toString();
           await storage.createOtp(existing.id, code);
-          await sendWhatsAppOtp(existing.phone || input.phone, code);
+          await sendWhatsAppOtp(existing.phone || input.phone, code, existing.fullName);
           req.session.profileId = existing.id;
           const { passwordHash: _, ...safeProfile } = existing;
           return res.status(201).json(safeProfile);
@@ -470,7 +482,7 @@ export async function registerRoutes(
       const profile = await storage.createProfile(input.fullName, input.email, passwordHash, input.phone);
       const code = crypto.randomInt(100000, 999999).toString();
       await storage.createOtp(profile.id, code);
-      await sendWhatsAppOtp(input.phone, code);
+      await sendWhatsAppOtp(input.phone, code, input.fullName);
       req.session.profileId = profile.id;
       const { passwordHash: _, ...safeProfile } = profile;
       res.status(201).json(safeProfile);
@@ -513,7 +525,7 @@ export async function registerRoutes(
       if (profile.emailVerified) return res.json({ message: "Email already verified" });
       const code = crypto.randomInt(100000, 999999).toString();
       await storage.createOtp(profile.id, code);
-      await sendWhatsAppOtp(profile.phone || "", code);
+      await sendWhatsAppOtp(profile.phone || "", code, profile.fullName);
       res.json({ message: "OTP sent" });
     } catch (e) {
       console.error("Resend OTP error:", e);
@@ -545,7 +557,7 @@ export async function registerRoutes(
         req.session.profileId = profile.id;
         const code = crypto.randomInt(100000, 999999).toString();
         await storage.createOtp(profile.id, code);
-        await sendWhatsAppOtp(profile.phone || "", code);
+        await sendWhatsAppOtp(profile.phone || "", code, profile.fullName);
         const { passwordHash: _, twoFactorSecret: _s, ...safeProfile } = profile;
         return res.json({ ...safeProfile, needsVerification: true });
       }
@@ -574,7 +586,7 @@ export async function registerRoutes(
       }
       const code = crypto.randomInt(100000, 999999).toString();
       await storage.createOtp(profile.id, code);
-      await sendWhatsAppOtp(input.phone, code);
+      await sendWhatsAppOtp(input.phone, code, profile.fullName);
       res.json({ message: "If an account exists with this number, you will receive a code." });
     } catch (e) {
       if (e instanceof z.ZodError) return res.status(400).json({ message: e.errors[0].message });
@@ -690,7 +702,7 @@ export async function registerRoutes(
     if (profile.kycStatus !== "verified") return res.status(403).json({ message: "KYC verification required before making withdrawals" });
     const code = crypto.randomInt(100000, 999999).toString();
     await storage.createOtp(profile.id, code);
-    await sendWhatsAppOtp(profile.phone || "", code);
+    await sendWhatsAppOtp(profile.phone || "", code, profile.fullName);
     res.json({ message: "OTP sent" });
   });
 
@@ -896,7 +908,7 @@ export async function registerRoutes(
       message: balanceMsg,
     });
     if (profile.phone) {
-      sendWhatsAppNotification(profile.phone, `*Izichanj*\n\n💼 Balance Updated\n\n${balanceMsg}\n\nhttps://izichanj.com`);
+      sendWhatsAppNotification(profile.phone, `*Izichanj*\n\n💼 Balance Updated\n\n${balanceMsg}\n\nhttps://izichanj.com`, profile.fullName);
     }
     res.json(profile);
   });
@@ -942,7 +954,7 @@ export async function registerRoutes(
       message: depositMsg,
     });
     if (profile?.phone) {
-      sendWhatsAppNotification(profile.phone, `*Izichanj*\n\n✅ Deposit Approved\n\n${depositMsg}\n\nhttps://izichanj.com`);
+      sendWhatsAppNotification(profile.phone, `*Izichanj*\n\n✅ Deposit Approved\n\n${depositMsg}\n\nhttps://izichanj.com`, profile.fullName);
     }
     res.json(deposit);
   });
@@ -958,7 +970,7 @@ export async function registerRoutes(
     });
     const depositProfile = await storage.getProfile(deposit.profileId);
     if (depositProfile?.phone) {
-      sendWhatsAppNotification(depositProfile.phone, `*Izichanj*\n\n❌ Deposit Rejected\n\n${rejectMsg}\n\nhttps://izichanj.com`);
+      sendWhatsAppNotification(depositProfile.phone, `*Izichanj*\n\n❌ Deposit Rejected\n\n${rejectMsg}\n\nhttps://izichanj.com`, depositProfile.fullName);
     }
     res.json(deposit);
   });
@@ -975,7 +987,7 @@ export async function registerRoutes(
     });
     const wProfile = await storage.getProfile(withdrawal.profileId);
     if (wProfile?.phone) {
-      sendWhatsAppNotification(wProfile.phone, `*Izichanj*\n\n✅ Withdrawal Approved\n\n${wApproveMsg}\n\nhttps://izichanj.com`);
+      sendWhatsAppNotification(wProfile.phone, `*Izichanj*\n\n✅ Withdrawal Approved\n\n${wApproveMsg}\n\nhttps://izichanj.com`, wProfile.fullName);
     }
     res.json(withdrawal);
   });
@@ -997,7 +1009,7 @@ export async function registerRoutes(
       message: wRejectMsg,
     });
     if (profile?.phone) {
-      sendWhatsAppNotification(profile.phone, `*Izichanj*\n\n❌ Withdrawal Rejected\n\n${wRejectMsg}\n\nhttps://izichanj.com`);
+      sendWhatsAppNotification(profile.phone, `*Izichanj*\n\n❌ Withdrawal Rejected\n\n${wRejectMsg}\n\nhttps://izichanj.com`, profile.fullName);
     }
     res.json(withdrawal);
   });
@@ -1014,7 +1026,7 @@ export async function registerRoutes(
     });
     const kycProfile = await storage.getProfile(profileId);
     if (kycProfile?.phone) {
-      sendWhatsAppNotification(kycProfile.phone, `*Izichanj*\n\n✅ KYC Verified\n\n${kycApproveMsg}\n\nhttps://izichanj.com`);
+      sendWhatsAppNotification(kycProfile.phone, `*Izichanj*\n\n✅ KYC Verified\n\n${kycApproveMsg}\n\nhttps://izichanj.com`, kycProfile.fullName);
     }
     const kyc = await storage.getKyc(profileId);
     res.json(kyc);
@@ -1032,7 +1044,7 @@ export async function registerRoutes(
     });
     const kycProfile = await storage.getProfile(profileId);
     if (kycProfile?.phone) {
-      sendWhatsAppNotification(kycProfile.phone, `*Izichanj*\n\n❌ KYC Rejected\n\n${kycRejectMsg}\n\nhttps://izichanj.com`);
+      sendWhatsAppNotification(kycProfile.phone, `*Izichanj*\n\n❌ KYC Rejected\n\n${kycRejectMsg}\n\nhttps://izichanj.com`, kycProfile.fullName);
     }
     const kyc = await storage.getKyc(profileId);
     res.json(kyc);
@@ -1520,7 +1532,7 @@ export async function registerRoutes(
       }
       const code = crypto.randomInt(100000, 999999).toString();
       await storage.createOtp(profile.id, code);
-      await sendWhatsAppOtp(input.phone, code);
+      await sendWhatsAppOtp(input.phone, code, profile.fullName);
       res.json({ message: "If an account exists with this number, you will receive a code." });
     } catch (e) {
       if (e instanceof z.ZodError) return res.status(400).json({ message: e.errors[0].message });
@@ -1660,10 +1672,10 @@ export async function registerRoutes(
       });
 
       if (recipient.phone) {
-        sendWhatsAppNotification(recipient.phone, `*Izichanj*\n\n💰 ${receivedMsg}\n\nhttps://izichanj.com`);
+        sendWhatsAppNotification(recipient.phone, `*Izichanj*\n\n💰 ${receivedMsg}\n\nhttps://izichanj.com`, recipient.fullName);
       }
       if (profile.phone) {
-        sendWhatsAppNotification(profile.phone, `*Izichanj*\n\n📤 ${sentMsg}\n\nhttps://izichanj.com`);
+        sendWhatsAppNotification(profile.phone, `*Izichanj*\n\n📤 ${sentMsg}\n\nhttps://izichanj.com`, profile.fullName);
       }
 
       res.json({ message: "Transfer successful", transfer });
@@ -2255,7 +2267,8 @@ export async function registerRoutes(
       if (profile.phone) {
         sendWhatsAppNotification(
           profile.phone,
-          `*Izichanj*\n\n📱 Top-Up Successful\n\nYou recharged ${phone} with $${numAmount} USD.\nTransaction ID: ${topupData.transactionId || "N/A"}\n\nhttps://izichanj.com`
+          `*Izichanj*\n\n📱 Top-Up Successful\n\nYou recharged ${phone} with $${numAmount} USD.\nTransaction ID: ${topupData.transactionId || "N/A"}\n\nhttps://izichanj.com`,
+          profile.fullName
         );
       }
 
