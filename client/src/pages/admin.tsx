@@ -972,6 +972,28 @@ const WA_ICON = () => (
   </svg>
 );
 
+const USER_CATEGORIES = [
+  { key: "all",              label: "All Users",           color: "bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200" },
+  { key: "otp_verified",     label: "OTP Verified",        color: "bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300" },
+  { key: "otp_not_verified", label: "OTP Not Verified",    color: "bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300" },
+  { key: "kyc_verified",     label: "KYC Verified",        color: "bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300" },
+  { key: "kyc_submitted",    label: "KYC Submitted",       color: "bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300" },
+  { key: "kyc_not_submitted","label": "KYC Not Submitted", color: "bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300" },
+] as const;
+
+type UserCategory = typeof USER_CATEGORIES[number]["key"];
+
+function filterByCategory(users: any[], category: UserCategory): any[] {
+  switch (category) {
+    case "otp_verified":     return users.filter(u => u.emailVerified);
+    case "otp_not_verified": return users.filter(u => !u.emailVerified);
+    case "kyc_verified":     return users.filter(u => u.kycStatus === "verified");
+    case "kyc_submitted":    return users.filter(u => ["submitted", "verified", "rejected"].includes(u.kycStatus));
+    case "kyc_not_submitted":return users.filter(u => !u.kycStatus || u.kycStatus === "pending");
+    default:                 return users;
+  }
+}
+
 function MessagesTab() {
   const { data: users, isLoading } = useAdminUsers();
   const { toast } = useToast();
@@ -979,12 +1001,21 @@ function MessagesTab() {
   const [userSearch, setUserSearch] = useState("");
   const [title, setTitle] = useState("");
   const [message, setMessage] = useState("");
+  const [activeCategory, setActiveCategory] = useState<UserCategory>("all");
 
   const activeUsers = (users?.filter((u: any) => !u.isDeleted && u.role !== "admin") || []) as any[];
-  const filteredUsers = activeUsers.filter((u: any) =>
+  const categoryUsers = filterByCategory(activeUsers, activeCategory);
+  const filteredUsers = categoryUsers.filter((u: any) =>
     `${u.fullName} ${u.email} ${u.phone || ""}`.toLowerCase().includes(userSearch.toLowerCase())
   );
   const allSelected = filteredUsers.length > 0 && filteredUsers.every((u: any) => selectedIds.has(u.id));
+
+  const selectCategory = (cat: UserCategory) => {
+    setActiveCategory(cat);
+    setUserSearch("");
+    const matched = filterByCategory(activeUsers, cat);
+    setSelectedIds(new Set(matched.map((u: any) => u.id)));
+  };
 
   const toggleUser = (id: number) => {
     setSelectedIds(prev => {
@@ -1091,8 +1122,41 @@ function MessagesTab() {
       </CardHeader>
       <CardContent className="space-y-5">
         <div className="space-y-2">
+          <label className="text-sm font-medium">Filter by Category</label>
+          <div className="flex flex-wrap gap-2">
+            {USER_CATEGORIES.map(cat => {
+              const count = filterByCategory(activeUsers, cat.key).length;
+              const isActive = activeCategory === cat.key;
+              return (
+                <button
+                  key={cat.key}
+                  type="button"
+                  onClick={() => selectCategory(cat.key)}
+                  data-testid={`button-category-${cat.key}`}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border-2 transition-all ${cat.color} ${
+                    isActive ? "border-primary ring-2 ring-primary/20" : "border-transparent opacity-70 hover:opacity-100"
+                  }`}
+                >
+                  {cat.label}
+                  <span className={`inline-flex items-center justify-center w-4 h-4 rounded-full text-[10px] font-bold ${isActive ? "bg-primary text-primary-foreground" : "bg-black/10 dark:bg-white/20"}`}>
+                    {count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="space-y-2">
           <div className="flex items-center justify-between">
-            <label className="text-sm font-medium">Recipients</label>
+            <label className="text-sm font-medium">
+              Recipients
+              {activeCategory !== "all" && (
+                <span className="ml-2 text-xs text-muted-foreground font-normal">
+                  ({USER_CATEGORIES.find(c => c.key === activeCategory)?.label})
+                </span>
+              )}
+            </label>
             <div className="flex items-center gap-2">
               {selectedIds.size > 0 && (
                 <Badge variant="secondary">{selectedIds.size} selected</Badge>
@@ -1111,7 +1175,7 @@ function MessagesTab() {
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             <Input
-              placeholder="Search users..."
+              placeholder="Search within category..."
               value={userSearch}
               onChange={e => setUserSearch(e.target.value)}
               className="pl-9"

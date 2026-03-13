@@ -1104,7 +1104,7 @@ export async function registerRoutes(
       for (const profile of targets) {
         await storage.createNotification({ profileId: profile.id, type: "custom_message", title, message });
         if (profile.phone) {
-          sendWhatsAppNotification(profile.phone, `*Izichanj*\n\n📢 ${title}\n\n${message}\n\nhttps://izichanj.com`);
+          sendWhatsAppNotification(profile.phone, `*Izichanj*\n\n📢 ${title}\n\n${message}\n\nhttps://izichanj.com`, profile.fullName);
           whatsappCount++;
         }
       }
