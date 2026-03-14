@@ -2110,6 +2110,13 @@ export async function registerRoutes(
       console.log("[STROWALLET] Create card response:", JSON.stringify(data));
 
       if (!response.ok || data.status === "error" || data.status === false) {
+        const rawMsg = (data.message || data.error || "").toLowerCase();
+        if (rawMsg.includes("kyc") && (rawMsg.includes("not approved") || rawMsg.includes("complete") || rawMsg.includes("process"))) {
+          return res.status(422).json({
+            code: "STROWALLET_KYC_PENDING",
+            message: "Your card application is under review by our card provider. This process can take up to 48 hours after KYC approval. You will be notified once you can apply.",
+          });
+        }
         return res.status(400).json({ message: data.message || data.error || "Failed to create virtual card" });
       }
 

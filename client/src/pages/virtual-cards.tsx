@@ -99,6 +99,7 @@ function ApplyCardSection() {
 
   const [idType, setIdType] = useState("");
   const [idNumber, setIdNumber] = useState("");
+  const [kycPending, setKycPending] = useState(false);
 
   const { data: stroStatus, isLoading: stroLoading } = useQuery<{ registered: boolean; customerId: string | null }>({
     queryKey: ["/api/cards/strowallet-status"],
@@ -120,16 +121,32 @@ function ApplyCardSection() {
 
   const createMutation = useMutation({
     mutationFn: async () => {
-      const res = await apiRequest("POST", "/api/cards/create", { amount: String(CARD_COST) });
-      return res.json();
+      const res = await fetch("/api/cards/create", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ amount: String(CARD_COST) }),
+        credentials: "include",
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        if (data?.code === "STROWALLET_KYC_PENDING") {
+          setKycPending(true);
+          throw new Error("__KYC_PENDING__");
+        }
+        throw new Error(data?.message || "Failed to create card");
+      }
+      return data;
     },
     onSuccess: () => {
+      setKycPending(false);
       toast({ title: vc.cardCreated });
       qc.invalidateQueries({ queryKey: ["/api/cards"] });
       qc.invalidateQueries({ queryKey: ["/api/user"] });
     },
     onError: (err: Error) => {
-      toast({ title: err.message, variant: "destructive" });
+      if (err.message !== "__KYC_PENDING__") {
+        toast({ title: err.message, variant: "destructive" });
+      }
     },
   });
 
@@ -230,25 +247,39 @@ function ApplyCardSection() {
               </div>
             </div>
 
-            {!hasEnoughBalance && (
+            {!hasEnoughBalance && !kycPending && (
               <div className="flex items-center gap-2 text-sm text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 rounded-md p-3">
                 <AlertCircle className="w-4 h-4 flex-shrink-0" />
                 <p>{vc.insufficientBalance}</p>
               </div>
             )}
 
-            <Button
-              onClick={() => createMutation.mutate()}
-              disabled={createMutation.isPending || !hasEnoughBalance}
-              className="w-full sm:w-auto"
-              data-testid="button-apply-card"
-            >
-              {createMutation.isPending ? (
-                <><Loader2 className="w-4 h-4 animate-spin mr-2" />{vc.applying}</>
-              ) : (
-                <><CreditCard className="w-4 h-4 mr-2" />{vc.applyButton} — $20.00</>
-              )}
-            </Button>
+            {kycPending && (
+              <div className="rounded-lg border border-blue-200 bg-blue-50 dark:bg-blue-950/30 dark:border-blue-800 p-4 space-y-1">
+                <p className="font-semibold text-blue-800 dark:text-blue-300 text-sm flex items-center gap-2">
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Card Application Under Review
+                </p>
+                <p className="text-xs text-blue-700 dark:text-blue-400">
+                  Your identity is being reviewed by our card provider. This typically takes up to 48 hours after your KYC approval on Izichanj. You will receive a WhatsApp notification once your card can be issued — no action needed on your part.
+                </p>
+              </div>
+            )}
+
+            {!kycPending && (
+              <Button
+                onClick={() => createMutation.mutate()}
+                disabled={createMutation.isPending || !hasEnoughBalance}
+                className="w-full sm:w-auto"
+                data-testid="button-apply-card"
+              >
+                {createMutation.isPending ? (
+                  <><Loader2 className="w-4 h-4 animate-spin mr-2" />{vc.applying}</>
+                ) : (
+                  <><CreditCard className="w-4 h-4 mr-2" />{vc.applyButton} — $20.00</>
+                )}
+              </Button>
+            )}
           </>
         )}
       </CardContent>
