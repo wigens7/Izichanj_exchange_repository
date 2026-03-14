@@ -833,9 +833,10 @@ export async function registerRoutes(
     }
     if (profile.kycStatus === "verified") return res.status(400).json({ message: "KYC already approved" });
     if (profile.kycStatus === "pending") return res.status(400).json({ message: "KYC already submitted and under review" });
-    const { idDocumentUrl, idDocumentBackUrl, selfieUrl } = req.body;
+    const { idDocumentUrl, idDocumentBackUrl, selfieUrl, idType, idNumber } = req.body;
     if (!idDocumentUrl || !idDocumentBackUrl || !selfieUrl) return res.status(400).json({ message: "Missing documents" });
-    const kyc = await storage.createKyc({ profileId: profile.id, idDocumentUrl, idDocumentBackUrl, selfieUrl });
+    if (!idType || !idNumber) return res.status(400).json({ message: "ID type and ID number are required" });
+    const kyc = await storage.createKyc({ profileId: profile.id, idDocumentUrl, idDocumentBackUrl, selfieUrl, idType, idNumber });
 
     // Notify admin
     const admins = await storage.getAllProfiles();
@@ -1029,6 +1030,57 @@ export async function registerRoutes(
     if (kycProfile?.phone) {
       sendWhatsAppNotification(kycProfile.phone, `*Izichanj*\n\n✅ KYC Verified\n\n${kycApproveMsg}\n\nhttps://izichanj.com`, kycProfile.fullName);
     }
+
+    // Auto-register with Strowallet if not yet registered
+    const _stroKey = process.env.STROWALLET_PUBLIC_KEY || "";
+    const _stroBase = "https://strowallet.com/api/bitvcard";
+    if (kycProfile && !kycProfile.strowalletCustomerId && _stroKey) {
+      try {
+        const kyc = await storage.getKyc(profileId);
+        const firstName = kycProfile.firstName || kycProfile.fullName.split(" ")[0] || "";
+        const lastName = kycProfile.lastName || kycProfile.fullName.split(" ").slice(1).join(" ") || firstName;
+        const payload = {
+          public_key: _stroKey,
+          first_name: firstName,
+          last_name: lastName,
+          customer_email: kycProfile.email,
+          phone_number: kycProfile.phone || "",
+          date_of_birth: kycProfile.dateOfBirth || "",
+          country: kycProfile.country || "Haiti",
+          id_type: kyc?.idType || "national_id",
+          id_number: kyc?.idNumber || kycProfile.email,
+        };
+        console.log("[STROWALLET][AUTO-KYC] Registering cardholder for profile:", profileId);
+        const proxyUrl = process.env.PROXY_URL;
+        let stroRes: Response;
+        if (proxyUrl) {
+          const { fetch: undiciFetch } = await import("undici");
+          const dispatcher = new ProxyAgent(proxyUrl);
+          stroRes = await undiciFetch(`${_stroBase}/create-user/`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "Accept": "application/json" },
+            body: JSON.stringify(payload),
+            dispatcher,
+          } as any) as unknown as Response;
+        } else {
+          stroRes = await fetch(`${_stroBase}/create-user/`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "Accept": "application/json" },
+            body: JSON.stringify(payload),
+          });
+        }
+        const stroData = await stroRes.json() as any;
+        console.log("[STROWALLET][AUTO-KYC] Response:", JSON.stringify(stroData));
+        if (stroRes.ok && stroData.status !== "error" && stroData.status !== false) {
+          const customerId = stroData.response?.customer_id || stroData.customer_id || stroData.data?.customer_id || String(profileId);
+          await storage.updateProfile(profileId, { strowalletCustomerId: customerId });
+          console.log("[STROWALLET][AUTO-KYC] Registered customer:", customerId);
+        }
+      } catch (stroErr) {
+        console.error("[STROWALLET][AUTO-KYC] Error (non-fatal):", stroErr);
+      }
+    }
+
     const kyc = await storage.getKyc(profileId);
     res.json(kyc);
   });

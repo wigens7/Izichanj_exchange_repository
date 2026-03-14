@@ -20,8 +20,7 @@ export function useUploadKyc() {
   const { toast } = useToast();
 
   return useMutation({
-    mutationFn: async (data: { idDocumentUrl: string, idDocumentBackUrl: string, selfieUrl: string }) => {
-      // Backend expects these URLs (from object storage upload)
+    mutationFn: async (data: { idDocumentUrl: string, idDocumentBackUrl: string, selfieUrl: string, idType?: string, idNumber?: string }) => {
       const res = await fetch(api.kyc.upload.path, {
         method: api.kyc.upload.method,
         headers: { "Content-Type": "application/json" },
@@ -29,7 +28,10 @@ export function useUploadKyc() {
         credentials: "include",
       });
 
-      if (!res.ok) throw new Error("Failed to submit KYC");
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error((err as any).message || "Failed to submit KYC");
+      }
       return api.kyc.upload.responses[201].parse(await res.json());
     },
     onSuccess: () => {

@@ -106,6 +106,8 @@ export const kycDocuments = pgTable("kyc_documents", {
   idDocumentUrl: text("id_document_url"),
   idDocumentBackUrl: text("id_document_back_url"),
   selfieUrl: text("selfie_url"),
+  idType: text("id_type"),
+  idNumber: text("id_number"),
   submittedAt: timestamp("submitted_at").defaultNow().notNull(),
 });
 

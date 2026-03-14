@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { StatusBadge } from "@/components/status-badge";
-import { Loader2, UploadCloud, CheckCircle2, Globe, Clock, User, UserCheck, Copy, Check } from "lucide-react";
+import { Loader2, UploadCloud, CheckCircle2, Globe, Clock, User, UserCheck, Copy, Check, FileText } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
@@ -30,6 +30,8 @@ export default function ProfilePage() {
   const [idUrl, setIdUrl] = useState<string>("");
   const [idBackUrl, setIdBackUrl] = useState<string>("");
   const [selfieUrl, setSelfieUrl] = useState<string>("");
+  const [idType, setIdType] = useState<string>("");
+  const [idNumber, setIdNumber] = useState<string>("");
 
   const form = useForm<ProfileInfoInput>({
     resolver: zodResolver(profileInfoSchema),
@@ -73,8 +75,8 @@ export default function ProfilePage() {
   };
 
   const handleSubmitKyc = () => {
-    if (idUrl && idBackUrl && selfieUrl) {
-        submitKyc({ idDocumentUrl: idUrl, idDocumentBackUrl: idBackUrl, selfieUrl: selfieUrl });
+    if (idUrl && idBackUrl && selfieUrl && idType && idNumber) {
+        submitKyc({ idDocumentUrl: idUrl, idDocumentBackUrl: idBackUrl, selfieUrl: selfieUrl, idType, idNumber });
     }
   };
 
@@ -324,9 +326,38 @@ export default function ProfilePage() {
 
                     {isUploading && <p className="text-center text-sm text-muted-foreground animate-pulse">{t.profile.uploading}</p>}
 
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                      <div className="space-y-1.5">
+                        <Label className="text-sm">ID Type</Label>
+                        <Select value={idType} onValueChange={setIdType}>
+                          <SelectTrigger data-testid="select-kyc-id-type">
+                            <SelectValue placeholder="Select ID type" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="passport">Passport</SelectItem>
+                            <SelectItem value="national_id">National ID Card</SelectItem>
+                            <SelectItem value="driver_license">Driver's License</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-sm">ID Number</Label>
+                        <div className="relative">
+                          <FileText className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                          <Input
+                            placeholder="e.g. A12345678"
+                            value={idNumber}
+                            onChange={e => setIdNumber(e.target.value)}
+                            className="pl-9"
+                            data-testid="input-kyc-id-number"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
                     <Button 
                       className="w-full primary-gradient" 
-                      disabled={!idUrl || !idBackUrl || !selfieUrl || isSubmitting || isUploading || !isProfileComplete}
+                      disabled={!idUrl || !idBackUrl || !selfieUrl || !idType || !idNumber || isSubmitting || isUploading || !isProfileComplete}
                       onClick={handleSubmitKyc}
                       data-testid="button-submit-kyc"
                     >
