@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp";
 import { Loader2, ArrowLeft, Phone, Lock, Eye, EyeOff, Wallet, KeyRound } from "lucide-react";
 import logoImg from "@/assets/logo.png";
+import { PhoneInput } from "@/components/phone-input";
 import { useState } from "react";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -128,21 +129,16 @@ export default function ForgotPasswordPage() {
               <>
                 <div className="space-y-2">
                   <label className="text-sm font-medium">{t.login.whatsappNumber || "WhatsApp Number"}</label>
-                  <div className="relative">
-                    <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                    <Input
-                      placeholder="+509XXXXXXXX"
-                      className="pl-10"
-                      value={phone}
-                      onChange={(e) => setPhone(e.target.value)}
-                      data-testid="input-forgot-phone"
-                    />
-                  </div>
+                  <PhoneInput
+                    value={phone}
+                    onChange={setPhone}
+                    data-testid="input-forgot-phone"
+                  />
                 </div>
                 <Button
                   className="w-full primary-gradient"
                   onClick={handleSendCode}
-                  disabled={isPending || phone.length < 8}
+                  disabled={isPending || !phone || phone.length < 8}
                   data-testid="button-send-reset-code"
                 >
                   {isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Phone className="w-4 h-4 mr-2" />}

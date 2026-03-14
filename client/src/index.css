@@ -175,6 +175,40 @@
   .fintech-input {
     @apply transition-all duration-200 focus-visible:ring-2 focus-visible:ring-primary/30 focus-visible:border-primary;
   }
+
+  /* ── International Phone Input ─────────────────────────────── */
+  .phone-input-wrapper .PhoneInput {
+    @apply flex items-center gap-0 h-9 w-full rounded-md border border-input bg-transparent text-sm shadow-sm transition-colors;
+  }
+
+  .phone-input-wrapper .PhoneInputCountry {
+    @apply relative flex items-center gap-1 pl-3 pr-2 border-r border-input shrink-0 h-full cursor-pointer select-none;
+  }
+
+  .phone-input-wrapper .PhoneInputCountrySelect {
+    @apply absolute opacity-0 inset-0 w-full h-full cursor-pointer;
+  }
+
+  .phone-input-wrapper .PhoneInputCountrySelectArrow {
+    @apply w-2.5 h-2.5 opacity-50 border-b border-r border-foreground rotate-45 mb-0.5;
+  }
+
+  .phone-input-wrapper .PhoneInputCountryIcon {
+    @apply w-5 h-4 rounded-sm overflow-hidden shrink-0;
+  }
+
+  .phone-input-wrapper .PhoneInputCountryIcon--border {
+    box-shadow: none;
+  }
+
+  .phone-input-wrapper .PhoneInputInput {
+    @apply flex-1 h-full bg-transparent px-3 text-sm outline-none placeholder:text-muted-foreground text-foreground;
+    border: none;
+  }
+
+  .phone-input-wrapper:focus-within .PhoneInput {
+    @apply ring-1 ring-ring border-ring;
+  }
 }
 
 @layer utilities {

@@ -5,7 +5,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Loader2, LogIn, UserPlus, Eye, EyeOff, Shield, Fingerprint, Wallet, ArrowRightLeft, ShieldCheck, Zap, Phone, KeyRound, User, Mail, Lock } from "lucide-react";
+import { Loader2, LogIn, UserPlus, Eye, EyeOff, Shield, Fingerprint, Wallet, ArrowRightLeft, ShieldCheck, Zap, KeyRound, User, Mail, Lock } from "lucide-react";
+import { PhoneInput } from "@/components/phone-input";
 import logoImg from "@/assets/logo.png";
 import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
@@ -212,22 +213,17 @@ function ForgotPinForm({ email, onBack }: { email: string; onBack: () => void })
         <p className="text-sm text-muted-foreground mt-1">{t.security.forgotPinSubtitle}</p>
       </div>
       <div>
-        <label className="text-sm font-medium">{t.security.forgotPinPhone}</label>
-        <div className="relative mt-1">
-          <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <Input
-            placeholder="+509XXXXXXXX"
-            value={phone}
-            onChange={(e) => setPhone(e.target.value)}
-            className="pl-10"
-            data-testid="input-forgot-pin-phone"
-          />
-        </div>
+        <label className="text-sm font-medium mb-1.5 block">{t.security.forgotPinPhone}</label>
+        <PhoneInput
+          value={phone}
+          onChange={setPhone}
+          data-testid="input-forgot-pin-phone"
+        />
       </div>
       <Button
         className="w-full primary-gradient"
         onClick={handleSendCode}
-        disabled={phone.length < 8 || isPending}
+        disabled={!phone || phone.length < 8 || isPending}
         data-testid="button-forgot-pin-send"
       >
         {isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Shield className="w-4 h-4 mr-2" />}
@@ -612,19 +608,11 @@ function SignUpForm() {
             <FormItem>
               <FormLabel>{t.login.whatsappNumber || "WhatsApp Number"}</FormLabel>
               <FormControl>
-                <div className="flex gap-2">
-                  <div className="flex items-center gap-1.5 px-3 rounded-md border bg-muted/50 text-sm font-medium shrink-0 select-none">
-                    🇭🇹 +509
-                  </div>
-                  <Input
-                    placeholder="XXXXXXXX"
-                    inputMode="numeric"
-                    className="flex-1"
-                    data-testid="input-register-phone"
-                    value={field.value?.replace(/^\+509/, "") ?? ""}
-                    onChange={(e) => field.onChange("+509" + e.target.value.replace(/\D/g, ""))}
-                  />
-                </div>
+                <PhoneInput
+                  value={field.value ?? ""}
+                  onChange={field.onChange}
+                  data-testid="input-register-phone"
+                />
               </FormControl>
               <FormMessage />
             </FormItem>
