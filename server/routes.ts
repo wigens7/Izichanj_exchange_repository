@@ -833,10 +833,11 @@ export async function registerRoutes(
     }
     if (profile.kycStatus === "verified") return res.status(400).json({ message: "KYC already approved" });
     if (profile.kycStatus === "pending") return res.status(400).json({ message: "KYC already submitted and under review" });
-    const { idDocumentUrl, idDocumentBackUrl, selfieUrl, idType, idNumber } = req.body;
+    const { idDocumentUrl, idDocumentBackUrl, selfieUrl, idType, idNumber, addressLine1 } = req.body;
     if (!idDocumentUrl || !idDocumentBackUrl || !selfieUrl) return res.status(400).json({ message: "Missing documents" });
     if (!idType || !idNumber) return res.status(400).json({ message: "ID type and ID number are required" });
-    const kyc = await storage.createKyc({ profileId: profile.id, idDocumentUrl, idDocumentBackUrl, selfieUrl, idType, idNumber });
+    if (!addressLine1) return res.status(400).json({ message: "Address line 1 is required" });
+    const kyc = await storage.createKyc({ profileId: profile.id, idDocumentUrl, idDocumentBackUrl, selfieUrl, idType, idNumber, addressLine1 });
 
     // Notify admin
     const admins = await storage.getAllProfiles();
@@ -1049,6 +1050,9 @@ export async function registerRoutes(
           country: kycProfile.country || "Haiti",
           id_type: kyc?.idType || "national_id",
           id_number: kyc?.idNumber || kycProfile.email,
+          address_line_1: kyc?.addressLine1 || kycProfile.city || "",
+          user_photo: kyc?.selfieUrl || "",
+          id_image: kyc?.idDocumentUrl || "",
         };
         console.log("[STROWALLET][AUTO-KYC] Registering cardholder for profile:", profileId);
         const proxyUrl = process.env.PROXY_URL;
@@ -1101,6 +1105,32 @@ export async function registerRoutes(
     }
     const kyc = await storage.getKyc(profileId);
     res.json(kyc);
+  });
+
+  // POST /api/admin/kyc/:id/request-resubmit — delete KYC docs, reset status, notify user
+  app.post("/api/admin/kyc/:id/request-resubmit", isAuthenticated, isAdmin, async (req: any, res) => {
+    try {
+      const profileId = Number(req.params.id);
+      await storage.requestKycResubmit(profileId);
+      const resubmitMsg = "Your KYC documents have been flagged for re-review. Please resubmit your identity documents to regain full access to Izichanj services.";
+      await storage.createNotification({
+        profileId,
+        type: "kyc_rejected",
+        title: "KYC Re-submission Required",
+        message: resubmitMsg,
+      });
+      const resubmitProfile = await storage.getProfile(profileId);
+      if (resubmitProfile?.phone) {
+        sendWhatsAppNotification(
+          resubmitProfile.phone,
+          `*Izichanj*\n\n🔄 KYC Re-submission Required\n\n${resubmitMsg}\n\nhttps://izichanj.com`,
+          resubmitProfile.fullName
+        );
+      }
+      res.json({ success: true });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message || "Internal error" });
+    }
   });
 
   app.get(api.admin.allDeposits.path, isAuthenticated, isAdmin, async (req: any, res) => {
@@ -1972,14 +2002,17 @@ export async function registerRoutes(
         return res.json({ success: true, customerId: profile.strowalletCustomerId, alreadyRegistered: true });
       }
 
-      const { idType, idNumber } = req.body;
+      const { idType, idNumber, addressLine1: bodyAddressLine1 } = req.body;
       if (!idType || !idNumber) return res.status(400).json({ message: "ID type and ID number are required" });
+
+      const kycDoc = await storage.getKyc(profile.id);
 
       const firstName = profile.firstName || profile.fullName.split(" ")[0] || "";
       const lastName = profile.lastName || profile.fullName.split(" ").slice(1).join(" ") || firstName;
       const dob = profile.dateOfBirth || "";
       const country = profile.country || "Haiti";
       const phone = profile.phone || "";
+      const addressLine1 = bodyAddressLine1 || kycDoc?.addressLine1 || profile.city || "";
 
       const payload = {
         public_key: strowalletPublicKey,
@@ -1991,6 +2024,9 @@ export async function registerRoutes(
         country,
         id_type: idType,
         id_number: idNumber,
+        address_line_1: addressLine1,
+        user_photo: kycDoc?.selfieUrl || "",
+        id_image: kycDoc?.idDocumentUrl || "",
       };
 
       console.log("[STROWALLET][CARDHOLDER] Registering:", { email: profile.email, idType });

@@ -4,6 +4,8 @@
 A secure fintech mobile web app for converting USDT (TRC20/BEP20) to MonCash/NatCash. Users register with email/password, complete KYC verification, submit deposits with transaction hashes, and request withdrawals to local mobile money accounts.
 
 ## Recent Changes
+- **Mar 14, 2026**: Added `addressLine1` field to KYC form (profile page). KYC now collects: ID front/back, selfie, ID type, ID number, and address line 1. All fields passed to Strowallet `/create-user/` payload (including `user_photo` from selfie URL and `id_image` from ID doc URL). Added admin "Request Re-upload KYC" button in KYC tab — deletes old KYC documents, resets `kycStatus` to `not_submitted`, clears `strowalletCustomerId`, sends WhatsApp + in-app notification. KYC document viewer modal now shows ID type, ID number, and address above the images. New endpoint: `POST /api/admin/kyc/:id/request-resubmit`.
+
 - **Feb 16, 2026**: Added P2P fund transfer system. Users can send USDT to other users by reference ID, email, or phone. Send Funds page with recipient lookup, amount input, note, and transfer history. Profile shows copyable reference ID for KYC-verified users. Full i18n (EN/FR/HT). Endpoints: POST /api/transfers/lookup, POST /api/transfers/send, GET /api/transfers.
 - **Feb 16, 2026**: WhatsApp OTP delivery via UltraMsg API. Env vars: ULTRAMSG_INSTANCE_ID, ULTRAMSG_TOKEN.
 - **Feb 15, 2026**: Added forgot PIN recovery flow. Users who forget their 4-digit PIN can reset it via WhatsApp OTP verification. 3-step flow on login page: enter WhatsApp number → receive OTP → enter code + new PIN. Endpoints: POST /api/auth/forgot-pin, POST /api/auth/reset-pin. Schema added resetPinSchema. Full i18n support (EN/FR/HT).

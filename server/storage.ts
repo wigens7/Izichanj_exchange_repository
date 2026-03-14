@@ -26,9 +26,10 @@ export interface IStorage {
   getWithdrawals(profileId?: number): Promise<Withdrawal[]>;
   updateWithdrawalStatus(id: number, status: "approved" | "rejected"): Promise<Withdrawal>;
 
-  createKyc(kyc: { profileId: number; idDocumentUrl: string; idDocumentBackUrl: string; selfieUrl: string; idType?: string; idNumber?: string }): Promise<KycDocument>;
+  createKyc(kyc: { profileId: number; idDocumentUrl: string; idDocumentBackUrl: string; selfieUrl: string; idType?: string; idNumber?: string; addressLine1?: string }): Promise<KycDocument>;
   getKyc(profileId: number): Promise<KycDocument | undefined>;
   getAllKyc(): Promise<(KycDocument & { profile: Profile })[]>;
+  requestKycResubmit(profileId: number): Promise<void>;
   updateKycStatus(profileId: number, status: "verified" | "rejected"): Promise<void>;
   updateProfile(id: number, data: Partial<Profile>): Promise<Profile>;
   setUserBanStatus(id: number, isBanned: boolean): Promise<Profile>;
@@ -187,7 +188,7 @@ export class DatabaseStorage implements IStorage {
     return withdrawal;
   }
 
-  async createKyc(kyc: { profileId: number; idDocumentUrl: string; idDocumentBackUrl: string; selfieUrl: string; idType?: string; idNumber?: string }): Promise<KycDocument> {
+  async createKyc(kyc: { profileId: number; idDocumentUrl: string; idDocumentBackUrl: string; selfieUrl: string; idType?: string; idNumber?: string; addressLine1?: string }): Promise<KycDocument> {
     const existing = await this.getKyc(kyc.profileId);
     if (existing) {
       const [updated] = await db.update(kycDocuments).set(kyc).where(eq(kycDocuments.profileId, kyc.profileId)).returning();
@@ -211,6 +212,11 @@ export class DatabaseStorage implements IStorage {
 
   async updateKycStatus(profileId: number, status: "verified" | "rejected"): Promise<void> {
     await db.update(profiles).set({ kycStatus: status }).where(eq(profiles.id, profileId));
+  }
+
+  async requestKycResubmit(profileId: number): Promise<void> {
+    await db.delete(kycDocuments).where(eq(kycDocuments.profileId, profileId));
+    await db.update(profiles).set({ kycStatus: "not_submitted", strowalletCustomerId: null }).where(eq(profiles.id, profileId));
   }
 
   async updateProfile(id: number, data: Partial<Profile>): Promise<Profile> {

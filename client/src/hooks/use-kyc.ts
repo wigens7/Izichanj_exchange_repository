@@ -20,7 +20,7 @@ export function useUploadKyc() {
   const { toast } = useToast();
 
   return useMutation({
-    mutationFn: async (data: { idDocumentUrl: string, idDocumentBackUrl: string, selfieUrl: string, idType?: string, idNumber?: string }) => {
+    mutationFn: async (data: { idDocumentUrl: string, idDocumentBackUrl: string, selfieUrl: string, idType?: string, idNumber?: string, addressLine1?: string }) => {
       const res = await fetch(api.kyc.upload.path, {
         method: api.kyc.upload.method,
         headers: { "Content-Type": "application/json" },

@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { StatusBadge } from "@/components/status-badge";
-import { Loader2, UploadCloud, CheckCircle2, Globe, Clock, User, UserCheck, Copy, Check, FileText } from "lucide-react";
+import { Loader2, UploadCloud, CheckCircle2, Globe, Clock, User, UserCheck, Copy, Check, FileText, MapPin } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
@@ -32,6 +32,7 @@ export default function ProfilePage() {
   const [selfieUrl, setSelfieUrl] = useState<string>("");
   const [idType, setIdType] = useState<string>("");
   const [idNumber, setIdNumber] = useState<string>("");
+  const [addressLine1, setAddressLine1] = useState<string>("");
 
   const form = useForm<ProfileInfoInput>({
     resolver: zodResolver(profileInfoSchema),
@@ -75,8 +76,8 @@ export default function ProfilePage() {
   };
 
   const handleSubmitKyc = () => {
-    if (idUrl && idBackUrl && selfieUrl && idType && idNumber) {
-        submitKyc({ idDocumentUrl: idUrl, idDocumentBackUrl: idBackUrl, selfieUrl: selfieUrl, idType, idNumber });
+    if (idUrl && idBackUrl && selfieUrl && idType && idNumber && addressLine1) {
+        submitKyc({ idDocumentUrl: idUrl, idDocumentBackUrl: idBackUrl, selfieUrl: selfieUrl, idType, idNumber, addressLine1 });
     }
   };
 
@@ -355,9 +356,23 @@ export default function ProfilePage() {
                       </div>
                     </div>
 
+                    <div className="space-y-1.5">
+                      <Label className="text-sm">Address Line 1</Label>
+                      <div className="relative">
+                        <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                        <Input
+                          placeholder="e.g. 123 Main Street, Port-au-Prince"
+                          value={addressLine1}
+                          onChange={e => setAddressLine1(e.target.value)}
+                          className="pl-9"
+                          data-testid="input-kyc-address"
+                        />
+                      </div>
+                    </div>
+
                     <Button 
                       className="w-full primary-gradient" 
-                      disabled={!idUrl || !idBackUrl || !selfieUrl || !idType || !idNumber || isSubmitting || isUploading || !isProfileComplete}
+                      disabled={!idUrl || !idBackUrl || !selfieUrl || !idType || !idNumber || !addressLine1 || isSubmitting || isUploading || !isProfileComplete}
                       onClick={handleSubmitKyc}
                       data-testid="button-submit-kyc"
                     >

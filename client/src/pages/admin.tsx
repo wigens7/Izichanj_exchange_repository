@@ -60,6 +60,7 @@ import {
   Monitor,
   Clock,
   LogIn,
+  RefreshCw,
 } from "lucide-react";
 import { format } from "date-fns";
 import { usdtToHtg, formatHtg, formatUsdt } from "@shared/constants";
@@ -773,6 +774,26 @@ function KycTab() {
   const { mutate: verify, isPending: isVerifying } = useAdminVerifyKyc();
   const { mutate: rejectKyc, isPending: isRejecting } = useAdminRejectKyc();
   const [viewingUser, setViewingUser] = useState<any>(null);
+  const [resubmitConfirmId, setResubmitConfirmId] = useState<number | null>(null);
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  const { mutate: requestResubmit, isPending: isRequestingResubmit } = useMutation({
+    mutationFn: async (profileId: number) => {
+      const res = await apiRequest("POST", `/api/admin/kyc/${profileId}/request-resubmit`);
+      if (!res.ok) throw new Error("Failed to request resubmit");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/users"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/kyc"] });
+      setResubmitConfirmId(null);
+      toast({ title: "Re-upload Requested", description: "User has been notified to resubmit their KYC documents." });
+    },
+    onError: (e: Error) => {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    },
+  });
 
   const isLoading = usersLoading || kycLoading;
 
@@ -853,7 +874,7 @@ function KycTab() {
                     </TableCell>
                     <TableCell>
                       {user.kycStatus === "pending" ? (
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
                           <Button
                             size="sm"
                             onClick={() => verify(user.id)}
@@ -874,11 +895,41 @@ function KycTab() {
                             {isRejecting ? <Loader2 className="w-3 h-3 animate-spin" /> : <XCircle className="w-3 h-3 mr-1" />}
                             Reject
                           </Button>
+                          {resubmitConfirmId === user.id ? (
+                            <div className="flex items-center gap-1">
+                              <span className="text-xs text-muted-foreground">Sure?</span>
+                              <Button size="sm" variant="destructive" onClick={() => requestResubmit(user.id)} disabled={isRequestingResubmit} data-testid={`button-confirm-resubmit-${user.id}`}>
+                                {isRequestingResubmit ? <Loader2 className="w-3 h-3 animate-spin" /> : "Yes"}
+                              </Button>
+                              <Button size="sm" variant="ghost" onClick={() => setResubmitConfirmId(null)}>No</Button>
+                            </div>
+                          ) : (
+                            <Button size="sm" variant="outline" onClick={() => setResubmitConfirmId(user.id)} data-testid={`button-request-resubmit-${user.id}`}>
+                              <RefreshCw className="w-3 h-3 mr-1" />
+                              Re-upload
+                            </Button>
+                          )}
                         </div>
                       ) : (
-                        <span className="text-sm text-muted-foreground">
-                          {user.kycStatus === "verified" ? "Verified" : "Rejected"}
-                        </span>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-sm text-muted-foreground">
+                            {user.kycStatus === "verified" ? "Verified" : "Rejected"}
+                          </span>
+                          {resubmitConfirmId === user.id ? (
+                            <div className="flex items-center gap-1">
+                              <span className="text-xs text-muted-foreground">Sure?</span>
+                              <Button size="sm" variant="destructive" onClick={() => requestResubmit(user.id)} disabled={isRequestingResubmit} data-testid={`button-confirm-resubmit-${user.id}`}>
+                                {isRequestingResubmit ? <Loader2 className="w-3 h-3 animate-spin" /> : "Yes"}
+                              </Button>
+                              <Button size="sm" variant="ghost" onClick={() => setResubmitConfirmId(null)}>No</Button>
+                            </div>
+                          ) : (
+                            <Button size="sm" variant="outline" onClick={() => setResubmitConfirmId(user.id)} data-testid={`button-request-resubmit-${user.id}`}>
+                              <RefreshCw className="w-3 h-3 mr-1" />
+                              Re-upload
+                            </Button>
+                          )}
+                        </div>
                       )}
                     </TableCell>
                   </TableRow>
@@ -917,33 +968,48 @@ function KycTab() {
               const docs = getKycDocsForUser(viewingUser.id);
               if (!docs) return <p className="text-muted-foreground">No documents found.</p>;
               return (
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                  <div className="space-y-2">
-                    <p className="text-sm font-medium">ID Card (Front)</p>
-                    <img
-                      src={docs.idDocumentUrl}
-                      alt="ID Front"
-                      className="w-full rounded-md border border-border object-contain max-h-64"
-                      data-testid="img-kyc-id-front"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <p className="text-sm font-medium">ID Card (Back)</p>
-                    <img
-                      src={docs.idDocumentBackUrl}
-                      alt="ID Back"
-                      className="w-full rounded-md border border-border object-contain max-h-64"
-                      data-testid="img-kyc-id-back"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <p className="text-sm font-medium">Selfie</p>
-                    <img
-                      src={docs.selfieUrl}
-                      alt="Selfie"
-                      className="w-full rounded-md border border-border object-contain max-h-64"
-                      data-testid="img-kyc-selfie"
-                    />
+                <div className="space-y-4">
+                  {(docs.idType || docs.idNumber || docs.addressLine1) && (
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-muted/30 rounded-md p-3 text-sm">
+                      {docs.idType && (
+                        <div><span className="text-muted-foreground">ID Type: </span><span className="font-medium capitalize">{docs.idType.replace(/_/g, " ")}</span></div>
+                      )}
+                      {docs.idNumber && (
+                        <div><span className="text-muted-foreground">ID Number: </span><span className="font-medium">{docs.idNumber}</span></div>
+                      )}
+                      {docs.addressLine1 && (
+                        <div><span className="text-muted-foreground">Address: </span><span className="font-medium">{docs.addressLine1}</span></div>
+                      )}
+                    </div>
+                  )}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div className="space-y-2">
+                      <p className="text-sm font-medium">ID Card (Front)</p>
+                      <img
+                        src={docs.idDocumentUrl}
+                        alt="ID Front"
+                        className="w-full rounded-md border border-border object-contain max-h-64"
+                        data-testid="img-kyc-id-front"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <p className="text-sm font-medium">ID Card (Back)</p>
+                      <img
+                        src={docs.idDocumentBackUrl}
+                        alt="ID Back"
+                        className="w-full rounded-md border border-border object-contain max-h-64"
+                        data-testid="img-kyc-id-back"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <p className="text-sm font-medium">Selfie / User Photo</p>
+                      <img
+                        src={docs.selfieUrl}
+                        alt="Selfie"
+                        className="w-full rounded-md border border-border object-contain max-h-64"
+                        data-testid="img-kyc-selfie"
+                      />
+                    </div>
                   </div>
                 </div>
               );
