@@ -1,14 +1,11 @@
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { z } from "zod";
 import { useState, useEffect, useRef } from "react";
 import { useUser } from "@/hooks/use-auth";
 import { useLanguage } from "@/lib/i18n";
-import { EXCHANGE_RATE_USDT_HTG, usdtToHtg, formatHtg, formatUsdt } from "@shared/constants";
+import { EXCHANGE_RATE_USDT_HTG, usdtToHtg, formatHtg, formatUsdt, NETWORK_FEE_CONFIG, type NetworkCurrency } from "@shared/constants";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Copy, Loader2, ShieldAlert, ArrowRight, Smartphone, Bitcoin, CheckCircle2, AlertCircle, Clock, RefreshCw } from "lucide-react";
+import { Copy, Loader2, ShieldAlert, ArrowRight, Smartphone, Bitcoin, CheckCircle2, AlertCircle, Clock, RefreshCw, Network } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { useToast } from "@/hooks/use-toast";
 import { Link } from "wouter";
@@ -24,12 +21,20 @@ interface NowPaymentInfo {
   expirationDate: string;
 }
 
+type NetworkKey = "trc20" | "bep20";
+
+const NETWORK_MAP: Record<NetworkKey, NetworkCurrency> = {
+  trc20: "usdttrc20",
+  bep20: "usdtbsc",
+};
+
 export default function DepositPage() {
   const { data: user } = useUser();
   const { toast } = useToast();
   const { t } = useLanguage();
   const kycVerified = user?.kycStatus === "verified";
   const [depositMethod, setDepositMethod] = useState<"crypto" | "moncash">("crypto");
+  const [selectedNetwork, setSelectedNetwork] = useState<NetworkKey>("trc20");
 
   const [cryptoAmount, setCryptoAmount] = useState("");
   const [cryptoLoading, setCryptoLoading] = useState(false);
@@ -37,8 +42,14 @@ export default function DepositPage() {
   const [paymentStatus, setPaymentStatus] = useState<string>("waiting");
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  const networkCurrency = NETWORK_MAP[selectedNetwork];
+  const networkConfig = NETWORK_FEE_CONFIG[networkCurrency];
   const cryptoUsdt = parseFloat(cryptoAmount) || 0;
-  const cryptoHtg = usdtToHtg(cryptoUsdt);
+  const networkFee = networkConfig.fee;
+  const creditedUsdt = Math.max(0, cryptoUsdt - networkFee);
+  const creditedHtg = usdtToHtg(creditedUsdt);
+  const belowMinimum = cryptoUsdt > 0 && cryptoUsdt < networkConfig.minAmount;
+  const canSubmit = cryptoUsdt >= networkConfig.minAmount && kycVerified;
 
   useEffect(() => {
     return () => {
@@ -66,14 +77,18 @@ export default function DepositPage() {
   };
 
   const handleCreatePayment = async () => {
-    if (cryptoUsdt <= 0) return;
+    if (!canSubmit) return;
     setCryptoLoading(true);
     try {
       const res = await apiRequest("POST", "/api/nowpayments/create-payment", {
         amountUsdt: cryptoAmount,
-        payCurrency: "usdttrc20",
+        payCurrency: networkCurrency,
       });
       const data = await res.json();
+      if (!res.ok) {
+        toast({ title: "Error", description: data.message || "Failed to create payment", variant: "destructive" });
+        return;
+      }
       if (data.payAddress) {
         setPaymentInfo(data);
         setPaymentStatus("waiting");
@@ -167,36 +182,88 @@ export default function DepositPage() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div>
-              <label className="text-sm font-medium">{t.deposit.npAmount}</label>
-              <Input
-                type="number"
-                step="0.01"
-                min="1"
-                placeholder="10.00"
-                value={cryptoAmount}
-                onChange={(e) => setCryptoAmount(e.target.value)}
-                className="mt-1.5"
-                data-testid="input-crypto-amount"
-              />
-              <p className="text-xs text-muted-foreground mt-1">{t.deposit.npCurrency}</p>
+              <label className="text-sm font-medium mb-1.5 block">Network</label>
+              <div className="grid grid-cols-2 gap-2" data-testid="network-selector">
+                <button
+                  type="button"
+                  onClick={() => { setSelectedNetwork("trc20"); setCryptoAmount(""); }}
+                  data-testid="button-network-trc20"
+                  className={`flex flex-col items-center gap-1 py-3 px-4 rounded-lg border text-sm font-medium transition-all ${
+                    selectedNetwork === "trc20"
+                      ? "border-primary bg-primary/10 text-primary"
+                      : "border-border bg-muted/30 text-muted-foreground hover:border-primary/40"
+                  }`}
+                >
+                  <span className="font-bold">TRC20</span>
+                  <span className="text-xs opacity-70">TRON · Min $12.00 · Fee $1.50</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setSelectedNetwork("bep20"); setCryptoAmount(""); }}
+                  data-testid="button-network-bep20"
+                  className={`flex flex-col items-center gap-1 py-3 px-4 rounded-lg border text-sm font-medium transition-all ${
+                    selectedNetwork === "bep20"
+                      ? "border-primary bg-primary/10 text-primary"
+                      : "border-border bg-muted/30 text-muted-foreground hover:border-primary/40"
+                  }`}
+                >
+                  <span className="font-bold">BEP20</span>
+                  <span className="text-xs opacity-70">BSC · Min $10.25 · Fee $0.25</span>
+                </button>
+              </div>
             </div>
 
-            {cryptoUsdt > 0 && (
-              <div className="p-3 bg-muted/50 rounded-md border border-border" data-testid="crypto-conversion-preview">
-                <div className="flex items-center justify-between flex-wrap gap-2 text-sm">
-                  <span className="text-muted-foreground">1 USDT = {EXCHANGE_RATE_USDT_HTG.toFixed(2)} HTG</span>
-                  <div className="flex items-center gap-2">
-                    <span className="font-medium">{formatUsdt(cryptoUsdt)} USDT</span>
-                    <ArrowRight className="w-3 h-3 text-muted-foreground" />
-                    <span className="font-bold text-emerald-600 dark:text-emerald-400" data-testid="text-crypto-htg">{formatHtg(cryptoHtg)} HTG</span>
+            <div>
+              <label className="text-sm font-medium">{t.deposit.npAmount}</label>
+              <div className="relative mt-1.5">
+                <Input
+                  type="number"
+                  step="0.01"
+                  min={networkConfig.minAmount}
+                  placeholder={networkConfig.minAmount.toFixed(2)}
+                  value={cryptoAmount}
+                  onChange={(e) => setCryptoAmount(e.target.value)}
+                  className={`pr-16 ${belowMinimum ? "border-red-400 focus-visible:ring-red-400" : ""}`}
+                  data-testid="input-crypto-amount"
+                />
+                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground font-medium">USDT</span>
+              </div>
+              {belowMinimum && (
+                <p className="text-xs text-red-500 mt-1" data-testid="text-below-minimum">
+                  Minimum for {networkConfig.label}: ${networkConfig.minAmount.toFixed(2)} USDT
+                </p>
+              )}
+            </div>
+
+            {cryptoUsdt >= networkConfig.minAmount && (
+              <div className="rounded-lg border border-border bg-muted/30 divide-y divide-border overflow-hidden" data-testid="fee-summary">
+                <div className="flex items-center justify-between px-4 py-2.5 text-sm">
+                  <span className="text-muted-foreground">Amount to Send</span>
+                  <span className="font-medium">${formatUsdt(cryptoUsdt)} USDT</span>
+                </div>
+                <div className="flex items-center justify-between px-4 py-2.5 text-sm">
+                  <span className="text-muted-foreground">Network Fee ({networkConfig.label})</span>
+                  <span className="font-medium text-red-500">−${networkFee.toFixed(2)} USDT</span>
+                </div>
+                <div className="flex items-center justify-between px-4 py-2.5 text-sm bg-emerald-500/5">
+                  <span className="font-semibold text-emerald-700 dark:text-emerald-400">Total to be Credited</span>
+                  <div className="text-right">
+                    <p className="font-bold text-emerald-700 dark:text-emerald-400">${formatUsdt(creditedUsdt)} USDT</p>
+                    <p className="text-xs text-muted-foreground">{formatHtg(creditedHtg)} HTG</p>
                   </div>
                 </div>
               </div>
             )}
 
+            {cryptoUsdt > 0 && cryptoUsdt < networkConfig.minAmount && (
+              <div className="rounded-lg border border-border bg-muted/30 px-4 py-3 text-center text-xs text-muted-foreground">
+                1 USDT = {EXCHANGE_RATE_USDT_HTG.toFixed(2)} HTG
+              </div>
+            )}
+
             <Button
               className="w-full primary-gradient"
-              disabled={cryptoLoading || !kycVerified || cryptoUsdt <= 0}
+              disabled={cryptoLoading || !canSubmit}
               onClick={handleCreatePayment}
               data-testid="button-create-crypto-payment"
             >
@@ -207,8 +274,8 @@ export default function DepositPage() {
                 </>
               ) : (
                 <>
-                  <Bitcoin className="w-4 h-4 mr-2" />
-                  {t.deposit.npPayButton}
+                  <Network className="w-4 h-4 mr-2" />
+                  Generate {networkConfig.label} Address
                 </>
               )}
             </Button>
@@ -261,14 +328,20 @@ export default function DepositPage() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div className="p-3 rounded-md border border-border bg-muted/30">
-                  <p className="text-xs text-muted-foreground mb-0.5">{t.deposit.npAmountToSend}</p>
-                  <p className="font-mono text-sm font-bold" data-testid="text-pay-amount">{paymentInfo.payAmount} {paymentInfo.payCurrency.toUpperCase()}</p>
+              <div className="rounded-lg border border-border bg-muted/30 divide-y divide-border overflow-hidden">
+                <div className="flex items-center justify-between px-4 py-2.5 text-sm">
+                  <span className="text-muted-foreground">Send Exactly</span>
+                  <span className="font-mono font-bold" data-testid="text-pay-amount">{paymentInfo.payAmount} {paymentInfo.payCurrency.toUpperCase()}</span>
                 </div>
-                <div className="p-3 rounded-md border border-border bg-muted/30">
-                  <p className="text-xs text-muted-foreground mb-0.5">{t.deposit.npYouReceive}</p>
-                  <p className="font-mono text-sm font-bold text-emerald-600 dark:text-emerald-400" data-testid="text-receive-amount">{formatHtg(usdtToHtg(parseFloat(String(cryptoAmount)) || 0))} HTG</p>
+                <div className="flex items-center justify-between px-4 py-2.5 text-sm">
+                  <span className="text-muted-foreground">Network</span>
+                  <Badge variant="outline" className="text-xs">
+                    {NETWORK_FEE_CONFIG[paymentInfo.payCurrency as NetworkCurrency]?.label ?? paymentInfo.payCurrency.toUpperCase()}
+                  </Badge>
+                </div>
+                <div className="flex items-center justify-between px-4 py-2.5 text-sm bg-emerald-500/5">
+                  <span className="font-semibold text-emerald-700 dark:text-emerald-400">You Will Receive</span>
+                  <p className="font-bold text-emerald-700 dark:text-emerald-400" data-testid="text-receive-amount">{formatHtg(creditedHtg)} HTG</p>
                 </div>
               </div>
             </div>

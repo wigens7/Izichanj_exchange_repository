@@ -1,101 +1,48 @@
 # Izichanj - Crypto to Cash Exchange Platform
 
 ## Overview
-A secure fintech mobile web app for converting USDT (TRC20/BEP20) to MonCash/NatCash. Users register with email/password, complete KYC verification, submit deposits with transaction hashes, and request withdrawals to local mobile money accounts.
+Izichanj is a secure fintech mobile web application designed to facilitate the conversion of USDT (TRC20/BEP20) to local mobile money (MonCash/NatCash). The platform aims to provide a seamless and secure experience for users to manage their crypto and fiat currencies, including features like KYC verification, automated crypto deposits, P2P transfers, virtual Visa cards, and comprehensive customer support. The project envisions becoming a leading platform for crypto-to-cash exchanges in its target market, offering a robust and user-friendly solution for digital asset liquidity.
 
-## Recent Changes
-- **Mar 14, 2026**: Added `addressLine1` field to KYC form (profile page). KYC now collects: ID front/back, selfie, ID type, ID number, and address line 1. All fields passed to Strowallet `/create-user/` payload (including `user_photo` from selfie URL and `id_image` from ID doc URL). Added admin "Request Re-upload KYC" button in KYC tab — deletes old KYC documents, resets `kycStatus` to `not_submitted`, clears `strowalletCustomerId`, sends WhatsApp + in-app notification. KYC document viewer modal now shows ID type, ID number, and address above the images. New endpoint: `POST /api/admin/kyc/:id/request-resubmit`.
+## User Preferences
+I prefer clear, concise language.
+I prefer an iterative development approach with regular updates.
+Please ask for confirmation before implementing major architectural changes.
+I value detailed explanations for complex features or decisions.
+Do not make changes to files in the `server/replit_integrations/object_storage/` directory without explicit instruction.
 
-- **Feb 16, 2026**: Added P2P fund transfer system. Users can send USDT to other users by reference ID, email, or phone. Send Funds page with recipient lookup, amount input, note, and transfer history. Profile shows copyable reference ID for KYC-verified users. Full i18n (EN/FR/HT). Endpoints: POST /api/transfers/lookup, POST /api/transfers/send, GET /api/transfers.
-- **Feb 16, 2026**: WhatsApp OTP delivery via UltraMsg API. Env vars: ULTRAMSG_INSTANCE_ID, ULTRAMSG_TOKEN.
-- **Feb 15, 2026**: Added forgot PIN recovery flow. Users who forget their 4-digit PIN can reset it via WhatsApp OTP verification. 3-step flow on login page: enter WhatsApp number → receive OTP → enter code + new PIN. Endpoints: POST /api/auth/forgot-pin, POST /api/auth/reset-pin. Schema added resetPinSchema. Full i18n support (EN/FR/HT).
-- **Feb 13, 2026**: Integrated NOWPayments API for automated crypto deposits. Users enter USDT amount, backend creates payment via NOWPayments API, frontend displays payment address with status polling (15s interval). IPN callback auto-approves deposits after blockchain confirmation and credits user balance. Deposit page has two tabs: Crypto (NOWPayments) and MonCash (Coming Soon). Schema updated with 'nowpayments' depositMethod, nowpaymentsPaymentId, payAddress, payCurrency columns. Admin shows "Crypto (Auto)" badge for NOWPayments deposits. Full i18n support (EN/FR/HT). Endpoints: POST /api/nowpayments/create-payment, GET /api/nowpayments/payment-status/:paymentId, POST /api/nowpayments/ipn.
-- **Feb 13, 2026**: Integrated MonCash payment gateway for deposits (currently disabled - partner blocked). MonCash deposits are auto-approved after payment verification. Backend: OAuth 2.0 token flow, CreatePayment, RetrieveTransactionPayment endpoints. Schema updated with depositMethod enum (usdt/moncash/nowpayments), amountHtg, moncashTransactionId columns on deposits table. MonCash sandbox URL: sandbox.moncashbutton.digicelgroup.com.
-- **Feb 12, 2026**: Built Virtual Cards (Visa) frontend page at /virtual-cards with Strowallet API integration. Users can apply for virtual Visa cards, fund them from USDT balance, view card details (number, expiry, CVV), freeze/unfreeze cards, and view transaction history. Added CreditCard navigation item in sidebar. Full i18n support (EN/FR/HT).
-- **Feb 12, 2026**: Added 10-digit reference ID system for all users. Reference IDs auto-generated on registration and backfilled for existing users. Admin can search users by reference ID. Added account deletion with permanent blacklisting (email, phone, personal info). Deleted/blacklisted users cannot login or create new accounts. Enhanced admin Users tab with search bar, expandable user details showing full personal information, signup date/time, and delete account button with confirmation.
-- **Feb 12, 2026**: Added admin feature to temporarily ban users. Banned users are restricted from withdrawing funds and see a warning message when attempting to do so. Updated profiles schema with `isBanned` field and added ban management to the admin panel.
-- **Feb 12, 2026**: Enforced mandatory personal information before KYC verification and implemented a permanent lock once saved. Added firstName, lastName, dateOfBirth, country, and city fields to profiles schema and Profile page. Users must complete these fields and save them before the KYC document upload section becomes active. Once saved, these fields become read-only for the user's lifetime. Backend updated to prevent further updates to these fields once they are set.
-- **Feb 11, 2026**: Rebranded app from EasyChange to Izichanj. Updated app name in all UI components, notification messages, and translations. Replaced Wallet icons with the new custom logo asset. Removed all remaining Replit logo references.
-- **Feb 11, 2026**: Replaced email OTP with WhatsApp OTP via UltraMsg API. All OTP delivery (registration, login verification, withdrawal, password reset) now sent via WhatsApp. Added phone field to profiles schema and registration form. Added forgot password flow: user enters WhatsApp number, receives OTP, enters code + new password. New page /forgot-password with 3-step flow (phone -> code+password -> success). New endpoints: POST /api/auth/forgot-password, POST /api/auth/reset-password. Updated verify-email page to reference WhatsApp. All i18n translations updated (EN/FR/HT).
-- **Feb 11, 2026**: Added file attachment capability to support chat. Users and admins can attach files (images, PDFs, docs, etc.) up to 10MB via paperclip button. Files uploaded to Replit Object Storage with presigned URLs. Images display inline as thumbnails, other files show as downloadable links. Schema updated with fileUrl/fileName columns in support_messages. Endpoints: POST /api/support/upload, POST /api/admin/support/upload for presigned URL generation.
-- **Feb 11, 2026**: Enhanced support chat with end chat + star rating. Users see "End Chat" button in chat header, clicking shows 5-star rating UI. After rating and ending, users can start a new conversation anytime. Admin close sends automatic goodbye message. Conversations auto-close after 5 minutes of inactivity with bot goodbye. Schema updated with rating (1-5) and closedBy columns. Admin panel shows star ratings on closed conversations.
-- **Feb 11, 2026**: Added support chat system. Floating chat bubble on all pages with bot FAQ (deposit, withdraw, KYC, balance, rates, security) and live agent support. Users can chat with bot or request agent. Admin panel has 6th "Support" tab with conversation list, message view, reply functionality, and close conversation. Auto-message when user requests agent: "Please be patient, an agent will talk to you soon." DB tables: support_conversations (status: active/waiting_agent/closed), support_messages (sender: user/bot/admin). i18n for EN/FR/HT.
-- **Feb 11, 2026**: Integrated SendGrid for real email delivery. OTP verification codes now sent via SendGrid with branded HTML email template. Sender: wigens7@gmail.com. Falls back to console logging if SENDGRID_API_KEY is not set.
-- **Feb 11, 2026**: Added notification system. Bell icon in mobile header and desktop top bar with unread count badge, dropdown showing notifications, mark read/all read, sound alerts (Web Audio API beep) when new notifications arrive. Auto-notifications created when admin approves/rejects deposits, withdrawals, KYC. Admin panel has 5th "Messages" tab for sending custom notifications to users (title + message to selected user). Notifications table in DB with types: deposit_approved, deposit_rejected, withdrawal_approved, withdrawal_rejected, kyc_verified, kyc_rejected, custom_message.
-- **Feb 11, 2026**: Complete fintech design overhaul. New color system with deep navy sidebar (hsl 228), refined indigo/purple primary gradient, professional dark mode. Login page has split layout with feature showcase (desktop). Layout shell has dark sidebar with balance widget and branded header. All pages redesigned with consistent card layouts, status badges with dark mode support, and polished typography using Inter + Outfit fonts.
-- **Feb 11, 2026**: Added exchange rate system (1 USDT = 139.50 HTG). Created shared/constants.ts with EXCHANGE_RATE_USDT_HTG and conversion utilities (usdtToHtg, htgToUsdt, formatHtg, formatUsdt). Dashboard shows balance and totals in HTG. Withdrawal form accepts USDT amounts with live HTG conversion preview. Deposit page shows HTG equivalent. Admin panel shows USDT amounts with HTG value columns. Transaction history shows both USDT and HTG. Updated i18n for all 3 languages.
-- **Feb 10, 2026**: Added 2FA (TOTP) and WebAuthn fingerprint/biometric authentication. New /security page for managing 2FA and registered biometric devices. Login flow handles 2FA verification step. Fingerprint login option on login page.
-- **Feb 10, 2026**: Added withdrawal method choice: users can withdraw via phone number or QR code. QR code method requires uploading a QR code image. Updated schema (withdrawMethod, qrCodeUrl columns), backend validation, frontend UI with method toggle, and admin panel display.
-- **Feb 10, 2026**: Added multi-language support (English, French, Haitian Creole). Language selector on profile page with localStorage persistence. All pages translated. Added KYC enforcement on deposit/withdrawal endpoints and pages.
-- **Feb 10, 2026**: Built comprehensive admin panel with 4 tabs (Users, Deposits, Withdrawals, KYC) with approve/reject functionality. Added email OTP verification flow after registration. Updated login/register redirects for verification. Fixed deposit/withdrawal type issues.
-- **Feb 10, 2026**: Replaced Replit Auth with custom email/password authentication. Added sign-up form with password confirmation, sign-in form, bcrypt password hashing. Removed authUserId dependency from profiles table.
+## System Architecture
+The application features a modern, secure architecture. The UI/UX is built with a fintech design overhaul, incorporating a deep navy sidebar, indigo/purple primary gradient, and professional dark mode, utilizing Inter and Outfit fonts. All pages are designed with consistent card layouts and status badges.
 
-## Architecture
-- **Authentication**: Custom email/password with bcrypt hashing, express-session stored in PostgreSQL
-- **2FA**: TOTP-based two-factor authentication using otplib, QR code setup
-- **WebAuthn**: Fingerprint/biometric login via SimpleWebAuthn
-- **Database**: PostgreSQL with Drizzle ORM
-  - `sessions` table (express-session storage via connect-pg-simple)
-  - `profiles` table (serial IDs, email/password auth, role, KYC status, balance, twoFactorSecret, twoFactorEnabled)
-  - `deposits`, `withdrawals`, `otps`, `kyc_documents`, `webauthn_credentials` tables reference `profiles.id`
-- **Object Storage**: Replit Object Storage for KYC document uploads
-- **Frontend**: React + Vite + TanStack Query + Wouter + Shadcn UI
-- **Backend**: Express.js
+**Technical Implementations:**
+- **Authentication**: Custom email/password authentication using bcrypt hashing and `express-session` stored in PostgreSQL. It supports 2FA (TOTP with `otplib`) and WebAuthn (fingerprint/biometric authentication via `SimpleWebAuthn`).
+- **Authorization**: Role-based access control, notably for the comprehensive admin panel.
+- **Internationalization**: Full multi-language support (English, French, Haitian Creole) with language selection and persistence.
+- **Deposits**:
+    - Automated crypto deposits via NOWPayments API for USDT (TRC20/BEP20), with IPN callback for auto-approval.
+    - Manual USDT deposit option requiring transaction hash submission.
+    - MonCash payment gateway integration (currently disabled).
+- **Withdrawals**: Users can withdraw to local mobile money accounts, with options for phone number or QR code.
+- **KYC Verification**: Mandatory KYC process involving ID document uploads, selfie, and personal information collection, integrated with Strowallet API. KYC status is managed with admin approval/rejection flows and options for re-submission requests.
+- **P2P Transfers**: Allows users to send USDT to other users via reference ID, email, or phone.
+- **Virtual Cards**: Integration with Strowallet API for virtual Visa cards, enabling users to apply, fund, view details, freeze/unfreeze, and track transactions.
+- **Notifications**: Real-time notification system with in-app alerts, unread counts, and sound, for various system events (e.g., deposit/withdrawal status, KYC updates, custom admin messages).
+- **Support Chat**: A floating chat bubble providing bot-based FAQs and live agent support with file attachment capabilities, conversation rating, and auto-closure.
+- **Exchange Rates**: Dynamic exchange rate system (1 USDT = 139.50 HTG) integrated throughout the platform for conversions and display.
+- **Security**: Account deletion with blacklisting, user banning features for administrators.
 
-## Key Files
-- `shared/schema.ts` - Drizzle schema (profiles, deposits, withdrawals, etc.) + Zod validation schemas
-- `shared/models/auth.ts` - Sessions table definition
-- `shared/routes.ts` - API route definitions with Zod schemas
-- `server/auth.ts` - Custom auth setup (session middleware, isAuthenticated)
-- `server/routes.ts` - Express route handlers (auth + business logic)
-- `server/storage.ts` - Database storage layer
-- `server/replit_integrations/object_storage/` - Object storage integration
-- `client/src/hooks/use-auth.ts` - Frontend auth hooks (useUser, useLogin, useRegister, useLogout)
-- `client/src/pages/login.tsx` - Sign in / Sign up tabbed forms
-- `client/src/components/layout-shell.tsx` - App layout with sidebar navigation
+**System Design Choices:**
+- **Database**: PostgreSQL is used as the primary database, managed with Drizzle ORM.
+- **Object Storage**: Replit Object Storage is utilized for storing KYC documents and support chat attachments.
+- **Frontend**: Developed using React, Vite, TanStack Query, Wouter, and Shadcn UI.
+- **Backend**: Built with Express.js.
 
-## Auth Endpoints
-- `POST /api/auth/register` - Register with fullName, email, password, confirmPassword (sends OTP)
-- `POST /api/auth/login` - Login with email, password (sends OTP if unverified)
-- `POST /api/auth/verify-email` - Verify email with { code }
-- `POST /api/auth/resend-otp` - Resend verification OTP
-- `POST /api/auth/logout` - Destroy session
-- `GET /api/user` - Get current authenticated profile
-- `POST /api/auth/verify-2fa` - Verify 2FA code during login
-
-## Security Endpoints (authenticated)
-- `POST /api/security/2fa/setup` - Generate 2FA secret and QR code
-- `POST /api/security/2fa/verify` - Verify TOTP code to enable 2FA
-- `POST /api/security/2fa/disable` - Disable 2FA with code verification
-- `GET /api/security/webauthn/credentials` - List registered WebAuthn devices
-- `POST /api/security/webauthn/register-options` - Get WebAuthn registration options
-- `POST /api/security/webauthn/register-verify` - Verify and save WebAuthn credential
-- `DELETE /api/security/webauthn/credentials/:id` - Remove a WebAuthn device
-- `POST /api/security/webauthn/auth-options` - Get WebAuthn authentication options (public)
-- `POST /api/security/webauthn/auth-verify` - Verify WebAuthn authentication (public)
-
-## Admin Endpoints (role=admin required)
-- `GET /api/admin/users` - List all users
-- `PATCH /api/admin/users/:id/balance` - Update user balance
-- `GET /api/admin/deposits` - List all deposits
-- `PATCH /api/admin/deposits/:id/approve` - Approve deposit
-- `PATCH /api/admin/deposits/:id/reject` - Reject deposit
-- `GET /api/admin/withdrawals` - List all withdrawals
-- `PATCH /api/admin/withdrawals/:id/approve` - Approve withdrawal
-- `PATCH /api/admin/withdrawals/:id/reject` - Reject withdrawal
-- `PATCH /api/admin/kyc/:id/verify` - Verify KYC
-- `PATCH /api/admin/kyc/:id/reject` - Reject KYC
-
-## USDT Deposit Addresses
-- TRC20: TRydVikZb957Y298cKsFL81aajz3sfaUmq
-- BEP20: 0xbd1a6e9f3bcb8179883799585ef9d6dc06b8a974
-
-## Admin Access
-After registering, manually set a profile's role to "admin" in the database:
-```sql
-UPDATE profiles SET role = 'admin' WHERE email = 'admin@example.com';
-```
-
-## Withdrawal OTP
-Uses email OTP for withdrawal verification (separate from login).
-Currently uses mock email sending (console.log). For production, integrate SendGrid/Nodemailer.
+## External Dependencies
+- **NOWPayments API**: For automated crypto deposit processing.
+- **Strowallet API**: For KYC verification and virtual Visa card management.
+- **UltraMsg API**: For WhatsApp OTP delivery (registration, login, password reset, PIN reset, withdrawal verification).
+- **SendGrid**: For sending transactional emails, such as OTP verification (fallback to console logging if API key not set).
+- **PostgreSQL**: Relational database for all application data.
+- **Replit Object Storage**: Cloud storage for files (KYC documents, chat attachments).
+- **MonCash Payment Gateway**: For MonCash deposits (currently disabled).
+- **otplib**: For TOTP-based 2FA generation and verification.
+- **SimpleWebAuthn**: For WebAuthn (biometric/fingerprint) authentication.

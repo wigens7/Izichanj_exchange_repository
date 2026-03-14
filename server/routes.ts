@@ -302,10 +302,19 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Amount must be greater than 0" });
       }
 
-      const currency = payCurrency || "usdttrc20";
-      const orderId = `NP-${profile.id}-${Date.now()}`;
+      const currency = (payCurrency === "usdtbsc" ? "usdtbsc" : "usdttrc20") as "usdttrc20" | "usdtbsc";
+      const FEE_CONFIG: Record<string, { minAmount: number; fee: number }> = {
+        usdttrc20: { minAmount: 12.00, fee: 1.50 },
+        usdtbsc:   { minAmount: 10.25, fee: 0.25 },
+      };
+      const networkConfig = FEE_CONFIG[currency];
       const amount = Number(amountUsdt);
-      const htgAmount = usdtToHtg(amount);
+      if (amount < networkConfig.minAmount) {
+        return res.status(400).json({ message: `Minimum deposit for ${currency === "usdtbsc" ? "BEP20" : "TRC20"} is $${networkConfig.minAmount.toFixed(2)} USDT.` });
+      }
+      const creditAmount = amount - networkConfig.fee;
+      const orderId = `NP-${profile.id}-${Date.now()}`;
+      const htgAmount = usdtToHtg(creditAmount);
 
       const response = await fetch(`${NOWPAYMENTS_BASE_URL}/payment`, {
         method: "POST",
@@ -342,7 +351,7 @@ export async function registerRoutes(
         amountHtg: htgAmount.toFixed(2),
         nowpaymentsPaymentId: String(paymentData.payment_id),
         payAddress: paymentData.pay_address,
-        payCurrency: paymentData.pay_currency,
+        payCurrency: currency,
       });
 
       res.json({
@@ -421,16 +430,19 @@ export async function registerRoutes(
         const profile = await storage.getProfile(deposit.profileId);
         if (profile) {
           const depositAmount = parseFloat(deposit.amountUsdt);
+          const DEPOSIT_FEES: Record<string, number> = { usdttrc20: 1.50, usdtbsc: 0.25 };
+          const fee = DEPOSIT_FEES[deposit.payCurrency || "usdttrc20"] ?? 1.50;
+          const creditAmount = Math.max(0, depositAmount - fee);
           const currentBalance = parseFloat(profile.balance);
-          const newBalance = currentBalance + depositAmount;
+          const newBalance = currentBalance + creditAmount;
           await storage.updateProfileBalance(deposit.profileId, newBalance);
 
-          const htgAmount = formatHtg(usdtToHtg(depositAmount));
+          const htgAmount = formatHtg(usdtToHtg(creditAmount));
           await storage.createNotification({
             profileId: deposit.profileId,
             type: "deposit_approved",
             title: "Crypto Deposit Approved",
-            message: `Your crypto deposit of ${depositAmount.toFixed(2)} USDT (${htgAmount} HTG) has been automatically confirmed and added to your balance.`,
+            message: `Your crypto deposit of ${depositAmount.toFixed(2)} USDT has been confirmed. After the $${fee.toFixed(2)} network fee, ${creditAmount.toFixed(2)} USDT (${htgAmount} HTG) was credited to your balance.`,
           });
 
           const admins = await storage.getAllProfiles();

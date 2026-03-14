@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Loader2, LogIn, UserPlus, Eye, EyeOff, Shield, Fingerprint, Wallet, ArrowRightLeft, ShieldCheck, Zap, Phone, KeyRound } from "lucide-react";
+import { Loader2, LogIn, UserPlus, Eye, EyeOff, Shield, Fingerprint, Wallet, ArrowRightLeft, ShieldCheck, Zap, Phone, KeyRound, User, Mail, Lock } from "lucide-react";
 import logoImg from "@/assets/logo.png";
 import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
@@ -446,11 +446,15 @@ function SignInForm() {
             <FormItem>
               <FormLabel>{t.login.emailOrPhone || "Email or Phone Number"}</FormLabel>
               <FormControl>
-                <Input
-                  placeholder="you@example.com or +509..."
-                  data-testid="input-login-identifier"
-                  {...field}
-                />
+                <div className="relative">
+                  <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+                  <Input
+                    placeholder="you@example.com or +509..."
+                    className="pl-10"
+                    data-testid="input-login-identifier"
+                    {...field}
+                  />
+                </div>
               </FormControl>
               <FormMessage />
             </FormItem>
@@ -465,9 +469,11 @@ function SignInForm() {
               <FormLabel>{t.login.password}</FormLabel>
               <FormControl>
                 <div className="relative">
+                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
                   <Input
                     type={showPassword ? "text" : "password"}
                     placeholder="Enter your password"
+                    className="pl-10 pr-10"
                     data-testid="input-login-password"
                     {...field}
                   />
@@ -572,7 +578,10 @@ function SignUpForm() {
             <FormItem>
               <FormLabel>{t.login.fullName}</FormLabel>
               <FormControl>
-                <Input placeholder="John Doe" data-testid="input-register-fullname" {...field} />
+                <div className="relative">
+                  <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+                  <Input placeholder="John Doe" className="pl-10" data-testid="input-register-fullname" {...field} />
+                </div>
               </FormControl>
               <FormMessage />
             </FormItem>
@@ -586,7 +595,10 @@ function SignUpForm() {
             <FormItem>
               <FormLabel>{t.login.email}</FormLabel>
               <FormControl>
-                <Input type="email" placeholder="you@example.com" data-testid="input-register-email" {...field} />
+                <div className="relative">
+                  <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+                  <Input type="email" placeholder="you@example.com" className="pl-10" data-testid="input-register-email" {...field} />
+                </div>
               </FormControl>
               <FormMessage />
             </FormItem>
@@ -600,9 +612,18 @@ function SignUpForm() {
             <FormItem>
               <FormLabel>{t.login.whatsappNumber || "WhatsApp Number"}</FormLabel>
               <FormControl>
-                <div className="relative">
-                  <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                  <Input placeholder="+509XXXXXXXX" className="pl-10" data-testid="input-register-phone" {...field} />
+                <div className="flex gap-2">
+                  <div className="flex items-center gap-1.5 px-3 rounded-md border bg-muted/50 text-sm font-medium shrink-0 select-none">
+                    🇭🇹 +509
+                  </div>
+                  <Input
+                    placeholder="XXXXXXXX"
+                    inputMode="numeric"
+                    className="flex-1"
+                    data-testid="input-register-phone"
+                    value={field.value?.replace(/^\+509/, "") ?? ""}
+                    onChange={(e) => field.onChange("+509" + e.target.value.replace(/\D/g, ""))}
+                  />
                 </div>
               </FormControl>
               <FormMessage />
@@ -618,9 +639,11 @@ function SignUpForm() {
               <FormLabel>{t.login.password}</FormLabel>
               <FormControl>
                 <div className="relative">
+                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
                   <Input
                     type={showPassword ? "text" : "password"}
                     placeholder="At least 6 characters"
+                    className="pl-10 pr-10"
                     data-testid="input-register-password"
                     {...field}
                   />
@@ -647,9 +670,11 @@ function SignUpForm() {
               <FormLabel>{t.login.confirmPassword}</FormLabel>
               <FormControl>
                 <div className="relative">
+                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
                   <Input
                     type={showConfirm ? "text" : "password"}
                     placeholder="Retype your password"
+                    className="pl-10 pr-10"
                     data-testid="input-register-confirm-password"
                     {...field}
                   />
@@ -696,7 +721,11 @@ function SignUpForm() {
 
         <Button
           type="submit"
-          className="w-full primary-gradient"
+          className={`w-full transition-all duration-200 ${
+            !registerMutation.isPending && acceptedTerms
+              ? "primary-gradient shadow-md"
+              : "bg-muted text-muted-foreground"
+          }`}
           disabled={registerMutation.isPending || !acceptedTerms}
           data-testid="button-submit-register"
         >
