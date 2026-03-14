@@ -2363,6 +2363,7 @@ export async function registerRoutes(
     try {
       const profile = await getProfileFromReq(req);
       if (!profile) return res.status(401).json({ message: "Unauthorized" });
+      if (profile.kycStatus !== "verified") return res.status(403).json({ message: "KYC verification required to use Mobile Top-Up." });
 
       const { phoneNumber, operatorId, amount } = req.body;
       if (!phoneNumber || !operatorId || !amount) {

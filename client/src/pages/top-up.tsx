@@ -8,7 +8,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Smartphone, CheckCircle2, AlertCircle, Loader2, ChevronDown } from "lucide-react";
+import { Smartphone, CheckCircle2, AlertCircle, Loader2, ChevronDown, ShieldAlert } from "lucide-react";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Link } from "wouter";
 
 const PRESET_AMOUNTS = [2, 5, 10, 15, 20, 25];
 
@@ -34,6 +36,7 @@ export default function TopUpPage() {
 
   const amount = selectedAmount ?? (customAmount ? Number(customAmount) : null);
   const balance = Number(user?.balance || 0);
+  const kycVerified = user?.kycStatus === "verified";
 
   const topupMutation = useMutation({
     mutationFn: async () => {
@@ -83,6 +86,19 @@ export default function TopUpPage() {
         </h1>
         <p className="text-muted-foreground text-sm">Recharge any Haitian mobile number instantly using your USDT balance.</p>
       </div>
+
+      {!kycVerified && (
+        <Alert className="bg-amber-500/8 border-amber-200 dark:border-amber-800/50 text-amber-800 dark:text-amber-300" data-testid="alert-kyc-required-topup">
+          <ShieldAlert className="h-4 w-4" />
+          <AlertTitle>KYC Verification Required</AlertTitle>
+          <AlertDescription>
+            You must complete identity verification before using Mobile Top-Up.{" "}
+            <Link href="/profile" className="underline font-medium">Go to Profile</Link>
+          </AlertDescription>
+        </Alert>
+      )}
+
+      <div className={!kycVerified ? "opacity-50 pointer-events-none select-none" : ""}>
 
       <Card className="border-none shadow-sm">
         <CardHeader className="pb-3">
@@ -250,6 +266,7 @@ export default function TopUpPage() {
       <p className="text-xs text-center text-muted-foreground pb-4">
         Powered by Reloadly · Instant delivery · Requires verified KYC
       </p>
+      </div>
     </div>
   );
 }
