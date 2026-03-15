@@ -216,3 +216,12 @@
     text-wrap: balance;
   }
 }
+
+#replit-badge-container,
+[data-replit-badge],
+.replit-badge {
+  display: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
