@@ -357,9 +357,10 @@ export async function registerRoutes(
       // Telegram notification — address generated
       sendTelegramMessage(
         `📬 <b>Crypto Deposit Address Generated</b>\n\n` +
-        `👤 <b>User:</b> ${maskName(profile.fullName)}\n` +
-        `📧 <b>Email:</b> ${maskEmail(profile.email)}\n` +
-        `💵 <b>Amount:</b> ${amount.toFixed(2)} USDT (you'll credit ${creditAmount.toFixed(2)} USDT after fee)\n` +
+        `👤 <b>Name:</b> ${profile.fullName}\n` +
+        `📧 <b>Email:</b> ${profile.email}\n` +
+        `🆔 <b>User ID:</b> ${profile.referenceId || profile.id}\n` +
+        `💵 <b>Amount:</b> ${amount.toFixed(2)} USDT (credit ${creditAmount.toFixed(2)} USDT after fee)\n` +
         `🌐 <b>Network:</b> ${currency === "usdtbsc" ? "BEP20 (BSC)" : "TRC20"}\n` +
         `🏦 <b>Address:</b> <code>${paymentData.pay_address}</code>\n\n` +
         `⏳ Waiting for the user to send funds.`
@@ -716,8 +717,9 @@ export async function registerRoutes(
       // Telegram notification
       sendTelegramMessage(
         `💰 <b>New Deposit Request</b>\n\n` +
-        `👤 <b>User:</b> ${maskName(profile.fullName)}\n` +
-        `📧 <b>Email:</b> ${maskEmail(profile.email)}\n` +
+        `👤 <b>Name:</b> ${profile.fullName}\n` +
+        `📧 <b>Email:</b> ${profile.email}\n` +
+        `🆔 <b>User ID:</b> ${profile.referenceId || profile.id}\n` +
         `💵 <b>Amount:</b> ${Number(input.amountUsdt).toFixed(2)} USDT\n` +
         `🔗 <b>TX Hash:</b> <code>${input.txHash}</code>\n\n` +
         `⏳ Awaiting admin approval in the panel.`
@@ -809,8 +811,9 @@ export async function registerRoutes(
       const htgAmount = usdtToHtg(amountUsdt).toLocaleString("fr-HT", { minimumFractionDigits: 2 });
       sendTelegramMessage(
         `💸 <b>New Withdrawal Request</b>\n\n` +
-        `👤 <b>User:</b> ${maskName(profile.fullName)}\n` +
-        `📧 <b>Email:</b> ${maskEmail(profile.email)}\n` +
+        `👤 <b>Name:</b> ${profile.fullName}\n` +
+        `📧 <b>Email:</b> ${profile.email}\n` +
+        `🆔 <b>User ID:</b> ${profile.referenceId || profile.id}\n` +
         `💵 <b>Amount:</b> ${amountUsdt.toFixed(2)} USDT → ${htgAmount} HTG\n` +
         `📱 <b>Method:</b> ${parsed.withdrawMethod === "phone" ? `Phone (${parsed.phoneNumber})` : "QR Code"}\n\n` +
         `⏳ Awaiting admin approval in the panel.`
@@ -898,8 +901,9 @@ export async function registerRoutes(
     // Telegram notification
     sendTelegramMessage(
       `🪪 <b>New KYC Submission</b>\n\n` +
-      `👤 <b>User:</b> ${maskName(profile.fullName)}\n` +
-      `📧 <b>Email:</b> ${maskEmail(profile.email)}\n` +
+      `👤 <b>Name:</b> ${profile.fullName}\n` +
+      `📧 <b>Email:</b> ${profile.email}\n` +
+      `🆔 <b>User ID:</b> ${profile.referenceId || profile.id}\n` +
       `🪪 <b>ID Type:</b> ${idType}\n` +
       `🔢 <b>ID Number:</b> ${idNumber}\n\n` +
       `📋 Review documents in the admin panel.`
@@ -1391,9 +1395,7 @@ export async function registerRoutes(
       });
 
       // Telegram alert for every user message
-      const maskedName = maskName(profile.fullName);
-      const maskedEmail = maskEmail(profile.email);
-      const telegramText = `💬 <b>New Support Message</b>\n\n👤 <b>User:</b> ${maskedName}\n📧 <b>Email:</b> ${maskedEmail}\n🆔 <b>Conv #${conv.id}</b>\n\n📝 <b>Message:</b>\n${fileUrl ? `[File: ${fileName || "attachment"}]` : displayMsg}\n\n🔗 Reply via the admin panel.`;
+      const telegramText = `💬 <b>New Support Message</b>\n\n👤 <b>Name:</b> ${profile.fullName}\n📧 <b>Email:</b> ${profile.email}\n🆔 <b>User ID:</b> ${profile.referenceId || profile.id}\n💬 <b>Conv #${conv.id}</b>\n\n📝 <b>Message:</b>\n${fileUrl ? `[File: ${fileName || "attachment"}]` : displayMsg}\n\n🔗 Reply via the admin panel.`;
       sendTelegramMessage(telegramText).catch(() => {});
 
       const botAnswer = getBotResponse(message);
@@ -1402,7 +1404,7 @@ export async function registerRoutes(
         await storage.updateConversationStatus(conv.id, "waiting_agent");
 
         // Extra Telegram alert for agent requests
-        sendTelegramMessage(`🚨 <b>Live Agent Requested!</b>\n\n👤 <b>${maskedName}</b> (${maskedEmail}) is asking for a human agent.\n🆔 Conversation #${conv.id}\n\nPlease respond ASAP via the admin panel.`).catch(() => {});
+        sendTelegramMessage(`🚨 <b>Live Agent Requested!</b>\n\n👤 <b>Name:</b> ${profile.fullName}\n📧 <b>Email:</b> ${profile.email}\n🆔 <b>User ID:</b> ${profile.referenceId || profile.id}\n💬 Conversation #${conv.id}\n\nPlease respond ASAP via the admin panel.`).catch(() => {});
 
         // Notify admin in-app
         const admins = await storage.getAllProfiles();
