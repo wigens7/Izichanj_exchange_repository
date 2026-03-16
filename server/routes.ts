@@ -354,6 +354,17 @@ export async function registerRoutes(
         payCurrency: currency,
       });
 
+      // Telegram notification — address generated
+      sendTelegramMessage(
+        `📬 <b>Crypto Deposit Address Generated</b>\n\n` +
+        `👤 <b>User:</b> ${maskName(profile.fullName)}\n` +
+        `📧 <b>Email:</b> ${maskEmail(profile.email)}\n` +
+        `💵 <b>Amount:</b> ${amount.toFixed(2)} USDT (you'll credit ${creditAmount.toFixed(2)} USDT after fee)\n` +
+        `🌐 <b>Network:</b> ${currency === "usdtbsc" ? "BEP20 (BSC)" : "TRC20"}\n` +
+        `🏦 <b>Address:</b> <code>${paymentData.pay_address}</code>\n\n` +
+        `⏳ Waiting for the user to send funds.`
+      ).catch(() => {});
+
       res.json({
         depositId: deposit.id,
         paymentId: paymentData.payment_id,
