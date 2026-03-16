@@ -690,7 +690,7 @@ export async function registerRoutes(
       if (!input.txHash || input.txHash.length < 10) return res.status(400).json({ message: "Transaction hash is required for USDT deposits" });
       const deposit = await storage.createDeposit({ ...input, profileId: profile.id, depositMethod: "usdt" });
 
-      // Notify admin
+      // Notify admin in-app
       const admins = await storage.getAllProfiles();
       const adminList = admins.filter(a => a.role === "admin");
       for (const admin of adminList) {
@@ -701,6 +701,16 @@ export async function registerRoutes(
           message: `User ${profile.fullName} has submitted a new deposit request of ${input.amountUsdt} USDT.`,
         });
       }
+
+      // Telegram notification
+      sendTelegramMessage(
+        `💰 <b>New Deposit Request</b>\n\n` +
+        `👤 <b>User:</b> ${maskName(profile.fullName)}\n` +
+        `📧 <b>Email:</b> ${maskEmail(profile.email)}\n` +
+        `💵 <b>Amount:</b> ${Number(input.amountUsdt).toFixed(2)} USDT\n` +
+        `🔗 <b>TX Hash:</b> <code>${input.txHash}</code>\n\n` +
+        `⏳ Awaiting admin approval in the panel.`
+      ).catch(() => {});
 
       res.status(201).json(deposit);
     } catch (e) {
@@ -772,10 +782,10 @@ export async function registerRoutes(
 
       const withdrawal = await storage.createWithdrawal({ ...rest, profileId: profile.id });
 
-      // Notify admin
-      const admins = await storage.getAllProfiles();
-      const adminList = admins.filter(a => a.role === "admin");
-      for (const admin of adminList) {
+      // Notify admin in-app
+      const wAdmins = await storage.getAllProfiles();
+      const wAdminList = wAdmins.filter(a => a.role === "admin");
+      for (const admin of wAdminList) {
         await storage.createNotification({
           profileId: admin.id,
           type: "custom_message",
@@ -783,6 +793,17 @@ export async function registerRoutes(
           message: `User ${profile.fullName} has submitted a new withdrawal request of ${parsed.amount} USDT.`,
         });
       }
+
+      // Telegram notification
+      const htgAmount = usdtToHtg(amountUsdt).toLocaleString("fr-HT", { minimumFractionDigits: 2 });
+      sendTelegramMessage(
+        `💸 <b>New Withdrawal Request</b>\n\n` +
+        `👤 <b>User:</b> ${maskName(profile.fullName)}\n` +
+        `📧 <b>Email:</b> ${maskEmail(profile.email)}\n` +
+        `💵 <b>Amount:</b> ${amountUsdt.toFixed(2)} USDT → ${htgAmount} HTG\n` +
+        `📱 <b>Method:</b> ${parsed.withdrawMethod === "phone" ? `Phone (${parsed.phoneNumber})` : "QR Code"}\n\n` +
+        `⏳ Awaiting admin approval in the panel.`
+      ).catch(() => {});
 
       res.status(201).json(withdrawal);
     } catch (e) {
@@ -851,10 +872,10 @@ export async function registerRoutes(
     if (!addressLine1) return res.status(400).json({ message: "Address line 1 is required" });
     const kyc = await storage.createKyc({ profileId: profile.id, idDocumentUrl, idDocumentBackUrl, selfieUrl, idType, idNumber, addressLine1 });
 
-    // Notify admin
-    const admins = await storage.getAllProfiles();
-    const adminList = admins.filter(a => a.role === "admin");
-    for (const admin of adminList) {
+    // Notify admin in-app
+    const kycAdmins = await storage.getAllProfiles();
+    const kycAdminList = kycAdmins.filter(a => a.role === "admin");
+    for (const admin of kycAdminList) {
       await storage.createNotification({
         profileId: admin.id,
         type: "custom_message",
@@ -862,6 +883,16 @@ export async function registerRoutes(
         message: `User ${profile.fullName} has submitted documents for KYC verification.`,
       });
     }
+
+    // Telegram notification
+    sendTelegramMessage(
+      `🪪 <b>New KYC Submission</b>\n\n` +
+      `👤 <b>User:</b> ${maskName(profile.fullName)}\n` +
+      `📧 <b>Email:</b> ${maskEmail(profile.email)}\n` +
+      `🪪 <b>ID Type:</b> ${idType}\n` +
+      `🔢 <b>ID Number:</b> ${idNumber}\n\n` +
+      `📋 Review documents in the admin panel.`
+    ).catch(() => {});
 
     res.status(201).json(kyc);
   });
