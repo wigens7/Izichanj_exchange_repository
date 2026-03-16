@@ -904,8 +904,7 @@ export async function registerRoutes(
       `👤 <b>Name:</b> ${profile.fullName}\n` +
       `📧 <b>Email:</b> ${profile.email}\n` +
       `🆔 <b>User ID:</b> ${profile.referenceId || profile.id}\n` +
-      `🪪 <b>ID Type:</b> ${idType}\n` +
-      `🔢 <b>ID Number:</b> ${idNumber}\n\n` +
+      `🪪 <b>ID Type:</b> ${idType}\n\n` +
       `📋 Review documents in the admin panel.`
     ).catch(() => {});
 
