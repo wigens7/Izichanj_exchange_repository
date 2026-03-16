@@ -1237,6 +1237,22 @@ export async function registerRoutes(
     res.json({ message: "All marked as read" });
   });
 
+  // ======= Telegram Notification Helper =======
+  async function sendTelegramMessage(text: string): Promise<void> {
+    const token = process.env.TELEGRAM_BOT_TOKEN;
+    const chatId = process.env.TELEGRAM_CHAT_ID;
+    if (!token || !chatId) return;
+    try {
+      await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chat_id: chatId, text, parse_mode: "HTML" }),
+      });
+    } catch (e) {
+      console.error("[Telegram] Failed to send message:", e);
+    }
+  }
+
   // ======= Support Chat Routes =======
   const BOT_FAQ: { keywords: string[]; answer: string }[] = [
     { keywords: ["deposit", "how to deposit", "send usdt", "depo"], answer: "To deposit USDT:\n1. Go to the Deposit page\n2. Copy one of our wallet addresses (TRC20 or BEP20)\n3. Send USDT from your crypto wallet\n4. Enter the amount and transaction hash\n5. Submit and wait for admin approval (usually within minutes)" },
@@ -1309,20 +1325,29 @@ export async function registerRoutes(
       const { message, fileUrl, fileName } = req.body;
       if ((!message || !message.trim()) && !fileUrl) return res.status(400).json({ message: "Message or file is required" });
       const conv = await storage.getOrCreateConversation(profile.id);
+      const displayMsg = (message || "").trim() || (fileName ? `Sent a file: ${fileName}` : "Sent a file");
       const userMsg = await storage.addMessage({
         conversationId: conv.id,
         sender: "user",
         senderProfileId: profile.id,
-        message: (message || "").trim() || (fileName ? `Sent a file: ${fileName}` : "Sent a file"),
+        message: displayMsg,
         fileUrl: fileUrl || undefined,
         fileName: fileName || undefined,
       });
+
+      // Telegram alert for every user message
+      const telegramText = `💬 <b>New Support Message</b>\n\n👤 <b>User:</b> ${profile.fullName}\n📧 <b>Email:</b> ${profile.email}\n🆔 <b>Conv #${conv.id}</b>\n\n📝 <b>Message:</b>\n${fileUrl ? `[File: ${fileName || "attachment"}]` : displayMsg}\n\n🔗 Reply via the admin panel.`;
+      sendTelegramMessage(telegramText).catch(() => {});
+
       const botAnswer = getBotResponse(message);
       const responseMessages = [userMsg];
       if (botAnswer === "AGENT_REQUEST") {
         await storage.updateConversationStatus(conv.id, "waiting_agent");
 
-        // Notify admin
+        // Extra Telegram alert for agent requests
+        sendTelegramMessage(`🚨 <b>Live Agent Requested!</b>\n\n👤 <b>${profile.fullName}</b> (${profile.email}) is asking for a human agent.\n🆔 Conversation #${conv.id}\n\nPlease respond ASAP via the admin panel.`).catch(() => {});
+
+        // Notify admin in-app
         const admins = await storage.getAllProfiles();
         const adminList = admins.filter(a => a.role === "admin");
         for (const admin of adminList) {
