@@ -840,6 +840,7 @@ function KycTab() {
                   <TableHead>Email</TableHead>
                   <TableHead>Documents</TableHead>
                   <TableHead>KYC Status</TableHead>
+                  <TableHead>Strowallet</TableHead>
                   <TableHead>Actions</TableHead>
                 </TableRow>
               </TableHeader>
@@ -871,6 +872,18 @@ function KycTab() {
                     </TableCell>
                     <TableCell>
                       <StatusBadge status={user.kycStatus} />
+                    </TableCell>
+                    <TableCell data-testid={`strowallet-status-${user.id}`}>
+                      {user.strowalletCustomerId ? (
+                        <div className="flex flex-col gap-0.5">
+                          <Badge className="bg-emerald-600 hover:bg-emerald-600 text-white text-[10px] w-fit">✅ Registered</Badge>
+                          <span className="text-[10px] text-muted-foreground font-mono truncate max-w-[100px]" title={user.strowalletCustomerId}>{user.strowalletCustomerId}</span>
+                        </div>
+                      ) : user.kycStatus === "verified" ? (
+                        <Badge variant="destructive" className="text-[10px]">⚠️ Failed</Badge>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">—</span>
+                      )}
                     </TableCell>
                     <TableCell>
                       {user.kycStatus === "pending" ? (
@@ -936,7 +949,7 @@ function KycTab() {
                 ))}
                 {kycUsers.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                    <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
                       No KYC submissions yet
                     </TableCell>
                   </TableRow>
