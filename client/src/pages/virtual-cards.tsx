@@ -255,13 +255,16 @@ function ApplyCardSection() {
             )}
 
             {kycPending && (
-              <div className="rounded-lg border border-blue-200 bg-blue-50 dark:bg-blue-950/30 dark:border-blue-800 p-4 space-y-1">
+              <div className="rounded-lg border border-blue-200 bg-blue-50 dark:bg-blue-950/30 dark:border-blue-800 p-4 space-y-2">
                 <p className="font-semibold text-blue-800 dark:text-blue-300 text-sm flex items-center gap-2">
                   <Loader2 className="w-4 h-4 animate-spin" />
-                  Card Application Under Review
+                  Strowallet is Reviewing Your Documents
                 </p>
                 <p className="text-xs text-blue-700 dark:text-blue-400">
-                  Your identity is being reviewed by our card provider. This typically takes up to 48 hours after your KYC approval on Izichanj. You will receive a WhatsApp notification once your card can be issued — no action needed on your part.
+                  Your registration was submitted successfully to our card provider (Strowallet). They are currently reviewing your identity documents — this is a normal process that takes <strong>24 to 48 hours</strong>.
+                </p>
+                <p className="text-xs text-blue-700 dark:text-blue-400">
+                  ✅ You don't need to do anything. Once Strowallet approves your documents, you'll be able to create your card immediately. You'll receive a WhatsApp notification when ready.
                 </p>
               </div>
             )}

@@ -1785,12 +1785,14 @@ function VirtualCardReadyTab() {
         <CardHeader className="pb-3">
           <CardTitle className="text-base flex items-center gap-2">
             <CreditCard className="w-4 h-4 text-primary" />
-            Users Ready for Virtual Card
+            Users Registered with Strowallet
             {users && (
-              <Badge className="ml-auto bg-emerald-600 text-white">{users.length} eligible</Badge>
+              <Badge className="ml-auto bg-blue-600 text-white">{users.length} registered</Badge>
             )}
           </CardTitle>
-          <p className="text-xs text-muted-foreground">Users who are KYC verified and registered with Strowallet — they can create a virtual Visa card</p>
+          <p className="text-xs text-muted-foreground">
+            These users are KYC-verified and registered with Strowallet. Strowallet may still take <strong>24–48 hours</strong> to internally approve their documents before they can create a card. Once Strowallet approves them, the "Under Review" message will disappear automatically.
+          </p>
         </CardHeader>
         <CardContent>
           {isLoading ? (
