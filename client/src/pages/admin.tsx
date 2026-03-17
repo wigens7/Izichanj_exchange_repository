@@ -795,6 +795,22 @@ function KycTab() {
     },
   });
 
+  const [retryingStroId, setRetryingStroId] = useState<number | null>(null);
+  const retryStrowallet = async (profileId: number) => {
+    setRetryingStroId(profileId);
+    try {
+      const res = await apiRequest("POST", `/api/admin/kyc/${profileId}/strowallet-register`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || "Failed");
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/users"] });
+      toast({ title: "Strowallet Registered", description: `Customer ID: ${data.customerId}` });
+    } catch (e: any) {
+      toast({ title: "Strowallet Failed", description: e.message, variant: "destructive" });
+    } finally {
+      setRetryingStroId(null);
+    }
+  };
+
   const isLoading = usersLoading || kycLoading;
 
   if (isLoading) {
@@ -880,7 +896,19 @@ function KycTab() {
                           <span className="text-[10px] text-muted-foreground font-mono truncate max-w-[100px]" title={user.strowalletCustomerId}>{user.strowalletCustomerId}</span>
                         </div>
                       ) : user.kycStatus === "verified" ? (
-                        <Badge variant="destructive" className="text-[10px]">⚠️ Failed</Badge>
+                        <div className="flex flex-col gap-1">
+                          <Badge variant="destructive" className="text-[10px] w-fit">⚠️ Not registered</Badge>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="text-[10px] h-6 px-2"
+                            disabled={retryingStroId === user.id}
+                            onClick={() => retryStrowallet(user.id)}
+                            data-testid={`button-strowallet-retry-${user.id}`}
+                          >
+                            {retryingStroId === user.id ? <Loader2 className="w-3 h-3 animate-spin" /> : "Retry"}
+                          </Button>
+                        </div>
                       ) : (
                         <span className="text-xs text-muted-foreground">—</span>
                       )}

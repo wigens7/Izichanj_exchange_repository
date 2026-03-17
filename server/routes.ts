@@ -1190,6 +1190,57 @@ export async function registerRoutes(
     }
   });
 
+  // POST /api/admin/kyc/:id/strowallet-register — retry Strowallet registration for a verified user
+  app.post("/api/admin/kyc/:id/strowallet-register", isAuthenticated, isAdmin, async (req: any, res) => {
+    try {
+      const profileId = Number(req.params.id);
+      const profile = await storage.getProfile(profileId);
+      if (!profile) return res.status(404).json({ message: "User not found" });
+      if (profile.kycStatus !== "verified") return res.status(400).json({ message: "User KYC is not verified" });
+
+      const kyc = await storage.getKyc(profileId);
+      const _stroKey = process.env.STROWALLET_PUBLIC_KEY || "";
+      if (!_stroKey) return res.status(500).json({ message: "Strowallet key not configured" });
+
+      const firstName = profile.firstName || profile.fullName.split(" ")[0] || "";
+      const lastName = profile.lastName || profile.fullName.split(" ").slice(1).join(" ") || firstName;
+      const payload = {
+        public_key: _stroKey,
+        first_name: firstName,
+        last_name: lastName,
+        customer_email: profile.email,
+        phone_number: profile.phone || "",
+        date_of_birth: profile.dateOfBirth || "",
+        country: profile.country || "Haiti",
+        id_type: kyc?.idType || "",
+        id_number: kyc?.idNumber || "",
+        address_line_1: kyc?.addressLine1 || profile.city || "",
+        user_photo: kyc?.selfieUrl || "",
+        id_image: kyc?.idDocumentUrl || "",
+      };
+
+      const stroRes = await strowalletFetch(`${STROWALLET_BASE}/create-user/`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Accept": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await stroRes.json() as any;
+      console.log("[STROWALLET][ADMIN-RETRY] Response:", JSON.stringify(data));
+
+      if (!stroRes.ok || data.status === "error" || data.status === false) {
+        return res.status(400).json({ message: data.message || data.error || "Strowallet registration failed" });
+      }
+
+      const customerId = data.response?.customer_id || data.customer_id || data.data?.customer_id || String(profileId);
+      await storage.updateProfile(profileId, { strowalletCustomerId: customerId });
+      res.json({ success: true, customerId });
+    } catch (e: any) {
+      console.error("[STROWALLET][ADMIN-RETRY] Error:", e);
+      res.status(500).json({ message: e.message || "Internal error" });
+    }
+  });
+
   app.get(api.admin.allDeposits.path, isAuthenticated, isAdmin, async (req: any, res) => {
     const allDeposits = await storage.getDeposits();
     res.json(allDeposits);
