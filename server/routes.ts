@@ -404,6 +404,79 @@ export async function registerRoutes(
     }
   });
 
+  // POST /api/strowallet/webhook — handles all Strowallet card events (Card Issuing, Amucha, Bankly, Paga, Safe Haven)
+  app.post("/api/strowallet/webhook", async (req, res) => {
+    try {
+      const event = req.body;
+      console.log("[STROWALLET WEBHOOK] Received:", JSON.stringify(event));
+
+      const eventType = event.event || event.type || event.status || "unknown";
+      const customerEmail = event.customer_email || event.email || "";
+      const cardId = event.card_id || event.cardId || "";
+      const amount = event.amount || event.debit_amount || "";
+      const currency = event.currency || "USD";
+
+      // Find the user by email if available
+      if (customerEmail) {
+        const allProfiles = await storage.getAllProfiles();
+        const profile = allProfiles.find(p => p.email === customerEmail);
+        if (profile) {
+          // Notify user for key card events
+          const lowerEvent = String(eventType).toLowerCase();
+
+          if (lowerEvent.includes("approved") || lowerEvent.includes("active") || lowerEvent.includes("created")) {
+            await storage.createNotification({
+              profileId: profile.id,
+              type: "custom_message",
+              title: "Virtual Card Ready",
+              message: "Your virtual card is now active and ready to use.",
+            });
+            if (profile.phone) {
+              sendWhatsAppNotification(
+                profile.phone,
+                `*Izichanj*\n\n💳 Virtual Card Ready\n\nYour virtual card has been activated and is ready to use.\n\nhttps://izichanj.com`,
+                profile.fullName
+              );
+            }
+          }
+
+          if (lowerEvent.includes("debit") || lowerEvent.includes("transaction") || lowerEvent.includes("charge")) {
+            await storage.createNotification({
+              profileId: profile.id,
+              type: "custom_message",
+              title: "Card Transaction",
+              message: `A transaction of ${amount} ${currency} was processed on your virtual card.`,
+            });
+          }
+
+          if (lowerEvent.includes("freeze") || lowerEvent.includes("blocked") || lowerEvent.includes("suspend")) {
+            await storage.createNotification({
+              profileId: profile.id,
+              type: "custom_message",
+              title: "Card Frozen",
+              message: "Your virtual card has been frozen. Contact support if you did not request this.",
+            });
+          }
+        }
+      }
+
+      // Telegram alert for admin
+      sendTelegramMessage(
+        `🔔 <b>Strowallet Webhook</b>\n\n` +
+        `📌 <b>Event:</b> ${eventType}\n` +
+        `📧 <b>Email:</b> ${customerEmail || "—"}\n` +
+        `💳 <b>Card ID:</b> ${cardId || "—"}\n` +
+        `💵 <b>Amount:</b> ${amount ? `${amount} ${currency}` : "—"}\n\n` +
+        `<pre>${JSON.stringify(event, null, 2).slice(0, 800)}</pre>`
+      ).catch(() => {});
+
+      res.sendStatus(200);
+    } catch (e: any) {
+      console.error("[STROWALLET WEBHOOK] Error:", e);
+      res.sendStatus(200); // Always return 200 to prevent retries
+    }
+  });
+
   app.post("/api/nowpayments/ipn", async (req, res) => {
     try {
       const ipnSecret = process.env.NOWPAYMENTS_IPN_SECRET;
