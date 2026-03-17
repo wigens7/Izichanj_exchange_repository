@@ -61,6 +61,7 @@ import {
   Clock,
   LogIn,
   RefreshCw,
+  CreditCard,
 } from "lucide-react";
 import { format } from "date-fns";
 import { usdtToHtg, formatHtg, formatUsdt } from "@shared/constants";
@@ -92,7 +93,7 @@ export default function AdminPage() {
       </div>
 
       <Tabs defaultValue="users" className="w-full">
-        <TabsList className="mb-4 grid w-full grid-cols-7 gap-1">
+        <TabsList className="mb-4 grid w-full grid-cols-8 gap-1">
           <TabsTrigger value="users" className="gap-2" data-testid="tab-admin-users">
             <Users className="w-4 h-4" />
             <span className="hidden sm:inline">Users</span>
@@ -108,6 +109,10 @@ export default function AdminPage() {
           <TabsTrigger value="kyc" className="gap-2" data-testid="tab-admin-kyc">
             <ShieldCheck className="w-4 h-4" />
             <span className="hidden sm:inline">KYC</span>
+          </TabsTrigger>
+          <TabsTrigger value="cards" className="gap-2" data-testid="tab-admin-cards">
+            <CreditCard className="w-4 h-4" />
+            <span className="hidden sm:inline">Cards</span>
           </TabsTrigger>
           <TabsTrigger value="messages" className="gap-2" data-testid="tab-admin-messages">
             <MessageSquare className="w-4 h-4" />
@@ -134,6 +139,9 @@ export default function AdminPage() {
         </TabsContent>
         <TabsContent value="kyc">
           <KycTab />
+        </TabsContent>
+        <TabsContent value="cards">
+          <VirtualCardReadyTab />
         </TabsContent>
         <TabsContent value="messages">
           <MessagesTab />
@@ -1763,6 +1771,72 @@ function SupportTab() {
             </CardContent>
           </>
         )}
+      </Card>
+    </div>
+  );
+}
+
+function VirtualCardReadyTab() {
+  const { data: users, isLoading } = useQuery<any[]>({ queryKey: ["/api/admin/virtual-card-ready"] });
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <CreditCard className="w-4 h-4 text-primary" />
+            Users Ready for Virtual Card
+            {users && (
+              <Badge className="ml-auto bg-emerald-600 text-white">{users.length} eligible</Badge>
+            )}
+          </CardTitle>
+          <p className="text-xs text-muted-foreground">Users who are KYC verified and registered with Strowallet — they can create a virtual Visa card</p>
+        </CardHeader>
+        <CardContent>
+          {isLoading ? (
+            <div className="space-y-2">
+              {[1,2,3].map(i => <Skeleton key={i} className="h-12 w-full" />)}
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>User ID</TableHead>
+                    <TableHead>Name</TableHead>
+                    <TableHead>Email</TableHead>
+                    <TableHead>Phone</TableHead>
+                    <TableHead>Strowallet ID</TableHead>
+                    <TableHead>Balance (USDT)</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {users?.map((user: any) => (
+                    <TableRow key={user.id} data-testid={`row-cardready-${user.id}`}>
+                      <TableCell className="font-mono text-xs">{user.referenceId || user.id}</TableCell>
+                      <TableCell className="font-medium">{user.fullName}</TableCell>
+                      <TableCell className="text-muted-foreground text-sm">{user.email}</TableCell>
+                      <TableCell className="text-sm">{user.phone || <span className="text-muted-foreground">—</span>}</TableCell>
+                      <TableCell>
+                        <span className="font-mono text-xs bg-muted px-2 py-0.5 rounded" title={user.strowalletCustomerId}>{user.strowalletCustomerId}</span>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="outline" className="font-mono">{Number(user.balance || 0).toFixed(2)}</Badge>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                  {(!users || users.length === 0) && (
+                    <TableRow>
+                      <TableCell colSpan={6} className="text-center py-10 text-muted-foreground">
+                        No users are ready for virtual cards yet
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </CardContent>
       </Card>
     </div>
   );

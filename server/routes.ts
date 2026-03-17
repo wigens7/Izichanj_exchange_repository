@@ -1136,6 +1136,15 @@ export async function registerRoutes(
           const customerId = stroData.response?.customer_id || stroData.customer_id || stroData.data?.customer_id || String(profileId);
           await storage.updateProfile(profileId, { strowalletCustomerId: customerId });
           console.log("[STROWALLET][AUTO-KYC] Registered customer:", customerId);
+          // Telegram — user is now ready for virtual card
+          sendTelegramMessage(
+            `✅ <b>User Ready for Virtual Card</b>\n\n` +
+            `👤 <b>Name:</b> ${kycProfile.fullName}\n` +
+            `📧 <b>Email:</b> ${kycProfile.email}\n` +
+            `🆔 <b>User ID:</b> ${kycProfile.referenceId || kycProfile.id}\n` +
+            `🏦 <b>Strowallet ID:</b> <code>${customerId}</code>\n\n` +
+            `💳 This user can now create a virtual Visa card.`
+          ).catch(() => {});
         }
       } catch (stroErr) {
         console.error("[STROWALLET][AUTO-KYC] Error (non-fatal):", stroErr);
@@ -1234,11 +1243,29 @@ export async function registerRoutes(
 
       const customerId = data.response?.customer_id || data.customer_id || data.data?.customer_id || String(profileId);
       await storage.updateProfile(profileId, { strowalletCustomerId: customerId });
+
+      // Telegram — user is now ready for virtual card
+      sendTelegramMessage(
+        `✅ <b>User Ready for Virtual Card</b>\n\n` +
+        `👤 <b>Name:</b> ${profile.fullName}\n` +
+        `📧 <b>Email:</b> ${profile.email}\n` +
+        `🆔 <b>User ID:</b> ${profile.referenceId || profile.id}\n` +
+        `🏦 <b>Strowallet ID:</b> <code>${customerId}</code>\n\n` +
+        `💳 This user can now create a virtual Visa card.`
+      ).catch(() => {});
+
       res.json({ success: true, customerId });
     } catch (e: any) {
       console.error("[STROWALLET][ADMIN-RETRY] Error:", e);
       res.status(500).json({ message: e.message || "Internal error" });
     }
+  });
+
+  // GET /api/admin/virtual-card-ready — list users verified by Strowallet and ready to create a card
+  app.get("/api/admin/virtual-card-ready", isAuthenticated, isAdmin, async (req: any, res) => {
+    const allProfiles = await storage.getAllProfiles();
+    const ready = allProfiles.filter(p => p.kycStatus === "verified" && p.strowalletCustomerId && !p.deletedAt);
+    res.json(ready);
   });
 
   app.get(api.admin.allDeposits.path, isAuthenticated, isAdmin, async (req: any, res) => {
@@ -2192,6 +2219,16 @@ export async function registerRoutes(
 
       const customerId = data.response?.customer_id || data.customer_id || data.data?.customer_id || String(profile.id);
       await storage.updateProfile(profile.id, { strowalletCustomerId: customerId });
+
+      // Telegram — user is now ready for virtual card
+      sendTelegramMessage(
+        `✅ <b>User Ready for Virtual Card</b>\n\n` +
+        `👤 <b>Name:</b> ${profile.fullName}\n` +
+        `📧 <b>Email:</b> ${profile.email}\n` +
+        `🆔 <b>User ID:</b> ${profile.referenceId || profile.id}\n` +
+        `🏦 <b>Strowallet ID:</b> <code>${customerId}</code>\n\n` +
+        `💳 This user can now create a virtual Visa card.`
+      ).catch(() => {});
 
       res.json({ success: true, customerId });
     } catch (e: any) {
