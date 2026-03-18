@@ -1288,7 +1288,7 @@ export async function registerRoutes(
 
   app.get("/api/receipts/deposit/:id", isAuthenticated, async (req: any, res) => {
     try {
-      const profileId = req.user.id;
+      const profileId = req.session.profileId;
       const deposit = await storage.getDepositById(Number(req.params.id));
       if (!deposit) return res.status(404).json({ message: "Not found" });
       if (deposit.profileId !== profileId) return res.status(403).json({ message: "Forbidden" });
@@ -1304,7 +1304,7 @@ export async function registerRoutes(
 
   app.get("/api/receipts/withdrawal/:id", isAuthenticated, async (req: any, res) => {
     try {
-      const profileId = req.user.id;
+      const profileId = req.session.profileId;
       const w = await storage.getWithdrawalById(Number(req.params.id));
       if (!w) return res.status(404).json({ message: "Not found" });
       if (w.profileId !== profileId) return res.status(403).json({ message: "Forbidden" });
