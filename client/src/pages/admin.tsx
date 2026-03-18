@@ -538,10 +538,37 @@ function UserRow({ user, onUpdateBalance, isPending }: { user: any; onUpdateBala
   );
 }
 
+async function approveAndRelease(type: "deposits" | "withdrawals", id: number, setLoading: (v: boolean) => void) {
+  setLoading(true);
+  try {
+    const res = await fetch(`/api/admin/${type}/${id}/approve-release`, {
+      method: "PATCH",
+      credentials: "include",
+    });
+    if (!res.ok) throw new Error("Failed");
+    const blob = await res.blob();
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = `izichanj-receipt-${id}.pdf`;
+    link.click();
+    URL.revokeObjectURL(link.href);
+    window.location.reload();
+  } catch (e) {
+    console.error("Approve & Release failed", e);
+  } finally {
+    setLoading(false);
+  }
+}
+
+function previewReceipt(type: "deposits" | "withdrawals", id: number) {
+  window.open(`/api/admin/receipts/${type === "deposits" ? "deposit" : "withdrawal"}/${id}`, "_blank");
+}
+
 function DepositsTab() {
   const { data: deposits, isLoading } = useAdminDeposits();
   const { mutate: approve, isPending: isApproving } = useAdminApproveDeposit();
   const { mutate: reject, isPending: isRejecting } = useAdminRejectDeposit();
+  const [releaseLoadingId, setReleaseLoadingId] = useState<number | null>(null);
 
   if (isLoading) {
     return (
@@ -611,30 +638,68 @@ function DepositsTab() {
                   </TableCell>
                   <TableCell>
                     {deposit.status === "pending" ? (
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-col gap-1.5">
                         <Button
                           size="sm"
-                          onClick={() => approve(deposit.id)}
-                          disabled={isApproving}
-                          className="bg-emerald-600 hover:bg-emerald-700"
-                          data-testid={`button-approve-deposit-${deposit.id}`}
+                          onClick={() => approveAndRelease("deposits", deposit.id, (v) => setReleaseLoadingId(v ? deposit.id : null))}
+                          disabled={releaseLoadingId === deposit.id}
+                          className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs"
+                          data-testid={`button-approve-release-deposit-${deposit.id}`}
                         >
-                          {isApproving ? <Loader2 className="w-3 h-3 animate-spin" /> : <CheckCircle className="w-3 h-3 mr-1" />}
-                          Approve
+                          {releaseLoadingId === deposit.id ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Download className="w-3 h-3 mr-1" />}
+                          Approve & Release Receipt
                         </Button>
+                        <div className="flex gap-1.5">
+                          <Button
+                            size="sm"
+                            onClick={() => approve(deposit.id)}
+                            disabled={isApproving}
+                            className="bg-emerald-600 hover:bg-emerald-700 text-xs flex-1"
+                            data-testid={`button-approve-deposit-${deposit.id}`}
+                          >
+                            {isApproving ? <Loader2 className="w-3 h-3 animate-spin" /> : <CheckCircle className="w-3 h-3 mr-1" />}
+                            Approve
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="destructive"
+                            onClick={() => reject(deposit.id)}
+                            disabled={isRejecting}
+                            className="text-xs flex-1"
+                            data-testid={`button-reject-deposit-${deposit.id}`}
+                          >
+                            {isRejecting ? <Loader2 className="w-3 h-3 animate-spin" /> : <XCircle className="w-3 h-3 mr-1" />}
+                            Reject
+                          </Button>
+                        </div>
+                      </div>
+                    ) : deposit.status === "approved" ? (
+                      <div className="flex flex-col gap-1.5">
                         <Button
                           size="sm"
-                          variant="destructive"
-                          onClick={() => reject(deposit.id)}
-                          disabled={isRejecting}
-                          data-testid={`button-reject-deposit-${deposit.id}`}
+                          variant="outline"
+                          onClick={() => previewReceipt("deposits", deposit.id)}
+                          className="text-xs border-indigo-500/40 text-indigo-600 hover:bg-indigo-50"
+                          data-testid={`button-preview-receipt-deposit-${deposit.id}`}
                         >
-                          {isRejecting ? <Loader2 className="w-3 h-3 animate-spin" /> : <XCircle className="w-3 h-3 mr-1" />}
-                          Reject
+                          <FileText className="w-3 h-3 mr-1" />
+                          {deposit.receiptId ? "Preview Receipt" : "Release Receipt"}
                         </Button>
+                        {!deposit.receiptId && (
+                          <Button
+                            size="sm"
+                            onClick={() => approveAndRelease("deposits", deposit.id, (v) => setReleaseLoadingId(v ? deposit.id : null))}
+                            disabled={releaseLoadingId === deposit.id}
+                            className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs"
+                            data-testid={`button-release-receipt-deposit-${deposit.id}`}
+                          >
+                            {releaseLoadingId === deposit.id ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Download className="w-3 h-3 mr-1" />}
+                            Release Receipt
+                          </Button>
+                        )}
                       </div>
                     ) : (
-                      <span className="text-sm text-muted-foreground">Processed</span>
+                      <span className="text-sm text-muted-foreground">Rejected</span>
                     )}
                   </TableCell>
                 </TableRow>
@@ -658,6 +723,7 @@ function WithdrawalsTab() {
   const { data: withdrawals, isLoading } = useAdminWithdrawals();
   const { mutate: approve, isPending: isApproving } = useAdminApproveWithdrawal();
   const { mutate: reject, isPending: isRejecting } = useAdminRejectWithdrawal();
+  const [releaseLoadingId, setReleaseLoadingId] = useState<number | null>(null);
 
   if (isLoading) {
     return (
@@ -733,30 +799,68 @@ function WithdrawalsTab() {
                   </TableCell>
                   <TableCell>
                     {w.status === "pending" ? (
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-col gap-1.5">
                         <Button
                           size="sm"
-                          onClick={() => approve(w.id)}
-                          disabled={isApproving}
-                          className="bg-emerald-600 hover:bg-emerald-700"
-                          data-testid={`button-approve-withdrawal-${w.id}`}
+                          onClick={() => approveAndRelease("withdrawals", w.id, (v) => setReleaseLoadingId(v ? w.id : null))}
+                          disabled={releaseLoadingId === w.id}
+                          className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs"
+                          data-testid={`button-approve-release-withdrawal-${w.id}`}
                         >
-                          {isApproving ? <Loader2 className="w-3 h-3 animate-spin" /> : <CheckCircle className="w-3 h-3 mr-1" />}
-                          Approve
+                          {releaseLoadingId === w.id ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Download className="w-3 h-3 mr-1" />}
+                          Approve & Release Receipt
                         </Button>
+                        <div className="flex gap-1.5">
+                          <Button
+                            size="sm"
+                            onClick={() => approve(w.id)}
+                            disabled={isApproving}
+                            className="bg-emerald-600 hover:bg-emerald-700 text-xs flex-1"
+                            data-testid={`button-approve-withdrawal-${w.id}`}
+                          >
+                            {isApproving ? <Loader2 className="w-3 h-3 animate-spin" /> : <CheckCircle className="w-3 h-3 mr-1" />}
+                            Approve
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="destructive"
+                            onClick={() => reject(w.id)}
+                            disabled={isRejecting}
+                            className="text-xs flex-1"
+                            data-testid={`button-reject-withdrawal-${w.id}`}
+                          >
+                            {isRejecting ? <Loader2 className="w-3 h-3 animate-spin" /> : <XCircle className="w-3 h-3 mr-1" />}
+                            Refund
+                          </Button>
+                        </div>
+                      </div>
+                    ) : w.status === "approved" ? (
+                      <div className="flex flex-col gap-1.5">
                         <Button
                           size="sm"
-                          variant="destructive"
-                          onClick={() => reject(w.id)}
-                          disabled={isRejecting}
-                          data-testid={`button-reject-withdrawal-${w.id}`}
+                          variant="outline"
+                          onClick={() => previewReceipt("withdrawals", w.id)}
+                          className="text-xs border-indigo-500/40 text-indigo-600 hover:bg-indigo-50"
+                          data-testid={`button-preview-receipt-withdrawal-${w.id}`}
                         >
-                          {isRejecting ? <Loader2 className="w-3 h-3 animate-spin" /> : <XCircle className="w-3 h-3 mr-1" />}
-                          Refund
+                          <FileText className="w-3 h-3 mr-1" />
+                          {w.receiptId ? "Preview Receipt" : "Preview"}
                         </Button>
+                        {!w.receiptId && (
+                          <Button
+                            size="sm"
+                            onClick={() => approveAndRelease("withdrawals", w.id, (v) => setReleaseLoadingId(v ? w.id : null))}
+                            disabled={releaseLoadingId === w.id}
+                            className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs"
+                            data-testid={`button-release-receipt-withdrawal-${w.id}`}
+                          >
+                            {releaseLoadingId === w.id ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Download className="w-3 h-3 mr-1" />}
+                            Release Receipt
+                          </Button>
+                        )}
                       </div>
                     ) : (
-                      <span className="text-sm text-muted-foreground">Processed</span>
+                      <span className="text-sm text-muted-foreground">Rejected</span>
                     )}
                   </TableCell>
                 </TableRow>

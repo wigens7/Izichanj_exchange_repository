@@ -9,7 +9,8 @@ import { setupAuth, isAuthenticated } from "./auth";
 import { registerObjectStorageRoutes } from "./replit_integrations/object_storage";
 import crypto from "crypto";
 import bcrypt from "bcryptjs";
-import { WITHDRAWAL_MIN_USDT, WITHDRAWAL_MAX_USDT, usdtToHtg, htgToUsdt, formatHtg, WITHDRAWAL_MIN_HTG, WITHDRAWAL_MAX_HTG } from "@shared/constants";
+import { WITHDRAWAL_MIN_USDT, WITHDRAWAL_MAX_USDT, usdtToHtg, htgToUsdt, formatHtg, WITHDRAWAL_MIN_HTG, WITHDRAWAL_MAX_HTG, EXCHANGE_RATE_USDT_HTG, NETWORK_FEE_CONFIG } from "@shared/constants";
+import { generateReceiptPDF } from "./receipt";
 import { deposits, profiles } from "@shared/schema";
 import { db } from "./db";
 import { eq } from "drizzle-orm";
@@ -1145,6 +1146,215 @@ export async function registerRoutes(
       sendWhatsAppNotification(profile.phone, `*Izichanj*\n\n❌ Withdrawal Rejected\n\n${wRejectMsg}\n\nhttps://izichanj.com`, profile.fullName);
     }
     res.json(withdrawal);
+  });
+
+  // ── Receipt: Admin Approve + Release ──────────────────────────────────────
+
+  async function buildReceiptData(type: "deposit" | "withdrawal", record: any, profile: any) {
+    const amountUsdt = Number(type === "deposit" ? record.amountUsdt : record.amount);
+    let fee = 0;
+    let network = "";
+    if (type === "deposit") {
+      const currency = record.payCurrency as string | undefined;
+      if (currency === "usdttrc20" || currency === "USDTTRC20") { fee = NETWORK_FEE_CONFIG.usdttrc20.fee; network = "TRC20"; }
+      else if (currency === "usdtbsc" || currency === "USDTBSC") { fee = NETWORK_FEE_CONFIG.usdtbsc.fee; network = "BEP20"; }
+      else { fee = 1.50; network = "TRC20"; }
+    }
+    const netUsdt = amountUsdt - fee;
+    const finalAmountHtg = usdtToHtg(netUsdt);
+    const now = new Date();
+    const pad = (n: number) => String(n).padStart(2, "0");
+    const txRef = `IZ${pad(now.getDate())}${pad(now.getMonth() + 1)}${String(now.getFullYear()).slice(2)}${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+    return {
+      type,
+      transactionRef: record.transactionId || txRef,
+      createdAt: record.createdAt || now,
+      amountUsdt,
+      fee,
+      exchangeRate: EXCHANGE_RATE_USDT_HTG,
+      finalAmountHtg,
+      destination: type === "withdrawal" ? record.phoneNumber : null,
+      walletAddress: type === "deposit" ? record.payAddress : null,
+      currency: type === "withdrawal" ? record.currency : undefined,
+      network,
+      userName: profile?.fullName || "User",
+      userEmail: profile?.email || "",
+      status: "approved",
+    };
+  }
+
+  app.patch("/api/admin/deposits/:id/approve-release", isAuthenticated, isAdmin, async (req: any, res) => {
+    try {
+      const id = Number(req.params.id);
+      let deposit = await storage.getDepositById(id);
+      if (!deposit) return res.status(404).json({ message: "Deposit not found" });
+
+      if (deposit.status !== "approved") {
+        deposit = await storage.updateDepositStatus(id, "approved");
+        const prof = await storage.getProfile(deposit.profileId);
+        if (prof) {
+          const currentBalance = parseFloat(prof.balance || "0");
+          await storage.updateProfileBalance(deposit.profileId, currentBalance + parseFloat(deposit.amountUsdt));
+        }
+      }
+
+      const receiptId = crypto.randomUUID();
+      deposit = await storage.setDepositReceipt(id, receiptId);
+      const prof = await storage.getProfile(deposit.profileId);
+
+      const receiptData = await buildReceiptData("deposit", deposit, prof);
+      const pdfBuffer = await generateReceiptPDF({ ...receiptData, receiptId });
+
+      const htgAmount = formatHtg(usdtToHtg(Number(deposit.amountUsdt)));
+      const receiptMsg = `Your deposit of ${Number(deposit.amountUsdt).toFixed(2)} USDT (${htgAmount} HTG) has been approved. Your receipt is now available for download in your transaction history.`;
+      await storage.createNotification({ profileId: deposit.profileId, type: "deposit_approved", title: "Deposit Approved — Receipt Ready", message: receiptMsg });
+      if (prof?.phone) {
+        sendWhatsAppNotification(prof.phone, `*Izichanj*\n\n✅ Deposit Approved\n\n${receiptMsg}\n\nhttps://izichanj.com`, prof.fullName);
+      }
+
+      res.set({ "Content-Type": "application/pdf", "Content-Disposition": `inline; filename="receipt-${receiptId}.pdf"` });
+      res.send(pdfBuffer);
+    } catch (e: any) {
+      console.error("[approve-release deposit]", e);
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.patch("/api/admin/withdrawals/:id/approve-release", isAuthenticated, isAdmin, async (req: any, res) => {
+    try {
+      const id = Number(req.params.id);
+      let withdrawal = await storage.getWithdrawalById(id);
+      if (!withdrawal) return res.status(404).json({ message: "Withdrawal not found" });
+
+      if (withdrawal.status !== "approved") {
+        withdrawal = await storage.updateWithdrawalStatus(id, "approved");
+      }
+
+      const receiptId = crypto.randomUUID();
+      withdrawal = await storage.setWithdrawalReceipt(id, receiptId);
+      const prof = await storage.getProfile(withdrawal.profileId);
+
+      const receiptData = await buildReceiptData("withdrawal", withdrawal, prof);
+      const pdfBuffer = await generateReceiptPDF({ ...receiptData, receiptId });
+
+      const htgAmount = formatHtg(usdtToHtg(Number(withdrawal.amount)));
+      const receiptMsg = `Your withdrawal of ${Number(withdrawal.amount).toFixed(2)} USDT (${htgAmount} HTG) has been approved. Your receipt is now available for download.`;
+      await storage.createNotification({ profileId: withdrawal.profileId, type: "withdrawal_approved", title: "Withdrawal Approved — Receipt Ready", message: receiptMsg });
+      if (prof?.phone) {
+        sendWhatsAppNotification(prof.phone, `*Izichanj*\n\n✅ Withdrawal Approved\n\n${receiptMsg}\n\nhttps://izichanj.com`, prof.fullName);
+      }
+
+      res.set({ "Content-Type": "application/pdf", "Content-Disposition": `inline; filename="receipt-${receiptId}.pdf"` });
+      res.send(pdfBuffer);
+    } catch (e: any) {
+      console.error("[approve-release withdrawal]", e);
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // ── Receipt: Admin Preview (already approved) ─────────────────────────────
+
+  app.get("/api/admin/receipts/deposit/:id", isAuthenticated, isAdmin, async (req: any, res) => {
+    try {
+      const deposit = await storage.getDepositById(Number(req.params.id));
+      if (!deposit) return res.status(404).json({ message: "Deposit not found" });
+      if (deposit.status !== "approved") return res.status(400).json({ message: "Deposit not yet approved" });
+      let rid = deposit.receiptId;
+      if (!rid) { rid = crypto.randomUUID(); await storage.setDepositReceipt(deposit.id, rid); }
+      const prof = await storage.getProfile(deposit.profileId);
+      const data = await buildReceiptData("deposit", deposit, prof);
+      const pdfBuffer = await generateReceiptPDF({ ...data, receiptId: rid });
+      res.set({ "Content-Type": "application/pdf", "Content-Disposition": `inline; filename="receipt-${rid}.pdf"` });
+      res.send(pdfBuffer);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.get("/api/admin/receipts/withdrawal/:id", isAuthenticated, isAdmin, async (req: any, res) => {
+    try {
+      const w = await storage.getWithdrawalById(Number(req.params.id));
+      if (!w) return res.status(404).json({ message: "Withdrawal not found" });
+      if (w.status !== "approved") return res.status(400).json({ message: "Withdrawal not yet approved" });
+      let rid = w.receiptId;
+      if (!rid) { rid = crypto.randomUUID(); await storage.setWithdrawalReceipt(w.id, rid); }
+      const prof = await storage.getProfile(w.profileId);
+      const data = await buildReceiptData("withdrawal", w, prof);
+      const pdfBuffer = await generateReceiptPDF({ ...data, receiptId: rid });
+      res.set({ "Content-Type": "application/pdf", "Content-Disposition": `inline; filename="receipt-${rid}.pdf"` });
+      res.send(pdfBuffer);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // ── Receipt: User Download (owner only, approved only) ────────────────────
+
+  app.get("/api/receipts/deposit/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const profileId = req.user.id;
+      const deposit = await storage.getDepositById(Number(req.params.id));
+      if (!deposit) return res.status(404).json({ message: "Not found" });
+      if (deposit.profileId !== profileId) return res.status(403).json({ message: "Forbidden" });
+      if (deposit.status !== "approved") return res.status(400).json({ message: "Receipt not yet available" });
+      if (!deposit.receiptId) return res.status(400).json({ message: "Receipt has not been released yet" });
+      const prof = await storage.getProfile(profileId);
+      const data = await buildReceiptData("deposit", deposit, prof);
+      const pdfBuffer = await generateReceiptPDF({ ...data, receiptId: deposit.receiptId });
+      res.set({ "Content-Type": "application/pdf", "Content-Disposition": `attachment; filename="izichanj-receipt-${deposit.receiptId.slice(0, 8)}.pdf"` });
+      res.send(pdfBuffer);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.get("/api/receipts/withdrawal/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const profileId = req.user.id;
+      const w = await storage.getWithdrawalById(Number(req.params.id));
+      if (!w) return res.status(404).json({ message: "Not found" });
+      if (w.profileId !== profileId) return res.status(403).json({ message: "Forbidden" });
+      if (w.status !== "approved") return res.status(400).json({ message: "Receipt not yet available" });
+      if (!w.receiptId) return res.status(400).json({ message: "Receipt has not been released yet" });
+      const prof = await storage.getProfile(profileId);
+      const data = await buildReceiptData("withdrawal", w, prof);
+      const pdfBuffer = await generateReceiptPDF({ ...data, receiptId: w.receiptId });
+      res.set({ "Content-Type": "application/pdf", "Content-Disposition": `attachment; filename="izichanj-receipt-${w.receiptId.slice(0, 8)}.pdf"` });
+      res.send(pdfBuffer);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // ── Receipt: Public Verification ──────────────────────────────────────────
+
+  app.get("/api/verify/:receiptId", async (req, res) => {
+    try {
+      const { receiptId } = req.params;
+      const deposit = await storage.getDepositByReceiptId(receiptId);
+      if (deposit) {
+        const prof = await storage.getProfile(deposit.profileId);
+        return res.json({
+          found: true,
+          type: "deposit",
+          receiptId,
+          status: deposit.status,
+          amountUsdt: deposit.amountUsdt,
+          createdAt: deposit.createdAt,
+          userName: prof?.fullName?.split(" ")[0] || "User",
+          network: deposit.payCurrency?.toUpperCase()?.includes("BSC") ? "BEP20" : "TRC20",
+        });
+      }
+      const w = await storage.getWithdrawalByReceiptId(receiptId);
+      if (w) {
+        const prof = await storage.getProfile(w.profileId);
+        return res.json({
+          found: true,
+          type: "withdrawal",
+          receiptId,
+          status: w.status,
+          amount: w.amount,
+          currency: w.currency,
+          createdAt: w.createdAt,
+          userName: prof?.fullName?.split(" ")[0] || "User",
+        });
+      }
+      res.json({ found: false });
+    } catch (e: any) {
+      res.status(500).json({ found: false, error: e.message });
+    }
   });
 
   app.patch(api.admin.verifyKyc.path, isAuthenticated, isAdmin, async (req: any, res) => {

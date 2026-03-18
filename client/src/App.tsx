@@ -22,6 +22,7 @@ import VirtualCardsPage from "@/pages/virtual-cards";
 import SendFundsPage from "@/pages/send-funds";
 import TopUpPage from "@/pages/top-up";
 import NotFound from "@/pages/not-found";
+import VerifyReceiptPage from "@/pages/verify-receipt";
 import { LayoutShell } from "@/components/layout-shell";
 
 const INACTIVITY_TIMEOUT = 5 * 60 * 1000;
@@ -124,6 +125,7 @@ function Router() {
         <ProtectedRoute component={TopUpPage} />
       </Route>
 
+      <Route path="/verify/:receiptId" component={VerifyReceiptPage} />
       <Route component={NotFound} />
     </Switch>
   );

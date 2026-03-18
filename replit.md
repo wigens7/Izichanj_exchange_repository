@@ -46,3 +46,13 @@ The application features a modern, secure architecture. The UI/UX is built with 
 - **MonCash Payment Gateway**: For MonCash deposits (currently disabled).
 - **otplib**: For TOTP-based 2FA generation and verification.
 - **SimpleWebAuthn**: For WebAuthn (biometric/fingerprint) authentication.
+- **PDFKit**: For server-side PDF receipt generation.
+- **QRCode**: For generating QR codes embedded in PDF receipts.
+
+## Receipt System
+- **DB fields**: `receipt_id` (unique UUID) and `receipt_url` added to both `deposits` and `withdrawals` tables.
+- **Access control**: Receipts only accessible after admin manually releases them via "Approve & Release Receipt".
+- **PDF format**: Branded header (logo), semi-transparent watermark, transaction details, masked destination, QR code linking to `/verify/:receiptId`, digital signature footer.
+- **Admin routes**: `PATCH /api/admin/deposits/:id/approve-release`, `PATCH /api/admin/withdrawals/:id/approve-release` (approve + generate + download PDF), `GET /api/admin/receipts/deposit/:id` (preview), `GET /api/admin/receipts/withdrawal/:id` (preview).
+- **User routes**: `GET /api/receipts/deposit/:id` and `GET /api/receipts/withdrawal/:id` (owner-only, approved with receiptId required).
+- **Public verification**: `GET /api/verify/:receiptId` returns read-only JSON; frontend page at `/verify/:receiptId`.

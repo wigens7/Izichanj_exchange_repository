@@ -85,6 +85,8 @@ export const deposits = pgTable("deposits", {
   payAddress: text("pay_address"),
   payCurrency: text("pay_currency"),
   status: txnStatusEnum("status").default("pending").notNull(),
+  receiptId: text("receipt_id").unique(),
+  receiptUrl: text("receipt_url"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -97,6 +99,8 @@ export const withdrawals = pgTable("withdrawals", {
   phoneNumber: text("phone_number"),
   qrCodeUrl: text("qr_code_url"),
   status: txnStatusEnum("status").default("pending").notNull(),
+  receiptId: text("receipt_id").unique(),
+  receiptUrl: text("receipt_url"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 

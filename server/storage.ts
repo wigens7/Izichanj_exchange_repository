@@ -18,13 +18,19 @@ export interface IStorage {
 
   createDeposit(deposit: InsertDeposit & { profileId: number; depositMethod?: "usdt" | "moncash" | "nowpayments"; amountHtg?: string; moncashTransactionId?: string | null; nowpaymentsPaymentId?: string | null; payAddress?: string | null; payCurrency?: string | null }): Promise<Deposit>;
   getDeposits(profileId?: number): Promise<Deposit[]>;
+  getDepositById(id: number): Promise<Deposit | undefined>;
   updateDepositStatus(id: number, status: "approved" | "rejected"): Promise<Deposit>;
   getDepositByMoncashTransactionId(transactionId: string): Promise<Deposit | undefined>;
   getDepositByNowpaymentsPaymentId(paymentId: string): Promise<Deposit | undefined>;
+  setDepositReceipt(id: number, receiptId: string): Promise<Deposit>;
+  getDepositByReceiptId(receiptId: string): Promise<Deposit | undefined>;
 
   createWithdrawal(withdrawal: InsertWithdrawal & { profileId: number }): Promise<Withdrawal>;
   getWithdrawals(profileId?: number): Promise<Withdrawal[]>;
+  getWithdrawalById(id: number): Promise<Withdrawal | undefined>;
   updateWithdrawalStatus(id: number, status: "approved" | "rejected"): Promise<Withdrawal>;
+  setWithdrawalReceipt(id: number, receiptId: string): Promise<Withdrawal>;
+  getWithdrawalByReceiptId(receiptId: string): Promise<Withdrawal | undefined>;
 
   createKyc(kyc: { profileId: number; idDocumentUrl: string; idDocumentBackUrl: string; selfieUrl: string; idType?: string; idNumber?: string; addressLine1?: string }): Promise<KycDocument>;
   getKyc(profileId: number): Promise<KycDocument | undefined>;
@@ -156,6 +162,11 @@ export class DatabaseStorage implements IStorage {
     return db.select().from(deposits).orderBy(desc(deposits.createdAt));
   }
 
+  async getDepositById(id: number): Promise<Deposit | undefined> {
+    const [deposit] = await db.select().from(deposits).where(eq(deposits.id, id));
+    return deposit;
+  }
+
   async updateDepositStatus(id: number, status: "approved" | "rejected"): Promise<Deposit> {
     const [deposit] = await db.update(deposits).set({ status }).where(eq(deposits.id, id)).returning();
     return deposit;
@@ -171,6 +182,16 @@ export class DatabaseStorage implements IStorage {
     return deposit;
   }
 
+  async setDepositReceipt(id: number, receiptId: string): Promise<Deposit> {
+    const [deposit] = await db.update(deposits).set({ receiptId }).where(eq(deposits.id, id)).returning();
+    return deposit;
+  }
+
+  async getDepositByReceiptId(receiptId: string): Promise<Deposit | undefined> {
+    const [deposit] = await db.select().from(deposits).where(eq(deposits.receiptId, receiptId));
+    return deposit;
+  }
+
   async createWithdrawal(withdrawal: InsertWithdrawal & { profileId: number }): Promise<Withdrawal> {
     const [newWithdrawal] = await db.insert(withdrawals).values(withdrawal).returning();
     return newWithdrawal;
@@ -183,9 +204,24 @@ export class DatabaseStorage implements IStorage {
     return db.select().from(withdrawals).orderBy(desc(withdrawals.createdAt));
   }
 
+  async getWithdrawalById(id: number): Promise<Withdrawal | undefined> {
+    const [w] = await db.select().from(withdrawals).where(eq(withdrawals.id, id));
+    return w;
+  }
+
   async updateWithdrawalStatus(id: number, status: "approved" | "rejected"): Promise<Withdrawal> {
     const [withdrawal] = await db.update(withdrawals).set({ status }).where(eq(withdrawals.id, id)).returning();
     return withdrawal;
+  }
+
+  async setWithdrawalReceipt(id: number, receiptId: string): Promise<Withdrawal> {
+    const [w] = await db.update(withdrawals).set({ receiptId }).where(eq(withdrawals.id, id)).returning();
+    return w;
+  }
+
+  async getWithdrawalByReceiptId(receiptId: string): Promise<Withdrawal | undefined> {
+    const [w] = await db.select().from(withdrawals).where(eq(withdrawals.receiptId, receiptId));
+    return w;
   }
 
   async createKyc(kyc: { profileId: number; idDocumentUrl: string; idDocumentBackUrl: string; selfieUrl: string; idType?: string; idNumber?: string; addressLine1?: string }): Promise<KycDocument> {
