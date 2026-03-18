@@ -4,12 +4,11 @@ import { useLanguage } from "@/lib/i18n";
 import { EXCHANGE_RATE_USDT_HTG, usdtToHtg, formatHtg, formatUsdt } from "@shared/constants";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { ArrowUpRight, ArrowDownLeft, Wallet, TrendingUp, TrendingDown, ArrowRightLeft, Download, Loader2 } from "lucide-react";
+import { ArrowUpRight, ArrowDownLeft, Wallet, TrendingUp, TrendingDown, ArrowRightLeft, FileText } from "lucide-react";
 import { format } from "date-fns";
 import { StatusBadge } from "@/components/status-badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useState } from "react";
 
 export default function DashboardPage() {
   const { data: user } = useUser();
@@ -127,31 +126,11 @@ function TransactionRow({ txn }: { txn: any }) {
     const { t } = useLanguage();
     const amountUsdt = isDeposit ? Number(txn.amountUsdt) : Number(txn.amount);
     const amountHtg = usdtToHtg(amountUsdt);
-    const [downloading, setDownloading] = useState(false);
 
     const hasReceipt = txn.status === "approved" && !!txn.receiptId;
-
-    async function downloadReceipt() {
-        if (!hasReceipt) return;
-        setDownloading(true);
-        try {
-            const url = isDeposit
-                ? `/api/receipts/deposit/${txn.id}`
-                : `/api/receipts/withdrawal/${txn.id}`;
-            const res = await fetch(url, { credentials: "include" });
-            if (!res.ok) throw new Error("Receipt not available");
-            const blob = await res.blob();
-            const link = document.createElement("a");
-            link.href = URL.createObjectURL(blob);
-            link.download = `izichanj-receipt-${txn.receiptId?.slice(0, 8) || txn.id}.pdf`;
-            link.click();
-            URL.revokeObjectURL(link.href);
-        } catch (e) {
-            console.error("Receipt download failed", e);
-        } finally {
-            setDownloading(false);
-        }
-    }
+    const receiptUrl = isDeposit
+        ? `/api/receipts/deposit/${txn.id}`
+        : `/api/receipts/withdrawal/${txn.id}`;
 
     return (
         <div className="flex items-center justify-between gap-4 p-3.5 rounded-md border border-border bg-card hover:bg-muted/30 transition-colors" data-testid={`txn-${txn.type}-${txn.id}`}>
@@ -179,17 +158,22 @@ function TransactionRow({ txn }: { txn: any }) {
                     <StatusBadge status={txn.status} className="mt-1 text-[10px]" />
                 </div>
                 {hasReceipt && (
-                    <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={downloadReceipt}
-                        disabled={downloading}
-                        className="h-8 px-2 text-xs border-indigo-500/40 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/40"
-                        data-testid={`button-download-receipt-${txn.type}-${txn.id}`}
-                        title="Download Receipt"
+                    <a
+                        href={receiptUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        data-testid={`button-view-receipt-${txn.type}-${txn.id}`}
+                        title="View Receipt"
                     >
-                        {downloading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Download className="w-3 h-3" />}
-                    </Button>
+                        <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-8 px-2.5 gap-1.5 text-xs border-indigo-500/40 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/40"
+                        >
+                            <FileText className="w-3 h-3" />
+                            Receipt
+                        </Button>
+                    </a>
                 )}
             </div>
         </div>

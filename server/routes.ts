@@ -1297,7 +1297,7 @@ export async function registerRoutes(
       const prof = await storage.getProfile(profileId);
       const data = await buildReceiptData("deposit", deposit, prof);
       const pdfBuffer = await generateReceiptPDF({ ...data, receiptId: deposit.receiptId });
-      res.set({ "Content-Type": "application/pdf", "Content-Disposition": `attachment; filename="izichanj-receipt-${deposit.receiptId.slice(0, 8)}.pdf"` });
+      res.set({ "Content-Type": "application/pdf", "Content-Disposition": `inline; filename="izichanj-receipt-${deposit.receiptId.slice(0, 8)}.pdf"` });
       res.send(pdfBuffer);
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
@@ -1313,7 +1313,7 @@ export async function registerRoutes(
       const prof = await storage.getProfile(profileId);
       const data = await buildReceiptData("withdrawal", w, prof);
       const pdfBuffer = await generateReceiptPDF({ ...data, receiptId: w.receiptId });
-      res.set({ "Content-Type": "application/pdf", "Content-Disposition": `attachment; filename="izichanj-receipt-${w.receiptId.slice(0, 8)}.pdf"` });
+      res.set({ "Content-Type": "application/pdf", "Content-Disposition": `inline; filename="izichanj-receipt-${w.receiptId.slice(0, 8)}.pdf"` });
       res.send(pdfBuffer);
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
