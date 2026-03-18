@@ -2,6 +2,7 @@ import { useLanguage } from "@/lib/i18n";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { HelpCircle, Wallet, ArrowDownCircle, ShieldCheck, ShieldAlert, Lock, RefreshCcw } from "lucide-react";
+import { SocialLinks } from "@/components/social-links";
 
 export default function FAQPage() {
   const { t } = useLanguage();
@@ -187,6 +188,13 @@ export default function FAQPage() {
                 </AccordionItem>
               ))}
             </Accordion>
+          </CardContent>
+        </Card>
+
+        {/* Social Media Section */}
+        <Card className="border-border/50 bg-gradient-to-br from-indigo-500/5 via-background to-purple-500/5">
+          <CardContent className="p-6">
+            <SocialLinks />
           </CardContent>
         </Card>
       </div>

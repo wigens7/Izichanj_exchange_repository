@@ -22,6 +22,7 @@ import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { NotificationBell } from "@/components/notification-bell";
 import { SupportChat } from "@/components/support-chat";
+import { SocialLinks } from "@/components/social-links";
 import logoImg from "@/assets/logo.png";
 
 interface LayoutShellProps {
@@ -90,7 +91,11 @@ export function LayoutShell({ children }: LayoutShellProps) {
         })}
       </nav>
 
-      <div className="p-4 mt-auto border-t border-sidebar-border">
+      <div className="px-3 pb-3">
+        <SocialLinks compact />
+      </div>
+
+      <div className="p-4 border-t border-sidebar-border">
         <div className="flex items-center gap-3 px-2 py-2 mb-2">
             <div className="w-9 h-9 rounded-md bg-sidebar-accent flex items-center justify-center text-sidebar-primary font-bold text-sm">
                 {(user?.fullName || user?.email || "U").charAt(0).toUpperCase()}
