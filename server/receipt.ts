@@ -173,7 +173,7 @@ export async function generateReceiptPDF(data: ReceiptData): Promise<Buffer> {
     const tableBottom = rowStartY + detailRows.length * rowH + 10;
 
     // ── QR Code ──
-    const verifyUrl = `https://izichanj.replit.app/verify/${data.receiptId}`;
+    const verifyUrl = `https://izichanj.com`;
     const qrBuffer = await QRCode.toBuffer(verifyUrl, {
       type: "png",
       width: 100,
@@ -186,14 +186,14 @@ export async function generateReceiptPDF(data: ReceiptData): Promise<Buffer> {
     doc.roundedRect(qrX - 8, qrY - 8, 126, 126, 6).fill("#FFFFFF").strokeColor("#E2E8F0").lineWidth(1).stroke();
     doc.image(qrBuffer, qrX, qrY, { width: 110 });
     doc.font("Helvetica").fontSize(7).fillColor(TEXT_MUTED);
-    doc.text("Scan to verify", qrX - 8, qrY + 116, { width: 126, align: "center" });
+    doc.text("izichanj.com", qrX - 8, qrY + 116, { width: 126, align: "center" });
 
-    // ── Verify text beside QR ──
+    // ── Website text beside QR ──
     doc.font("Helvetica-Bold").fontSize(10).fillColor(BRAND_DARK);
-    doc.text("Verify this receipt", colLeft, tableBottom + 14, { width: qrX - colLeft - 16 });
+    doc.text("Izichanj Platform", colLeft, tableBottom + 14, { width: qrX - colLeft - 16 });
     doc.font("Helvetica").fontSize(8.5).fillColor(TEXT_MUTED);
     doc.text(
-      "Scan the QR code or visit the link below to verify the authenticity of this transaction on the Izichanj platform.",
+      "This receipt was issued by Izichanj, the trusted crypto-to-cash exchange platform. For support or inquiries, visit our website.",
       colLeft, tableBottom + 30, { width: qrX - colLeft - 16 }
     );
     doc.font("Helvetica").fontSize(8).fillColor(BRAND_INDIGO);
