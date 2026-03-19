@@ -1630,13 +1630,13 @@ export async function registerRoutes(
         try {
           const _stroBase = "https://strowallet.com/api/bitvcard";
           const _stroKey = process.env.STROWALLET_PUBLIC_KEY || "";
-          const response = await strowalletFetch(`${_stroBase}/get-user/`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json", "Accept": "application/json" },
-            body: JSON.stringify({
-              public_key: _stroKey,
-              customer_id: profile.strowalletCustomerId,
-            }),
+          const params = new URLSearchParams({
+            public_key: _stroKey,
+            customer_id: profile.strowalletCustomerId!,
+          });
+          const response = await strowalletFetch(`${_stroBase}/get-user/?${params.toString()}`, {
+            method: "GET",
+            headers: { "Accept": "application/json" },
           });
           const data = await response.json();
           const userData = data.response || data.data || data;
