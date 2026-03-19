@@ -911,11 +911,10 @@ export async function registerRoutes(
     const profile = await getProfileFromReq(req);
     if (!profile) return res.status(401).json({ message: "Unauthorized" });
 
-    // Enforce permanent lock on personal information
-    // Only lock if ALL fields were previously set
+    // Check if profile is locked (all fields set) AND the one-time edit override is not active
     const isLocked = profile.firstName && profile.lastName && profile.dateOfBirth && profile.country && profile.city && profile.phone;
     
-    if (isLocked) {
+    if (isLocked && !profile.canEditProfile) {
       return res.status(400).json({ message: "Personal information is locked and cannot be changed" });
     }
     
@@ -937,10 +936,25 @@ export async function registerRoutes(
         dateOfBirth,
         country,
         city,
-        phone
+        phone,
+        canEditProfile: false, // Revoke one-time edit permission after save
       });
       const { passwordHash: _, twoFactorSecret: _s, ...safeProfile } = updatedUser;
       res.json(safeProfile);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // Admin: grant or revoke one-time profile edit permission
+  app.patch("/api/admin/users/:id/grant-edit", isAuthenticated, async (req: any, res) => {
+    const profile = await getProfileFromReq(req);
+    if (!profile || profile.role !== "admin") return res.status(403).json({ message: "Forbidden" });
+    const targetId = Number(req.params.id);
+    const { allow } = req.body; // boolean
+    try {
+      await storage.updateProfile(targetId, { canEditProfile: !!allow });
+      res.json({ success: true, canEditProfile: !!allow });
     } catch (e: any) {
       res.status(500).json({ message: e.message });
     }

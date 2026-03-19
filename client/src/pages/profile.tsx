@@ -62,6 +62,7 @@ export default function ProfilePage() {
   if (!user) return null;
 
   const isProfileComplete = user.firstName && user.lastName && user.dateOfBirth && user.country && user.city && user.phone;
+  const canEdit = !!user.canEditProfile;
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, type: 'id' | 'id-back' | 'selfie') => {
     const file = e.target.files?.[0];
@@ -168,6 +169,12 @@ export default function ProfilePage() {
               <CardDescription className="text-xs">{t.profile.personalInfoDescription}</CardDescription>
             </CardHeader>
             <CardContent>
+              {canEdit && (
+                <div className="mb-4 flex items-center gap-2 rounded-lg border border-amber-400/40 bg-amber-500/10 px-3 py-2.5 text-sm text-amber-700 dark:text-amber-400">
+                  <span className="text-base">✏️</span>
+                  <span>One-time edit unlocked — update your information and save to lock it again.</span>
+                </div>
+              )}
               <Form {...form}>
                 <form onSubmit={form.handleSubmit(onProfileSubmit)} className="space-y-4">
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -178,7 +185,7 @@ export default function ProfilePage() {
                         <FormItem>
                           <FormLabel>{t.profile.firstName}</FormLabel>
                           <FormControl>
-                            <Input {...field} data-testid="input-first-name" disabled={!!user.firstName} />
+                            <Input {...field} data-testid="input-first-name" disabled={!!user.firstName && !canEdit} />
                           </FormControl>
                           <FormMessage />
                         </FormItem>
@@ -191,7 +198,7 @@ export default function ProfilePage() {
                         <FormItem>
                           <FormLabel>{t.profile.lastName}</FormLabel>
                           <FormControl>
-                            <Input {...field} data-testid="input-last-name" disabled={!!user.lastName} />
+                            <Input {...field} data-testid="input-last-name" disabled={!!user.lastName && !canEdit} />
                           </FormControl>
                           <FormMessage />
                         </FormItem>
@@ -206,7 +213,7 @@ export default function ProfilePage() {
                         <FormItem>
                           <FormLabel>{t.profile.dateOfBirth}</FormLabel>
                           <FormControl>
-                            <Input type="date" {...field} data-testid="input-dob" disabled={!!user.dateOfBirth} />
+                            <Input type="date" {...field} data-testid="input-dob" disabled={!!user.dateOfBirth && !canEdit} />
                           </FormControl>
                           <FormMessage />
                         </FormItem>
@@ -219,7 +226,7 @@ export default function ProfilePage() {
                         <FormItem>
                           <FormLabel>{t.withdraw.phoneNumber}</FormLabel>
                           <FormControl>
-                            <Input {...field} data-testid="input-profile-phone" disabled={!!user.phone} />
+                            <Input {...field} data-testid="input-profile-phone" disabled={!!user.phone && !canEdit} />
                           </FormControl>
                           <FormMessage />
                         </FormItem>
@@ -234,7 +241,7 @@ export default function ProfilePage() {
                         <FormItem>
                           <FormLabel>{t.profile.country}</FormLabel>
                           <FormControl>
-                            <Input {...field} data-testid="input-country" disabled={!!user.country} />
+                            <Input {...field} data-testid="input-country" disabled={!!user.country && !canEdit} />
                           </FormControl>
                           <FormMessage />
                         </FormItem>
@@ -247,14 +254,14 @@ export default function ProfilePage() {
                         <FormItem>
                           <FormLabel>{t.profile.city}</FormLabel>
                           <FormControl>
-                            <Input {...field} data-testid="input-city" disabled={!!user.city} />
+                            <Input {...field} data-testid="input-city" disabled={!!user.city && !canEdit} />
                           </FormControl>
                           <FormMessage />
                         </FormItem>
                       )}
                     />
                   </div>
-                  {!isProfileComplete && (
+                  {(!isProfileComplete || canEdit) && (
                     <Button 
                       type="submit" 
                       className="w-full primary-gradient" 

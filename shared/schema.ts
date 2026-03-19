@@ -34,6 +34,7 @@ export const profiles = pgTable("profiles", {
   strowalletCustomerId: text("strowallet_customer_id"),
   isBanned: boolean("is_banned").default(false).notNull(),
   isDeleted: boolean("is_deleted").default(false).notNull(),
+  canEditProfile: boolean("can_edit_profile").default(false).notNull(),
   deletedAt: timestamp("deleted_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });

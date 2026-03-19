@@ -342,6 +342,23 @@ function UserRow({ user, onUpdateBalance, isPending }: { user: any; onUpdateBala
     },
   });
 
+  const grantEditMutation = useMutation({
+    mutationFn: async (allow: boolean) => {
+      const res = await apiRequest("PATCH", `/api/admin/users/${user.id}/grant-edit`, { allow });
+      return res.json();
+    },
+    onSuccess: (data) => {
+      toast({
+        title: data.canEditProfile ? "Edit access granted" : "Edit access revoked",
+        description: `${user.fullName} can now ${data.canEditProfile ? "" : "no longer "}edit their profile.`
+      });
+      qc.invalidateQueries({ queryKey: ["/api/admin/users"] });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
+  });
+
   const deleteMutation = useMutation({
     mutationFn: async () => {
       const res = await apiRequest("DELETE", `/api/admin/users/${user.id}`);
@@ -433,6 +450,17 @@ function UserRow({ user, onUpdateBalance, isPending }: { user: any; onUpdateBala
             >
               {banMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : user.isBanned ? <Unlock className="w-3 h-3 mr-1" /> : <Ban className="w-3 h-3 mr-1" />}
               {user.isBanned ? "Unban" : "Ban"}
+            </Button>
+            <Button
+              variant={user.canEditProfile ? "default" : "outline"}
+              size="sm"
+              onClick={() => grantEditMutation.mutate(!user.canEditProfile)}
+              disabled={grantEditMutation.isPending}
+              data-testid={`button-grant-edit-${user.id}`}
+              title={user.canEditProfile ? "Revoke profile edit access" : "Grant one-time profile edit access"}
+            >
+              {grantEditMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Pencil className="w-3 h-3 mr-1" />}
+              {user.canEditProfile ? "Revoke Edit" : "Grant Edit"}
             </Button>
             {!confirmDelete ? (
               <Button variant="destructive" size="sm" onClick={() => setConfirmDelete(true)} disabled={user.role === "admin"} data-testid={`button-delete-user-${user.id}`}>
