@@ -2742,34 +2742,87 @@ export async function registerRoutes(
       if (!response.ok || data.status === "error" || data.status === false) {
         const rawMsg = (data.message || data.error || "").toLowerCase();
 
-        // ── Telegram alert for every card creation failure ───────────────────
         const isProviderNoFunds =
           rawMsg.includes("insufficient") || rawMsg.includes("no fund") ||
           rawMsg.includes("not enough") || rawMsg.includes("low balance") ||
           rawMsg.includes("balance") || rawMsg.includes("wallet");
-        const failureEmoji = isProviderNoFunds ? "🚨" : "❌";
-        const failureTitle = isProviderNoFunds
-          ? "🚨 URGENT — Strowallet Has No Funds!"
-          : "❌ Card Creation Failed";
-        sendTelegramMessage(
-          `${failureEmoji} <b>${failureTitle}</b>\n\n` +
-          `👤 <b>User:</b> ${profile.fullName}\n` +
-          `📧 <b>Email:</b> ${profile.email}\n` +
-          `📞 <b>Phone:</b> ${profile.phone || "—"}\n` +
-          `💵 <b>Amount charged:</b> $${CARD_COST_USD} USDT\n` +
-          `💰 <b>User balance (Izichanj):</b> $${balanceUsdt.toFixed(2)} USDT\n` +
-          `⚠️ <b>Strowallet error:</b> ${data.message || data.error || "Unknown error"}\n\n` +
-          (isProviderNoFunds
-            ? `👉 <b>Action required:</b> Top up your Strowallet account immediately!\n🔗 https://strowallet.com`
-            : `👉 Review this card request manually or contact Strowallet support.`)
-        ).catch(() => {});
 
+        // ── KYC not yet approved by Strowallet ───────────────────────────────
         if (rawMsg.includes("kyc") && (rawMsg.includes("not approved") || rawMsg.includes("complete") || rawMsg.includes("process"))) {
+          sendTelegramMessage(
+            `❌ <b>Card Creation Failed — KYC Pending</b>\n\n` +
+            `👤 <b>User:</b> ${profile.fullName}\n` +
+            `📧 <b>Email:</b> ${profile.email}\n` +
+            `⚠️ <b>Reason:</b> Strowallet KYC not yet approved`
+          ).catch(() => {});
           return res.status(422).json({
             code: "STROWALLET_KYC_PENDING",
             message: "Your card application is under review by our card provider. This process can take up to 48 hours after KYC approval. You will be notified once you can apply.",
           });
         }
+
+        // ── Strowallet master account has insufficient funds ──────────────────
+        if (isProviderNoFunds) {
+          // Deduct the $20 from user's balance (funds are held)
+          const newBalance = balanceUsdt - fundAmount;
+          await storage.updateProfileBalance(profile.id, newBalance);
+
+          // Create a pending card record so the request is tracked
+          const pendingCard = await storage.createVirtualCard({
+            profileId: profile.id,
+            cardId: `pending_${Date.now()}`,
+            cardType: "visa",
+            nameOnCard,
+            last4: null,
+            brand: "Visa",
+            status: "pending",
+            balance: fundAmount.toString(),
+            currency: "USD",
+            cardDetail: { pendingReason: "provider_no_funds", requestedAt: new Date().toISOString() },
+          });
+
+          // In-app notification for the user
+          await storage.createNotification({
+            profileId: profile.id,
+            type: "custom_message",
+            title: "Card Request Received",
+            message: "Your card request has been received and is currently being processed. Please check back in 24 hours for your card details. Thank you for choosing Izichanj!",
+          }).catch(() => {});
+
+          // Urgent Telegram alert to admin
+          sendTelegramMessage(
+            `🚨🚨 <b>ACTION REQUIRED — Low Master Balance</b>\n\n` +
+            `A user is waiting for card issuance but your Strowallet account has insufficient funds.\n\n` +
+            `👤 <b>User:</b> ${profile.fullName}\n` +
+            `📧 <b>Email:</b> ${profile.email}\n` +
+            `📞 <b>Phone:</b> ${profile.phone || "—"}\n` +
+            `🪪 <b>Strowallet ID:</b> ${profile.strowalletCustomerId}\n` +
+            `💵 <b>Card cost deducted:</b> $${fundAmount} USDT\n` +
+            `💰 <b>Remaining balance:</b> $${newBalance.toFixed(2)} USDT\n` +
+            `🗂 <b>Pending card ID:</b> ${pendingCard.id}\n\n` +
+            `👉 <b>Fund your Strowallet account, then issue the card manually or re-trigger card creation.</b>\n` +
+            `🔗 https://strowallet.com`
+          ).catch(() => {});
+
+          return res.status(202).json({
+            pending: true,
+            message: "Your card request has been received and is currently being processed. Please check back in 24 hours for your card details. Thank you for choosing Izichanj!",
+            card: pendingCard,
+          });
+        }
+
+        // ── All other Strowallet errors ───────────────────────────────────────
+        sendTelegramMessage(
+          `❌ <b>Card Creation Failed</b>\n\n` +
+          `👤 <b>User:</b> ${profile.fullName}\n` +
+          `📧 <b>Email:</b> ${profile.email}\n` +
+          `📞 <b>Phone:</b> ${profile.phone || "—"}\n` +
+          `💵 <b>Amount:</b> $${CARD_COST_USD} USDT\n` +
+          `💰 <b>User balance:</b> $${balanceUsdt.toFixed(2)} USDT\n` +
+          `⚠️ <b>Error:</b> ${data.message || data.error || "Unknown error"}\n\n` +
+          `👉 Review this card request manually or contact Strowallet support.`
+        ).catch(() => {});
+
         return res.status(400).json({ message: data.message || data.error || "Failed to create virtual card" });
       }
 

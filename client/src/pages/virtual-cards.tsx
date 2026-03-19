@@ -137,9 +137,16 @@ function ApplyCardSection() {
       }
       return data;
     },
-    onSuccess: () => {
+    onSuccess: (data: any) => {
       setKycPending(false);
-      toast({ title: vc.cardCreated });
+      if (data?.pending) {
+        toast({
+          title: "Card Request Received",
+          description: "Your card is being processed. Please check back in 24 hours.",
+        });
+      } else {
+        toast({ title: vc.cardCreated });
+      }
       qc.invalidateQueries({ queryKey: ["/api/cards"] });
       qc.invalidateQueries({ queryKey: ["/api/user"] });
     },
@@ -301,6 +308,7 @@ function CardItem({ card }: { card: VirtualCard }) {
   const [showTransactions, setShowTransactions] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
 
+  const isPending = card.status === "pending";
   const isFrozen = card.status === "frozen";
   const isActive = card.status === "active";
 
@@ -369,15 +377,28 @@ function CardItem({ card }: { card: VirtualCard }) {
           <img
             src={cardTemplateBg}
             alt="Virtual Card"
-            className={`absolute inset-0 w-full h-full object-cover ${isFrozen ? "opacity-40 grayscale" : ""}`}
+            className={`absolute inset-0 w-full h-full object-cover ${isFrozen ? "opacity-40 grayscale" : ""} ${isPending ? "opacity-50 grayscale" : ""}`}
           />
+          {isPending && (
+            <div className="absolute inset-0 flex items-center justify-center bg-black/40 rounded-t-md">
+              <div className="text-center px-4">
+                <div className="w-10 h-10 border-4 border-amber-400 border-t-transparent rounded-full animate-spin mx-auto mb-2" />
+                <p className="text-white font-semibold text-sm">Processing...</p>
+                <p className="text-white/70 text-xs mt-1">Ready in ~24 hours</p>
+              </div>
+            </div>
+          )}
           <div className="absolute inset-0 flex flex-col justify-between p-5">
             <div className="flex items-center justify-between">
               <div />
               <div className="flex items-center gap-2">
-                <Badge variant={isFrozen ? "secondary" : "default"} className={isFrozen ? "" : "bg-emerald-500/20 text-emerald-200 border-emerald-500/30"}>
-                  {isFrozen ? vc.frozen : vc.active}
-                </Badge>
+                {isPending ? (
+                  <Badge className="bg-amber-500/30 text-amber-200 border-amber-500/40">Processing</Badge>
+                ) : (
+                  <Badge variant={isFrozen ? "secondary" : "default"} className={isFrozen ? "" : "bg-emerald-500/20 text-emerald-200 border-emerald-500/30"}>
+                    {isFrozen ? vc.frozen : vc.active}
+                  </Badge>
+                )}
                 <Badge variant="outline" className="text-white/80 border-white/20 bg-white/10">
                   ${Number(card.balance).toFixed(2)}
                 </Badge>
@@ -498,6 +519,15 @@ function CardItem({ card }: { card: VirtualCard }) {
             </div>
           )}
 
+          {isPending ? (
+            <div className="flex items-start gap-3 rounded-md bg-amber-500/10 border border-amber-500/20 p-3">
+              <div className="w-4 h-4 mt-0.5 shrink-0 border-2 border-amber-500 border-t-transparent rounded-full animate-spin" />
+              <div>
+                <p className="text-sm font-medium text-amber-700 dark:text-amber-400">Card request received</p>
+                <p className="text-xs text-muted-foreground mt-0.5">Your card is being processed. Please check back in 24 hours for your card details. Thank you for choosing Izichanj!</p>
+              </div>
+            </div>
+          ) : (
           <div className="flex items-center gap-2 flex-wrap">
             <Button
               variant="outline"
@@ -548,6 +578,7 @@ function CardItem({ card }: { card: VirtualCard }) {
               {isFrozen ? vc.unfreezeCard : vc.freezeCard}
             </Button>
           </div>
+          )}
         </div>
       </CardContent>
     </Card>
