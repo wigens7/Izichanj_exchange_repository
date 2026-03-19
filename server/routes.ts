@@ -407,25 +407,68 @@ export async function registerRoutes(
 
   // POST /api/strowallet/webhook — handles all Strowallet card events (Card Issuing, Amucha, Bankly, Paga, Safe Haven)
   app.post("/api/strowallet/webhook", async (req, res) => {
+    res.sendStatus(200); // Always respond immediately so Strowallet doesn't retry
     try {
       const event = req.body;
       console.log("[STROWALLET WEBHOOK] Received:", JSON.stringify(event));
 
-      const eventType = event.event || event.type || event.status || "unknown";
+      const eventType = String(event.event || event.type || event.status || "unknown");
       const customerEmail = event.customer_email || event.email || "";
       const cardId = event.card_id || event.cardId || "";
-      const amount = event.amount || event.debit_amount || "";
+      const amount = event.amount || event.debit_amount || event.debit || "";
       const currency = event.currency || "USD";
+      const reason = event.reason || event.message || event.error || event.description || "";
+      const lowerEvent = eventType.toLowerCase();
+      const lowerReason = String(reason).toLowerCase();
 
-      // Find the user by email if available
+      // ── Classify the event ──────────────────────────────────────────────
+      const isSuccess   = lowerEvent.includes("approved") || lowerEvent.includes("active") || lowerEvent.includes("created") || lowerEvent.includes("success");
+      const isFailure   = lowerEvent.includes("fail") || lowerEvent.includes("declined") || lowerEvent.includes("rejected") || lowerEvent.includes("error") || lowerEvent.includes("denied");
+      const isNoFunds   = lowerEvent.includes("insufficient") || lowerReason.includes("insufficient") || lowerReason.includes("no fund") || lowerReason.includes("not enough") || lowerReason.includes("balance") || lowerEvent.includes("low_balance") || lowerEvent.includes("no_fund");
+      const isDebit     = lowerEvent.includes("debit") || lowerEvent.includes("transaction") || lowerEvent.includes("charge") || lowerEvent.includes("purchase");
+      const isFreeze    = lowerEvent.includes("freeze") || lowerEvent.includes("blocked") || lowerEvent.includes("suspend");
+      const isKycEvent  = lowerEvent.includes("kyc") || lowerEvent.includes("verification");
+
+      // ── Choose emoji & header label ──────────────────────────────────────
+      let emoji = "🔔";
+      let label = "Strowallet Event";
+      if (isNoFunds)  { emoji = "🚨"; label = "NO FUNDS — Card Creation Failed"; }
+      else if (isFailure) { emoji = "❌"; label = "Card Event Failed"; }
+      else if (isSuccess) { emoji = "✅"; label = "Card Activated"; }
+      else if (isDebit)   { emoji = "💸"; label = "Card Transaction"; }
+      else if (isFreeze)  { emoji = "🔒"; label = "Card Frozen/Blocked"; }
+      else if (isKycEvent){ emoji = "🪪"; label = "KYC Event"; }
+
+      // ── Telegram admin alert (always sent for every event) ───────────────
+      const rawPayload = JSON.stringify(event, null, 2).slice(0, 900);
+      await sendTelegramMessage(
+        `${emoji} <b>${label}</b>\n\n` +
+        `📌 <b>Event:</b> <code>${eventType}</code>\n` +
+        `📧 <b>Email:</b> ${customerEmail || "—"}\n` +
+        `💳 <b>Card ID:</b> ${cardId || "—"}\n` +
+        `💵 <b>Amount:</b> ${amount ? `${amount} ${currency}` : "—"}\n` +
+        (reason ? `⚠️ <b>Reason:</b> ${reason}\n` : "") +
+        `\n<pre>${rawPayload}</pre>`
+      ).catch(() => {});
+
+      // ── Extra urgent alert for no-funds situation ────────────────────────
+      if (isNoFunds) {
+        await sendTelegramMessage(
+          `🚨🚨 <b>URGENT — Strowallet Out of Funds!</b>\n\n` +
+          `A user tried to create a card but Strowallet reported insufficient funds in your provider account.\n\n` +
+          `📧 <b>User:</b> ${customerEmail || "—"}\n` +
+          `💵 <b>Amount requested:</b> ${amount ? `${amount} ${currency}` : "—"}\n\n` +
+          `👉 Please top up your Strowallet balance immediately to avoid losing user transactions.\n` +
+          `🔗 https://strowallet.com`
+        ).catch(() => {});
+      }
+
+      // ── In-app notifications for the user ───────────────────────────────
       if (customerEmail) {
         const allProfiles = await storage.getAllProfiles();
         const profile = allProfiles.find(p => p.email === customerEmail);
         if (profile) {
-          // Notify user for key card events
-          const lowerEvent = String(eventType).toLowerCase();
-
-          if (lowerEvent.includes("approved") || lowerEvent.includes("active") || lowerEvent.includes("created")) {
+          if (isSuccess) {
             await storage.createNotification({
               profileId: profile.id,
               type: "custom_message",
@@ -441,7 +484,7 @@ export async function registerRoutes(
             }
           }
 
-          if (lowerEvent.includes("debit") || lowerEvent.includes("transaction") || lowerEvent.includes("charge")) {
+          if (isDebit) {
             await storage.createNotification({
               profileId: profile.id,
               type: "custom_message",
@@ -450,7 +493,7 @@ export async function registerRoutes(
             });
           }
 
-          if (lowerEvent.includes("freeze") || lowerEvent.includes("blocked") || lowerEvent.includes("suspend")) {
+          if (isFreeze) {
             await storage.createNotification({
               profileId: profile.id,
               type: "custom_message",
@@ -458,23 +501,29 @@ export async function registerRoutes(
               message: "Your virtual card has been frozen. Contact support if you did not request this.",
             });
           }
+
+          if (isFailure && !isNoFunds) {
+            await storage.createNotification({
+              profileId: profile.id,
+              type: "custom_message",
+              title: "Card Request Failed",
+              message: `Your virtual card request could not be processed. ${reason ? `Reason: ${reason}` : "Please contact support."}`,
+            });
+          }
+
+          if (isKycEvent) {
+            await storage.createNotification({
+              profileId: profile.id,
+              type: "custom_message",
+              title: "KYC Status Update",
+              message: `Your card verification status has been updated: ${eventType}. ${reason || ""}`.trim(),
+            });
+          }
         }
       }
 
-      // Telegram alert for admin
-      sendTelegramMessage(
-        `🔔 <b>Strowallet Webhook</b>\n\n` +
-        `📌 <b>Event:</b> ${eventType}\n` +
-        `📧 <b>Email:</b> ${customerEmail || "—"}\n` +
-        `💳 <b>Card ID:</b> ${cardId || "—"}\n` +
-        `💵 <b>Amount:</b> ${amount ? `${amount} ${currency}` : "—"}\n\n` +
-        `<pre>${JSON.stringify(event, null, 2).slice(0, 800)}</pre>`
-      ).catch(() => {});
-
-      res.sendStatus(200);
     } catch (e: any) {
       console.error("[STROWALLET WEBHOOK] Error:", e);
-      res.sendStatus(200); // Always return 200 to prevent retries
     }
   });
 
@@ -2591,6 +2640,29 @@ export async function registerRoutes(
 
       if (!response.ok || data.status === "error" || data.status === false) {
         const rawMsg = (data.message || data.error || "").toLowerCase();
+
+        // ── Telegram alert for every card creation failure ───────────────────
+        const isProviderNoFunds =
+          rawMsg.includes("insufficient") || rawMsg.includes("no fund") ||
+          rawMsg.includes("not enough") || rawMsg.includes("low balance") ||
+          rawMsg.includes("balance") || rawMsg.includes("wallet");
+        const failureEmoji = isProviderNoFunds ? "🚨" : "❌";
+        const failureTitle = isProviderNoFunds
+          ? "🚨 URGENT — Strowallet Has No Funds!"
+          : "❌ Card Creation Failed";
+        sendTelegramMessage(
+          `${failureEmoji} <b>${failureTitle}</b>\n\n` +
+          `👤 <b>User:</b> ${profile.fullName}\n` +
+          `📧 <b>Email:</b> ${profile.email}\n` +
+          `📞 <b>Phone:</b> ${profile.phone || "—"}\n` +
+          `💵 <b>Amount charged:</b> $${CARD_COST_USD} USDT\n` +
+          `💰 <b>User balance (Izichanj):</b> $${balanceUsdt.toFixed(2)} USDT\n` +
+          `⚠️ <b>Strowallet error:</b> ${data.message || data.error || "Unknown error"}\n\n` +
+          (isProviderNoFunds
+            ? `👉 <b>Action required:</b> Top up your Strowallet account immediately!\n🔗 https://strowallet.com`
+            : `👉 Review this card request manually or contact Strowallet support.`)
+        ).catch(() => {});
+
         if (rawMsg.includes("kyc") && (rawMsg.includes("not approved") || rawMsg.includes("complete") || rawMsg.includes("process"))) {
           return res.status(422).json({
             code: "STROWALLET_KYC_PENDING",
