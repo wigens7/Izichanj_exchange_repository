@@ -1614,6 +1614,84 @@ export async function registerRoutes(
     res.json(ready);
   });
 
+  // POST /api/admin/strowallet/check-all-cardholders — fetch Strowallet KYC/cardholder status for every registered user
+  app.post("/api/admin/strowallet/check-all-cardholders", isAuthenticated, isAdmin, async (req: any, res) => {
+    try {
+      const allProfiles = await storage.getAllProfiles();
+      const registered = allProfiles.filter(p => p.strowalletCustomerId && !p.deletedAt);
+
+      if (registered.length === 0) {
+        return res.json({ checked: 0, results: [], message: "No users registered with Strowallet yet." });
+      }
+
+      const results: any[] = [];
+
+      for (const profile of registered) {
+        try {
+          const _stroBase = "https://strowallet.com/api/bitvcard";
+          const _stroKey = process.env.STROWALLET_PUBLIC_KEY || "";
+          const response = await strowalletFetch(`${_stroBase}/get-user/`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "Accept": "application/json" },
+            body: JSON.stringify({
+              public_key: _stroKey,
+              customer_id: profile.strowalletCustomerId,
+            }),
+          });
+          const data = await response.json();
+          const userData = data.response || data.data || data;
+          const status = userData?.status || userData?.kyc_status || userData?.verification_status || data.status || "unknown";
+          const isApproved = String(status).toLowerCase().includes("approved") || String(status).toLowerCase().includes("active") || String(status).toLowerCase().includes("verified") || data.status === true;
+          results.push({
+            id: profile.id,
+            name: profile.fullName,
+            email: profile.email,
+            phone: profile.phone,
+            strowalletCustomerId: profile.strowalletCustomerId,
+            status,
+            isApproved,
+            rawResponse: data,
+          });
+        } catch (err: any) {
+          results.push({
+            id: profile.id,
+            name: profile.fullName,
+            email: profile.email,
+            strowalletCustomerId: profile.strowalletCustomerId,
+            status: "error",
+            isApproved: false,
+            error: err.message,
+          });
+        }
+      }
+
+      // Send summary to Telegram
+      const approved = results.filter(r => r.isApproved);
+      const pending  = results.filter(r => !r.isApproved && r.status !== "error");
+      const errors   = results.filter(r => r.status === "error");
+
+      let telegramMsg = `🪪 <b>Strowallet Cardholder Status Check</b>\n\n` +
+        `👥 <b>Total registered:</b> ${results.length}\n` +
+        `✅ <b>Approved:</b> ${approved.length}\n` +
+        `⏳ <b>Pending/Other:</b> ${pending.length}\n` +
+        `❌ <b>Errors:</b> ${errors.length}\n\n`;
+
+      results.forEach(r => {
+        const icon = r.isApproved ? "✅" : r.status === "error" ? "❌" : "⏳";
+        telegramMsg += `${icon} <b>${r.name}</b> (ID: ${r.strowalletCustomerId})\n` +
+          `   📧 ${r.email}\n` +
+          `   📌 Status: <code>${r.status}</code>\n\n`;
+      });
+
+      await sendTelegramMessage(telegramMsg.slice(0, 4000)).catch(() => {});
+
+      res.json({ checked: results.length, results });
+    } catch (e: any) {
+      console.error("[ADMIN] check-all-cardholders error:", e);
+      res.status(500).json({ message: e.message || "Internal error" });
+    }
+  });
+
   app.get(api.admin.allDeposits.path, isAuthenticated, isAdmin, async (req: any, res) => {
     const allDeposits = await storage.getDeposits();
     res.json(allDeposits);

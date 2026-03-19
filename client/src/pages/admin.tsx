@@ -1910,21 +1910,55 @@ function SupportTab() {
 
 function VirtualCardReadyTab() {
   const { data: users, isLoading } = useQuery<any[]>({ queryKey: ["/api/admin/virtual-card-ready"] });
+  const { toast } = useToast();
+  const [checkResults, setCheckResults] = useState<any[]>([]);
+
+  const checkMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/admin/strowallet/check-all-cardholders");
+      return res.json();
+    },
+    onSuccess: (data) => {
+      setCheckResults(data.results || []);
+      toast({
+        title: `Checked ${data.checked} cardholders`,
+        description: `Results sent to your Telegram. ✅ Approved: ${data.results?.filter((r: any) => r.isApproved).length} | ⏳ Pending: ${data.results?.filter((r: any) => !r.isApproved && r.status !== "error").length}`,
+      });
+    },
+    onError: () => {
+      toast({ title: "Check failed", description: "Could not reach Strowallet API.", variant: "destructive" });
+    },
+  });
 
   return (
     <div className="space-y-4">
       <Card>
         <CardHeader className="pb-3">
-          <CardTitle className="text-base flex items-center gap-2">
-            <CreditCard className="w-4 h-4 text-primary" />
-            Users Registered with Strowallet
-            {users && (
-              <Badge className="ml-auto bg-blue-600 text-white">{users.length} registered</Badge>
-            )}
-          </CardTitle>
-          <p className="text-xs text-muted-foreground">
-            These users are KYC-verified and registered with Strowallet. Strowallet may still take <strong>24–48 hours</strong> to internally approve their documents before they can create a card. Once Strowallet approves them, the "Under Review" message will disappear automatically.
-          </p>
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex-1">
+              <CardTitle className="text-base flex items-center gap-2">
+                <CreditCard className="w-4 h-4 text-primary" />
+                Users Registered with Strowallet
+                {users && (
+                  <Badge className="ml-2 bg-blue-600 text-white">{users.length} registered</Badge>
+                )}
+              </CardTitle>
+              <p className="text-xs text-muted-foreground mt-1">
+                These users are KYC-verified and registered with Strowallet. Strowallet may still take <strong>24–48 hours</strong> to internally approve their documents before they can create a card.
+              </p>
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => checkMutation.mutate()}
+              disabled={checkMutation.isPending}
+              data-testid="button-check-all-cardholders"
+              className="shrink-0"
+            >
+              {checkMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <RefreshCw className="w-3 h-3 mr-1" />}
+              Check Cardholder Status
+            </Button>
+          </div>
         </CardHeader>
         <CardContent>
           {isLoading ? (
@@ -1972,6 +2006,53 @@ function VirtualCardReadyTab() {
           )}
         </CardContent>
       </Card>
+
+      {checkResults.length > 0 && (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base flex items-center gap-2">
+              <CheckCircle className="w-4 h-4 text-emerald-500" />
+              Strowallet Status Results
+              <Badge className="ml-auto">{checkResults.length} checked</Badge>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Name</TableHead>
+                    <TableHead>Email</TableHead>
+                    <TableHead>Strowallet ID</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Raw Response</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {checkResults.map((r: any) => (
+                    <TableRow key={r.id} data-testid={`row-status-${r.id}`}>
+                      <TableCell className="font-medium">{r.name}</TableCell>
+                      <TableCell className="text-sm text-muted-foreground">{r.email}</TableCell>
+                      <TableCell><span className="font-mono text-xs bg-muted px-2 py-0.5 rounded">{r.strowalletCustomerId}</span></TableCell>
+                      <TableCell>
+                        <Badge className={r.isApproved ? "bg-emerald-600 text-white" : r.status === "error" ? "bg-red-600 text-white" : "bg-amber-500 text-white"}>
+                          {r.isApproved ? "✅ Approved" : r.status === "error" ? "❌ Error" : `⏳ ${r.status}`}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <details className="text-xs">
+                          <summary className="cursor-pointer text-muted-foreground hover:text-foreground">View</summary>
+                          <pre className="mt-1 text-[10px] bg-muted p-2 rounded overflow-auto max-h-32">{JSON.stringify(r.rawResponse || r.error, null, 2)}</pre>
+                        </details>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }
