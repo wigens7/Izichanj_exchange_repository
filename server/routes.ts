@@ -1640,8 +1640,29 @@ export async function registerRoutes(
           });
           const data = await response.json();
           const userData = data.response || data.data || data;
-          const status = userData?.status || userData?.kyc_status || userData?.verification_status || data.status || "unknown";
-          const isApproved = String(status).toLowerCase().includes("approved") || String(status).toLowerCase().includes("active") || String(status).toLowerCase().includes("verified") || data.status === true;
+          // Try every possible field name Strowallet might use
+          const status =
+            userData?.status ||
+            userData?.kyc_status ||
+            userData?.verification_status ||
+            userData?.account_status ||
+            userData?.user_status ||
+            userData?.approval_status ||
+            userData?.is_active ||
+            userData?.active ||
+            userData?.is_approved ||
+            data.status ||
+            data.message ||
+            "unknown";
+          const statusStr = String(status).toLowerCase();
+          const isApproved =
+            statusStr.includes("approved") ||
+            statusStr.includes("active") ||
+            statusStr.includes("verified") ||
+            statusStr.includes("success") ||
+            status === true ||
+            status === 1 ||
+            status === "1";
           results.push({
             id: profile.id,
             name: profile.fullName,
@@ -1678,12 +1699,14 @@ export async function registerRoutes(
 
       results.forEach(r => {
         const icon = r.isApproved ? "✅" : r.status === "error" ? "❌" : "⏳";
+        const rawSnippet = JSON.stringify(r.rawResponse || r.error || {}).slice(0, 300);
         telegramMsg += `${icon} <b>${r.name}</b> (ID: ${r.strowalletCustomerId})\n` +
           `   📧 ${r.email}\n` +
-          `   📌 Status: <code>${r.status}</code>\n\n`;
+          `   📌 Status: <code>${r.status}</code>\n` +
+          `   🔍 Raw: <code>${rawSnippet}</code>\n\n`;
       });
 
-      await sendTelegramMessage(telegramMsg.slice(0, 4000)).catch(() => {});
+      await sendTelegramMessage(telegramMsg.slice(0, 4096)).catch(() => {});
 
       res.json({ checked: results.length, results });
     } catch (e: any) {
