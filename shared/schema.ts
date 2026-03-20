@@ -6,7 +6,7 @@ import { z } from "zod";
 export * from "./models/auth";
 
 export const kycStatusEnum = pgEnum("kyc_status", ["not_submitted", "pending", "verified", "rejected"]);
-export const txnStatusEnum = pgEnum("txn_status", ["pending", "approved", "rejected"]);
+export const txnStatusEnum = pgEnum("txn_status", ["pending", "approved", "rejected", "expired"]);
 export const currencyEnum = pgEnum("currency", ["MonCash", "NatCash"]);
 export const withdrawMethodEnum = pgEnum("withdraw_method", ["phone", "qrcode"]);
 export const userRoleEnum = pgEnum("user_role", ["user", "admin"]);
@@ -88,6 +88,7 @@ export const deposits = pgTable("deposits", {
   status: txnStatusEnum("status").default("pending").notNull(),
   receiptId: text("receipt_id").unique(),
   receiptUrl: text("receipt_url"),
+  expiresAt: timestamp("expires_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 

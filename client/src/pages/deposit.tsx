@@ -19,6 +19,7 @@ interface NowPaymentInfo {
   payAmount: number;
   payCurrency: string;
   expirationDate: string;
+  expiresAt: string;
 }
 
 type NetworkKey = "trc20" | "bep20";
@@ -40,7 +41,10 @@ export default function DepositPage() {
   const [cryptoLoading, setCryptoLoading] = useState(false);
   const [paymentInfo, setPaymentInfo] = useState<NowPaymentInfo | null>(null);
   const [paymentStatus, setPaymentStatus] = useState<string>("waiting");
+  const [secondsLeft, setSecondsLeft] = useState<number>(0);
+  const [isLocallyExpired, setIsLocallyExpired] = useState(false);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const networkCurrency = NETWORK_MAP[selectedNetwork];
   const networkConfig = NETWORK_FEE_CONFIG[networkCurrency];
@@ -54,8 +58,31 @@ export default function DepositPage() {
   useEffect(() => {
     return () => {
       if (pollingRef.current) clearInterval(pollingRef.current);
+      if (timerRef.current) clearInterval(timerRef.current);
     };
   }, []);
+
+  // Countdown timer: starts when paymentInfo is set with expiresAt
+  useEffect(() => {
+    if (!paymentInfo?.expiresAt) return;
+    if (timerRef.current) clearInterval(timerRef.current);
+    setIsLocallyExpired(false);
+
+    const tick = () => {
+      const remaining = Math.max(0, Math.floor((new Date(paymentInfo.expiresAt).getTime() - Date.now()) / 1000));
+      setSecondsLeft(remaining);
+      if (remaining <= 0) {
+        setIsLocallyExpired(true);
+        if (timerRef.current) clearInterval(timerRef.current);
+        // Invalidate deposits list so the expired status shows in history
+        queryClient.invalidateQueries({ queryKey: ["/api/deposits"] });
+      }
+    };
+
+    tick();
+    timerRef.current = setInterval(tick, 1000);
+    return () => { if (timerRef.current) clearInterval(timerRef.current); };
+  }, [paymentInfo?.expiresAt]);
 
   const startPolling = (paymentId: string) => {
     if (pollingRef.current) clearInterval(pollingRef.current);
@@ -105,9 +132,18 @@ export default function DepositPage() {
 
   const handleNewPayment = () => {
     if (pollingRef.current) clearInterval(pollingRef.current);
+    if (timerRef.current) clearInterval(timerRef.current);
     setPaymentInfo(null);
     setPaymentStatus("waiting");
     setCryptoAmount("");
+    setSecondsLeft(0);
+    setIsLocallyExpired(false);
+  };
+
+  const formatCountdown = (secs: number) => {
+    const m = Math.floor(secs / 60).toString().padStart(2, "0");
+    const s = (secs % 60).toString().padStart(2, "0");
+    return `${m}:${s}`;
   };
 
   const copyToClipboard = (text: string) => {
@@ -302,6 +338,32 @@ export default function DepositPage() {
             <CardDescription className="text-xs">{t.deposit.npSendToAddress}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
+
+            {/* Countdown timer banner */}
+            {!isLocallyExpired && paymentInfo.expiresAt && paymentStatus === "waiting" && (
+              <Alert className={`${secondsLeft <= 60 ? "bg-red-500/8 border-red-300 dark:border-red-700 text-red-700 dark:text-red-300" : "bg-amber-500/8 border-amber-200 dark:border-amber-800/50 text-amber-800 dark:text-amber-300"}`} data-testid="alert-deposit-timer">
+                <Clock className="h-4 w-4" />
+                <AlertTitle className="flex items-center justify-between">
+                  <span>Address valid for 15 minutes only</span>
+                  <span className="font-mono text-lg font-bold tracking-widest" data-testid="text-countdown">{formatCountdown(secondsLeft)}</span>
+                </AlertTitle>
+                <AlertDescription className="text-xs">
+                  Please complete your transfer within this timeframe. The address will expire automatically.
+                </AlertDescription>
+              </Alert>
+            )}
+
+            {/* Locally expired state */}
+            {isLocallyExpired && (
+              <Alert className="bg-red-500/8 border-red-300 dark:border-red-700 text-red-700 dark:text-red-300" data-testid="alert-deposit-expired">
+                <AlertCircle className="h-4 w-4" />
+                <AlertTitle>Transaction Expired</AlertTitle>
+                <AlertDescription>
+                  This deposit address has expired. Please generate a new deposit request.
+                </AlertDescription>
+              </Alert>
+            )}
+
             {(paymentStatus === "finished" || paymentStatus === "confirmed") && (
               <Alert className="bg-emerald-500/8 border-emerald-200 dark:border-emerald-800/50 text-emerald-800 dark:text-emerald-300" data-testid="alert-crypto-success">
                 <CheckCircle2 className="h-4 w-4" />
@@ -310,43 +372,46 @@ export default function DepositPage() {
               </Alert>
             )}
 
-            {(paymentStatus === "failed" || paymentStatus === "expired") && (
+            {(paymentStatus === "failed" || paymentStatus === "expired") && !isLocallyExpired && (
               <Alert className="bg-red-500/8 border-red-200 dark:border-red-800/50 text-red-800 dark:text-red-300" data-testid="alert-crypto-failed">
                 <AlertCircle className="h-4 w-4" />
                 <AlertTitle>{paymentStatus === "expired" ? t.deposit.npStatusExpired : t.deposit.npStatusFailed}</AlertTitle>
               </Alert>
             )}
 
-            <div className="space-y-3">
-              <div>
-                <p className="text-xs text-muted-foreground mb-1">{t.deposit.npPayAddress}</p>
-                <div className="flex items-center gap-2 p-3 rounded-md border border-border bg-muted/30">
-                  <p className="font-mono text-xs break-all flex-1" data-testid="text-pay-address">{paymentInfo.payAddress}</p>
-                  <Button variant="ghost" size="icon" onClick={() => copyToClipboard(paymentInfo.payAddress)} className="flex-shrink-0" data-testid="button-copy-address">
-                    <Copy className="w-4 h-4" />
-                  </Button>
+            {/* Hide address when expired or payment failed */}
+            {!isLocallyExpired && paymentStatus !== "failed" && paymentStatus !== "expired" && (
+              <div className="space-y-3">
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1">{t.deposit.npPayAddress}</p>
+                  <div className="flex items-center gap-2 p-3 rounded-md border border-border bg-muted/30">
+                    <p className="font-mono text-xs break-all flex-1" data-testid="text-pay-address">{paymentInfo.payAddress}</p>
+                    <Button variant="ghost" size="icon" onClick={() => copyToClipboard(paymentInfo.payAddress)} className="flex-shrink-0" data-testid="button-copy-address">
+                      <Copy className="w-4 h-4" />
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="rounded-lg border border-border bg-muted/30 divide-y divide-border overflow-hidden">
+                  <div className="flex items-center justify-between px-4 py-2.5 text-sm">
+                    <span className="text-muted-foreground">Send Exactly</span>
+                    <span className="font-mono font-bold" data-testid="text-pay-amount">{paymentInfo.payAmount} {paymentInfo.payCurrency.toUpperCase()}</span>
+                  </div>
+                  <div className="flex items-center justify-between px-4 py-2.5 text-sm">
+                    <span className="text-muted-foreground">Network</span>
+                    <Badge variant="outline" className="text-xs">
+                      {NETWORK_FEE_CONFIG[paymentInfo.payCurrency as NetworkCurrency]?.label ?? paymentInfo.payCurrency.toUpperCase()}
+                    </Badge>
+                  </div>
+                  <div className="flex items-center justify-between px-4 py-2.5 text-sm bg-emerald-500/5">
+                    <span className="font-semibold text-emerald-700 dark:text-emerald-400">You Will Receive</span>
+                    <p className="font-bold text-emerald-700 dark:text-emerald-400" data-testid="text-receive-amount">{formatHtg(creditedHtg)} HTG</p>
+                  </div>
                 </div>
               </div>
+            )}
 
-              <div className="rounded-lg border border-border bg-muted/30 divide-y divide-border overflow-hidden">
-                <div className="flex items-center justify-between px-4 py-2.5 text-sm">
-                  <span className="text-muted-foreground">Send Exactly</span>
-                  <span className="font-mono font-bold" data-testid="text-pay-amount">{paymentInfo.payAmount} {paymentInfo.payCurrency.toUpperCase()}</span>
-                </div>
-                <div className="flex items-center justify-between px-4 py-2.5 text-sm">
-                  <span className="text-muted-foreground">Network</span>
-                  <Badge variant="outline" className="text-xs">
-                    {NETWORK_FEE_CONFIG[paymentInfo.payCurrency as NetworkCurrency]?.label ?? paymentInfo.payCurrency.toUpperCase()}
-                  </Badge>
-                </div>
-                <div className="flex items-center justify-between px-4 py-2.5 text-sm bg-emerald-500/5">
-                  <span className="font-semibold text-emerald-700 dark:text-emerald-400">You Will Receive</span>
-                  <p className="font-bold text-emerald-700 dark:text-emerald-400" data-testid="text-receive-amount">{formatHtg(creditedHtg)} HTG</p>
-                </div>
-              </div>
-            </div>
-
-            {paymentStatus === "waiting" && (
+            {paymentStatus === "waiting" && !isLocallyExpired && (
               <p className="text-xs text-muted-foreground text-center">{t.deposit.npWaitingNote}</p>
             )}
 
@@ -356,7 +421,7 @@ export default function DepositPage() {
               onClick={handleNewPayment}
               data-testid="button-new-payment"
             >
-              {t.deposit.npNewPayment}
+              {isLocallyExpired ? "Generate New Deposit Request" : t.deposit.npNewPayment}
             </Button>
           </CardContent>
         </Card>

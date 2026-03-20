@@ -1,6 +1,6 @@
 import { profiles, deposits, withdrawals, kycDocuments, otps, webauthnCredentials, notifications, supportConversations, supportMessages, virtualCards, blacklistedUsers, p2pTransfers, loginLogs, type Profile, type Deposit, type InsertDeposit, type Withdrawal, type InsertWithdrawal, type KycDocument, type WebAuthnCredential, type Notification, type SupportConversation, type SupportMessage, type VirtualCard, type BlacklistedUser, type P2PTransfer, type LoginLog } from "@shared/schema";
 import { db } from "./db";
-import { eq, desc, and, sql, or, ilike } from "drizzle-orm";
+import { eq, desc, and, lt, sql, or, ilike } from "drizzle-orm";
 import crypto from "crypto";
 
 export interface IStorage {
@@ -16,10 +16,11 @@ export interface IStorage {
   getValidOtp(profileId: number, code: string): Promise<typeof otps.$inferSelect | undefined>;
   markOtpVerified(id: number): Promise<void>;
 
-  createDeposit(deposit: InsertDeposit & { profileId: number; depositMethod?: "usdt" | "moncash" | "nowpayments"; amountHtg?: string; moncashTransactionId?: string | null; nowpaymentsPaymentId?: string | null; payAddress?: string | null; payCurrency?: string | null }): Promise<Deposit>;
+  createDeposit(deposit: InsertDeposit & { profileId: number; depositMethod?: "usdt" | "moncash" | "nowpayments"; amountHtg?: string; moncashTransactionId?: string | null; nowpaymentsPaymentId?: string | null; payAddress?: string | null; payCurrency?: string | null; expiresAt?: Date | null }): Promise<Deposit>;
   getDeposits(profileId?: number): Promise<Deposit[]>;
   getDepositById(id: number): Promise<Deposit | undefined>;
-  updateDepositStatus(id: number, status: "approved" | "rejected"): Promise<Deposit>;
+  updateDepositStatus(id: number, status: "approved" | "rejected" | "expired"): Promise<Deposit>;
+  autoExpirePendingDeposits(): Promise<number>;
   getDepositByMoncashTransactionId(transactionId: string): Promise<Deposit | undefined>;
   getDepositByNowpaymentsPaymentId(paymentId: string): Promise<Deposit | undefined>;
   setDepositReceipt(id: number, receiptId: string): Promise<Deposit>;
@@ -150,7 +151,7 @@ export class DatabaseStorage implements IStorage {
     await db.update(otps).set({ verified: true }).where(eq(otps.id, id));
   }
 
-  async createDeposit(deposit: InsertDeposit & { profileId: number; depositMethod?: "usdt" | "moncash" | "nowpayments"; amountHtg?: string; moncashTransactionId?: string | null; nowpaymentsPaymentId?: string | null; payAddress?: string | null; payCurrency?: string | null }): Promise<Deposit> {
+  async createDeposit(deposit: InsertDeposit & { profileId: number; depositMethod?: "usdt" | "moncash" | "nowpayments"; amountHtg?: string; moncashTransactionId?: string | null; nowpaymentsPaymentId?: string | null; payAddress?: string | null; payCurrency?: string | null; expiresAt?: Date | null }): Promise<Deposit> {
     const [newDeposit] = await db.insert(deposits).values(deposit).returning();
     return newDeposit;
   }
@@ -167,9 +168,24 @@ export class DatabaseStorage implements IStorage {
     return deposit;
   }
 
-  async updateDepositStatus(id: number, status: "approved" | "rejected"): Promise<Deposit> {
+  async updateDepositStatus(id: number, status: "approved" | "rejected" | "expired"): Promise<Deposit> {
     const [deposit] = await db.update(deposits).set({ status }).where(eq(deposits.id, id)).returning();
     return deposit;
+  }
+
+  async autoExpirePendingDeposits(): Promise<number> {
+    const now = new Date();
+    const expired = await db
+      .update(deposits)
+      .set({ status: "expired" })
+      .where(
+        and(
+          eq(deposits.status, "pending"),
+          lt(deposits.expiresAt, now),
+        )
+      )
+      .returning();
+    return expired.length;
   }
 
   async getDepositByMoncashTransactionId(transactionId: string): Promise<Deposit | undefined> {

@@ -18,6 +18,8 @@ export function StatusBadge({ status, className }: StatusBadgeProps) {
         return "bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-800/50";
       case "rejected":
         return "bg-red-500/10 text-red-700 dark:text-red-400 border-red-200 dark:border-red-800/50";
+      case "expired":
+        return "bg-orange-500/10 text-orange-700 dark:text-orange-400 border-orange-200 dark:border-orange-800/50";
       case "admin":
         return "bg-purple-500/10 text-purple-700 dark:text-purple-400 border-purple-200 dark:border-purple-800/50";
       default:

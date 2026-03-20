@@ -662,11 +662,19 @@ function DepositsTab() {
                     <StatusBadge status={deposit.status} />
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground">
-                    {format(new Date(deposit.createdAt), "MMM d, yyyy h:mm a")}
+                    <div>{format(new Date(deposit.createdAt), "MMM d, yyyy h:mm a")}</div>
+                    {deposit.expiresAt && (
+                      <div className={`text-[10px] mt-0.5 ${deposit.status === "expired" ? "text-orange-500" : "text-muted-foreground/60"}`}>
+                        {deposit.status === "expired" ? "⏰ Expired" : "⏳ Expires"}: {format(new Date(deposit.expiresAt), "h:mm a")}
+                      </div>
+                    )}
                   </TableCell>
                   <TableCell>
-                    {deposit.status === "pending" ? (
+                    {(deposit.status === "pending" || deposit.status === "expired") ? (
                       <div className="flex flex-col gap-1.5">
+                        {deposit.status === "expired" && (
+                          <p className="text-[10px] text-orange-600 dark:text-orange-400 font-medium">Auto-expired — manual override allowed</p>
+                        )}
                         <Button
                           size="sm"
                           onClick={() => approveAndRelease("deposits", deposit.id, (v) => setReleaseLoadingId(v ? deposit.id : null))}

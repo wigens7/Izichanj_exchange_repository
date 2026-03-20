@@ -344,6 +344,7 @@ export async function registerRoutes(
 
       const paymentData = await response.json() as any;
 
+      const depositExpiresAt = new Date(Date.now() + 15 * 60 * 1000);
       const deposit = await storage.createDeposit({
         profileId: profile.id,
         amountUsdt: amount.toFixed(2),
@@ -353,6 +354,7 @@ export async function registerRoutes(
         nowpaymentsPaymentId: String(paymentData.payment_id),
         payAddress: paymentData.pay_address,
         payCurrency: currency,
+        expiresAt: depositExpiresAt,
       });
 
       // Telegram notification — address generated
@@ -374,6 +376,7 @@ export async function registerRoutes(
         payAmount: paymentData.pay_amount,
         payCurrency: paymentData.pay_currency,
         expirationDate: paymentData.expiration_estimate_date,
+        expiresAt: depositExpiresAt.toISOString(),
         orderId,
       });
     } catch (e: any) {
@@ -823,7 +826,8 @@ export async function registerRoutes(
       if (profile.kycStatus !== "verified") return res.status(403).json({ message: "KYC verification required before making deposits" });
       const input = api.deposits.create.input.parse(req.body);
       if (!input.txHash || input.txHash.length < 10) return res.status(400).json({ message: "Transaction hash is required for USDT deposits" });
-      const deposit = await storage.createDeposit({ ...input, profileId: profile.id, depositMethod: "usdt" });
+      const manualExpiresAt = new Date(Date.now() + 15 * 60 * 1000);
+      const deposit = await storage.createDeposit({ ...input, profileId: profile.id, depositMethod: "usdt", expiresAt: manualExpiresAt });
 
       // Notify admin in-app
       const admins = await storage.getAllProfiles();
@@ -2081,6 +2085,21 @@ export async function registerRoutes(
       }
     } catch (e) {
       console.error("Auto-close inactive chats error:", e);
+    }
+  }, 60 * 1000);
+
+  // Auto-expire pending deposits whose 15-minute window has lapsed
+  setInterval(async () => {
+    try {
+      const count = await storage.autoExpirePendingDeposits();
+      if (count > 0) {
+        console.log(`[AUTO-EXPIRE] Expired ${count} deposit(s) past the 15-minute window.`);
+        sendTelegramMessage(
+          `⏰ <b>${count} deposit${count > 1 ? "s" : ""} auto-expired</b>\n\nThese pending deposits exceeded the 15-minute window and have been marked as Expired. You can still approve them manually from the admin panel.`
+        ).catch(() => {});
+      }
+    } catch (e) {
+      console.error("Auto-expire deposits error:", e);
     }
   }, 60 * 1000);
 
