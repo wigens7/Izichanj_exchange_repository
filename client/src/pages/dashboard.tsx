@@ -4,7 +4,8 @@ import { useLanguage } from "@/lib/i18n";
 import { EXCHANGE_RATE_USDT_HTG, usdtToHtg, formatHtg, formatUsdt } from "@shared/constants";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { ArrowUpRight, ArrowDownLeft, Wallet, TrendingUp, TrendingDown, ArrowRightLeft, FileText } from "lucide-react";
+import { ArrowUpRight, ArrowDownLeft, Wallet, TrendingUp, TrendingDown, ArrowRightLeft, FileText, Eye, EyeOff } from "lucide-react";
+import { useState } from "react";
 import { format } from "date-fns";
 import { StatusBadge } from "@/components/status-badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -23,6 +24,8 @@ export default function DashboardPage() {
   const totalWithdrawnUsdt = withdrawals
     ?.filter(w => w.status === 'approved')
     .reduce((acc, curr) => acc + Number(curr.amount), 0) || 0;
+
+  const [balanceVisible, setBalanceVisible] = useState(true);
 
   const balanceHtg = usdtToHtg(Number(user?.balance || 0));
   const totalDepositedHtg = usdtToHtg(totalDepositedUsdt);
@@ -53,12 +56,30 @@ export default function DashboardPage() {
           <CardContent className="p-5">
             <div className="flex items-center justify-between gap-2 mb-3">
               <p className="text-sm font-medium text-muted-foreground">{t.dashboard.currentBalance}</p>
-              <div className="w-9 h-9 rounded-md bg-blue-500/10 flex items-center justify-center">
-                <Wallet className="w-4 h-4" />
+              <div className="flex items-center gap-1.5">
+                <button
+                  onClick={() => setBalanceVisible(v => !v)}
+                  className="w-7 h-7 rounded-md flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
+                  aria-label={balanceVisible ? "Hide balance" : "Show balance"}
+                  data-testid="button-toggle-balance"
+                >
+                  {balanceVisible ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                </button>
+                <div className="w-9 h-9 rounded-md bg-blue-500/10 flex items-center justify-center">
+                  <Wallet className="w-4 h-4" />
+                </div>
               </div>
             </div>
-            <p className="text-2xl font-display font-bold text-foreground" data-testid="text-balance-htg">{formatHtg(balanceHtg)} <span className="text-sm font-normal text-muted-foreground">HTG</span></p>
-            <p className="text-xs text-muted-foreground mt-1">{formatUsdt(Number(user.balance))} USDT</p>
+            <p className="text-2xl font-display font-bold text-foreground" data-testid="text-balance-htg">
+              {balanceVisible ? (
+                <>{formatHtg(balanceHtg)} <span className="text-sm font-normal text-muted-foreground">HTG</span></>
+              ) : (
+                <span className="tracking-widest">•••••</span>
+              )}
+            </p>
+            <p className="text-xs text-muted-foreground mt-1">
+              {balanceVisible ? `${formatUsdt(Number(user.balance))} USDT` : "••••• USDT"}
+            </p>
           </CardContent>
         </Card>
 
