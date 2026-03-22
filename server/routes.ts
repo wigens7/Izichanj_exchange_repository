@@ -1132,7 +1132,7 @@ export async function registerRoutes(
 
       res.set({
         "Content-Type": "application/pdf",
-        "Content-Disposition": `attachment; filename="balance-adjustment-${receiptId}.pdf"`,
+        "Content-Disposition": `inline; filename="balance-adjustment-${receiptId}.pdf"`,
       });
       res.send(pdfBuffer);
     } catch (e: any) {

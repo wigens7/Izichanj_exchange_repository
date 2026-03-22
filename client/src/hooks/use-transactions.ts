@@ -129,17 +129,12 @@ export function useAdminUpdateBalance() {
       if (!res.ok) throw new Error("Failed to update balance");
       const blob = await res.blob();
       const objectUrl = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = objectUrl;
-      a.download = `balance-adjustment-${id}-${Date.now()}.pdf`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(objectUrl);
+      window.open(objectUrl, "_blank");
+      setTimeout(() => URL.revokeObjectURL(objectUrl), 10000);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [api.admin.users.path] });
-      toast({ title: "Balance updated", description: "Receipt downloaded successfully." });
+      toast({ title: "Balance updated", description: "Receipt opened in a new tab." });
     },
     onError: () => {
       toast({ title: "Error", description: "Failed to update balance.", variant: "destructive" });
