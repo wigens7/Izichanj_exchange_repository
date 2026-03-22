@@ -128,13 +128,11 @@ export function useAdminUpdateBalance() {
       const res = await apiRequest(api.admin.updateBalance.method, url, { balance, reason });
       if (!res.ok) throw new Error("Failed to update balance");
       const blob = await res.blob();
-      const objectUrl = URL.createObjectURL(blob);
-      window.open(objectUrl, "_blank");
-      setTimeout(() => URL.revokeObjectURL(objectUrl), 10000);
+      return URL.createObjectURL(blob);
     },
-    onSuccess: () => {
+    onSuccess: (blobUrl) => {
       queryClient.invalidateQueries({ queryKey: [api.admin.users.path] });
-      toast({ title: "Balance updated", description: "Receipt opened in a new tab." });
+      return blobUrl;
     },
     onError: () => {
       toast({ title: "Error", description: "Failed to update balance.", variant: "destructive" });

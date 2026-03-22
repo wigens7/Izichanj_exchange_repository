@@ -316,12 +316,22 @@ function UserRow({ user, onUpdateBalance, isPending }: { user: any; onUpdateBala
   const [reason, setReason] = useState("Administrative Adjustment");
   const [isEditing, setIsEditing] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  const [receiptBlobUrl, setReceiptBlobUrl] = useState<string | null>(null);
   const { toast } = useToast();
   const qc = useQueryClient();
 
   const handleSave = () => {
-    onUpdateBalance({ id: user.id, balance: Number(balance), reason });
-    setIsEditing(false);
+    onUpdateBalance(
+      { id: user.id, balance: Number(balance), reason },
+      {
+        onSuccess: (blobUrl: string) => {
+          if (receiptBlobUrl) URL.revokeObjectURL(receiptBlobUrl);
+          setReceiptBlobUrl(blobUrl);
+          setIsEditing(false);
+          toast({ title: "Balance updated", description: "Receipt is ready — view or download below." });
+        },
+      }
+    );
   };
 
   const disable2faMutation = useMutation({
@@ -453,11 +463,39 @@ function UserRow({ user, onUpdateBalance, isPending }: { user: any; onUpdateBala
               </Button>
             </div>
           ) : (
-            <div className="flex items-center gap-2">
-              <span className="font-medium">{Number(user.balance).toLocaleString()}</span>
-              <Button variant="ghost" size="icon" onClick={() => setIsEditing(true)} data-testid={`button-edit-balance-${user.id}`}>
-                <Pencil className="w-3 h-3" />
-              </Button>
+            <div className="flex flex-col gap-1.5">
+              <div className="flex items-center gap-2">
+                <span className="font-medium">{Number(user.balance).toLocaleString()}</span>
+                <Button variant="ghost" size="icon" onClick={() => setIsEditing(true)} data-testid={`button-edit-balance-${user.id}`}>
+                  <Pencil className="w-3 h-3" />
+                </Button>
+              </div>
+              {receiptBlobUrl && (
+                <div className="flex gap-1.5">
+                  <a href={receiptBlobUrl} target="_blank" rel="noopener noreferrer">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 text-[11px] gap-1 border-indigo-300 text-indigo-600 hover:bg-indigo-50 dark:border-indigo-700 dark:text-indigo-400 dark:hover:bg-indigo-950"
+                      data-testid={`button-view-receipt-${user.id}`}
+                    >
+                      <Eye className="w-3 h-3" />
+                      View
+                    </Button>
+                  </a>
+                  <a href={receiptBlobUrl} download={`balance-receipt-${user.id}.pdf`}>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 text-[11px] gap-1 border-emerald-300 text-emerald-600 hover:bg-emerald-50 dark:border-emerald-700 dark:text-emerald-400 dark:hover:bg-emerald-950"
+                      data-testid={`button-download-receipt-${user.id}`}
+                    >
+                      <Download className="w-3 h-3" />
+                      Download
+                    </Button>
+                  </a>
+                </div>
+              )}
             </div>
           )}
         </TableCell>
