@@ -123,15 +123,26 @@ export function useAdminUpdateBalance() {
   const { toast } = useToast();
 
   return useMutation({
-    mutationFn: async ({ id, balance }: { id: number; balance: number }) => {
+    mutationFn: async ({ id, balance, reason }: { id: number; balance: number; reason: string }) => {
       const url = buildUrl(api.admin.updateBalance.path, { id });
-      const res = await apiRequest(api.admin.updateBalance.method, url, { balance });
+      const res = await apiRequest(api.admin.updateBalance.method, url, { balance, reason });
       if (!res.ok) throw new Error("Failed to update balance");
-      return res.json();
+      const blob = await res.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = objectUrl;
+      a.download = `balance-adjustment-${id}-${Date.now()}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(objectUrl);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [api.admin.users.path] });
-      toast({ title: "Success", description: "User balance updated." });
+      toast({ title: "Balance updated", description: "Receipt downloaded successfully." });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to update balance.", variant: "destructive" });
     },
   });
 }

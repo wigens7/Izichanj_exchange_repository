@@ -10,7 +10,7 @@ import { registerObjectStorageRoutes } from "./replit_integrations/object_storag
 import crypto from "crypto";
 import bcrypt from "bcryptjs";
 import { WITHDRAWAL_MIN_USDT, WITHDRAWAL_MAX_USDT, usdtToHtg, htgToUsdt, formatHtg, WITHDRAWAL_MIN_HTG, WITHDRAWAL_MAX_HTG, EXCHANGE_RATE_USDT_HTG, NETWORK_FEE_CONFIG } from "@shared/constants";
-import { generateReceiptPDF } from "./receipt";
+import { generateReceiptPDF, generateAdjustmentReceiptPDF } from "./receipt";
 import { deposits, profiles } from "@shared/schema";
 import { db } from "./db";
 import { eq } from "drizzle-orm";
@@ -1099,19 +1099,46 @@ export async function registerRoutes(
   });
 
   app.patch(api.admin.updateBalance.path, isAuthenticated, isAdmin, async (req: any, res) => {
-    const balance = req.body.balance;
-    const profile = await storage.updateProfileBalance(Number(req.params.id), balance);
-    const balanceMsg = `Your balance has been updated to ${Number(balance).toFixed(2)} USDT.`;
-    await storage.createNotification({
-      profileId: profile.id,
-      type: "custom_message",
-      title: "Balance Updated",
-      message: balanceMsg,
-    });
-    if (profile.phone) {
-      sendWhatsAppNotification(profile.phone, `*Izichanj*\n\n💼 Balance Updated\n\n${balanceMsg}\n\nhttps://izichanj.com`, profile.fullName);
+    try {
+      const profileId = Number(req.params.id);
+      const newBalance = Number(req.body.balance);
+      const reason: string = req.body.reason || "Administrative Adjustment";
+
+      const existingProfile = await storage.getProfile(profileId);
+      if (!existingProfile) return res.status(404).json({ message: "User not found" });
+      const oldBalance = parseFloat(existingProfile.balance || "0");
+
+      const profile = await storage.updateProfileBalance(profileId, newBalance);
+
+      const receiptId = crypto.randomUUID();
+      const adjustmentAmount = newBalance - oldBalance;
+      const pdfBuffer = await generateAdjustmentReceiptPDF({
+        receiptId,
+        createdAt: new Date(),
+        userName: profile.fullName,
+        userEmail: profile.email,
+        userId: profile.id,
+        oldBalance,
+        newBalance,
+        adjustmentAmount,
+        reason,
+      });
+
+      const balanceMsg = `Your balance has been updated to ${newBalance.toFixed(2)} USDT. Reason: ${reason}.`;
+      await storage.createNotification({ profileId: profile.id, type: "custom_message", title: "Balance Updated", message: balanceMsg });
+      if (profile.phone) {
+        sendWhatsAppNotification(profile.phone, `*Izichanj*\n\n💼 Balance Updated\n\n${balanceMsg}\n\nhttps://izichanj.com`, profile.fullName);
+      }
+
+      res.set({
+        "Content-Type": "application/pdf",
+        "Content-Disposition": `attachment; filename="balance-adjustment-${receiptId}.pdf"`,
+      });
+      res.send(pdfBuffer);
+    } catch (e: any) {
+      console.error("[admin updateBalance]", e);
+      res.status(500).json({ message: e.message });
     }
-    res.json(profile);
   });
 
   app.patch("/api/admin/users/:id/ban", isAuthenticated, isAdmin, async (req: any, res) => {

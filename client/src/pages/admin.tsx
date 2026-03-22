@@ -299,15 +299,28 @@ function UsersTab() {
   );
 }
 
+const BALANCE_ADJUSTMENT_REASONS = [
+  "Administrative Adjustment",
+  "Manual Credit",
+  "Bonus / Reward",
+  "Correction / Error Fix",
+  "Refund",
+  "Penalty / Deduction",
+  "KYC Incentive",
+  "Promotional Credit",
+  "Other",
+];
+
 function UserRow({ user, onUpdateBalance, isPending }: { user: any; onUpdateBalance: any; isPending: boolean }) {
   const [balance, setBalance] = useState(user.balance);
+  const [reason, setReason] = useState("Administrative Adjustment");
   const [isEditing, setIsEditing] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const { toast } = useToast();
   const qc = useQueryClient();
 
   const handleSave = () => {
-    onUpdateBalance({ id: user.id, balance: Number(balance) });
+    onUpdateBalance({ id: user.id, balance: Number(balance), reason });
     setIsEditing(false);
   };
 
@@ -399,16 +412,44 @@ function UserRow({ user, onUpdateBalance, isPending }: { user: any; onUpdateBala
         </TableCell>
         <TableCell onClick={(e) => e.stopPropagation()}>
           {isEditing ? (
-            <div className="flex items-center gap-2">
-              <Input
-                type="number"
-                value={balance}
-                onChange={(e) => setBalance(e.target.value)}
-                className="w-28"
-                data-testid={`input-balance-${user.id}`}
-              />
-              <Button size="icon" onClick={handleSave} disabled={isPending} data-testid={`button-save-balance-${user.id}`}>
-                {isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+            <div className="flex flex-col gap-2 min-w-[220px]">
+              <div className="flex items-center gap-2">
+                <Input
+                  type="number"
+                  value={balance}
+                  onChange={(e) => setBalance(e.target.value)}
+                  className="w-28 h-8 text-sm"
+                  data-testid={`input-balance-${user.id}`}
+                />
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="h-8 w-8 shrink-0"
+                  onClick={() => setIsEditing(false)}
+                  data-testid={`button-cancel-balance-${user.id}`}
+                >
+                  <X className="w-3.5 h-3.5" />
+                </Button>
+              </div>
+              <select
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+                className="w-full text-xs rounded-md border border-input bg-background px-2 py-1.5 text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+                data-testid={`select-reason-${user.id}`}
+              >
+                {BALANCE_ADJUSTMENT_REASONS.map((r) => (
+                  <option key={r} value={r}>{r}</option>
+                ))}
+              </select>
+              <Button
+                size="sm"
+                className="h-8 text-xs bg-indigo-600 hover:bg-indigo-700 text-white gap-1.5"
+                onClick={handleSave}
+                disabled={isPending}
+                data-testid={`button-save-balance-${user.id}`}
+              >
+                {isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Download className="w-3 h-3" />}
+                Save & Download Receipt
               </Button>
             </div>
           ) : (
