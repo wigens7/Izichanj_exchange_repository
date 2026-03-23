@@ -11,9 +11,9 @@ import crypto from "crypto";
 import bcrypt from "bcryptjs";
 import { WITHDRAWAL_MIN_USDT, WITHDRAWAL_MAX_USDT, usdtToHtg, htgToUsdt, formatHtg, WITHDRAWAL_MIN_HTG, WITHDRAWAL_MAX_HTG, EXCHANGE_RATE_USDT_HTG, NETWORK_FEE_CONFIG } from "@shared/constants";
 import { generateReceiptPDF, generateAdjustmentReceiptPDF } from "./receipt";
-import { deposits, profiles } from "@shared/schema";
+import { deposits, profiles, virtualCards } from "@shared/schema";
 import { db } from "./db";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import * as otplibModule from "otplib";
 import QRCode from "qrcode";
 import {
@@ -3031,19 +3031,31 @@ export async function registerRoutes(
       const profile = await getProfileFromReq(req);
       if (!profile) return res.status(401).json({ message: "Unauthorized" });
 
-      const card = await storage.getVirtualCard(Number(req.params.id), profile.id);
-      if (!card) return res.status(404).json({ message: "Card not found" });
-      if (card.status !== "pending") {
-        return res.status(400).json({ message: "Only pending cards can be cancelled." });
+      const cardDbId = Number(req.params.id);
+
+      // ATOMIC: only mark cancelled if card belongs to this user AND is still pending.
+      // This prevents double-refunds from rapid clicks or concurrent requests.
+      const cancelled = await db
+        .update(virtualCards)
+        .set({ status: "cancelled" })
+        .where(and(
+          eq(virtualCards.id, cardDbId),
+          eq(virtualCards.profileId, profile.id),
+          eq(virtualCards.status, "pending"),
+        ))
+        .returning({ balance: virtualCards.balance });
+
+      if (cancelled.length === 0) {
+        // Either card not found, not owned by this user, or already cancelled/active
+        return res.status(409).json({ message: "This card cannot be cancelled — it may have already been cancelled or is now active." });
       }
 
-      // Refund the held amount back to user balance
-      const refundAmount = parseFloat(card.balance || "20");
+      // Refund the held amount back to user balance (only reached once per card)
+      const refundAmount = parseFloat(cancelled[0].balance || "20");
       const currentBalance = parseFloat(profile.balance || "0");
       const newBalance = currentBalance + refundAmount;
 
       await storage.updateProfileBalance(profile.id, newBalance);
-      await storage.updateVirtualCard(card.id, { status: "cancelled" });
 
       // In-app notification
       await storage.createNotification({
@@ -3069,7 +3081,7 @@ export async function registerRoutes(
         `📧 <b>Email:</b> ${profile.email}\n` +
         `💵 <b>Refunded:</b> $${refundAmount.toFixed(2)} USDT\n` +
         `💰 <b>New Balance:</b> $${newBalance.toFixed(2)} USDT\n` +
-        `🗂 <b>Card DB ID:</b> #${card.id}`
+        `🗂 <b>Card DB ID:</b> #${cardDbId}`
       ).catch(() => {});
 
       res.json({ success: true, refunded: refundAmount, newBalance });
