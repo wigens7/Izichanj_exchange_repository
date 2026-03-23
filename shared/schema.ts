@@ -222,7 +222,7 @@ export type SupportConversation = typeof supportConversations.$inferSelect;
 export type SupportMessage = typeof supportMessages.$inferSelect;
 export type BlacklistedUser = typeof blacklistedUsers.$inferSelect;
 export type P2PTransfer = typeof p2pTransfers.$inferSelect;
-export const cardStatusEnum = pgEnum("card_status", ["pending", "active", "frozen", "terminated"]);
+export const cardStatusEnum = pgEnum("card_status", ["pending", "active", "frozen", "terminated", "cancelled"]);
 
 export const virtualCards = pgTable("virtual_cards", {
   id: serial("id").primaryKey(),

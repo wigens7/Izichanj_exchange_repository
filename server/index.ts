@@ -2,6 +2,8 @@ import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
+import { db } from "./db";
+import { sql } from "drizzle-orm";
 
 const app = express();
 const httpServer = createServer(app);
@@ -60,6 +62,14 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  // Run idempotent schema migrations on startup
+  try {
+    await db.execute(sql`ALTER TYPE card_status ADD VALUE IF NOT EXISTS 'cancelled'`);
+  } catch (e) {
+    // Ignore if already exists or enum not found
+    console.warn("[startup migration] card_status enum update skipped:", (e as Error).message);
+  }
+
   await registerRoutes(httpServer, app);
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
