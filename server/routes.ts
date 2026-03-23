@@ -1683,6 +1683,18 @@ export async function registerRoutes(
 
       console.log(`[ADMIN RETRY CARD] Retrying card creation for user ${profile.id} (${profile.email}), card DB id ${cardDbId}`);
 
+      // Notify admin that retry was triggered
+      sendTelegramMessage(
+        `🔄 <b>Retry Card Issuance — Initiated</b>\n\n` +
+        `👤 <b>User:</b> ${profile.fullName}\n` +
+        `📧 <b>Email:</b> ${profile.email}\n` +
+        `📞 <b>Phone:</b> ${profile.phone || "—"}\n` +
+        `🪪 <b>Strowallet ID:</b> ${profile.strowalletCustomerId}\n` +
+        `💵 <b>Amount:</b> $${fundAmount.toFixed(2)} USDT\n` +
+        `🗂 <b>Pending card DB ID:</b> #${cardDbId}\n\n` +
+        `⏳ Calling Strowallet API now…`
+      ).catch(() => {});
+
       const response = await strowalletFetch(`${STROWALLET_BASE}/create-card/`, {
         method: "POST",
         headers: { "Content-Type": "application/json", "Accept": "application/json" },
@@ -1694,6 +1706,15 @@ export async function registerRoutes(
 
       if (!response.ok || data.status === "error" || data.status === false) {
         const errMsg = data.message || data.error || "Strowallet returned an error";
+        sendTelegramMessage(
+          `❌ <b>Retry Card Issuance — Failed</b>\n\n` +
+          `👤 <b>User:</b> ${profile.fullName}\n` +
+          `📧 <b>Email:</b> ${profile.email}\n` +
+          `🪪 <b>Strowallet ID:</b> ${profile.strowalletCustomerId}\n` +
+          `🗂 <b>Pending card DB ID:</b> #${cardDbId}\n\n` +
+          `⚠️ <b>Error from Strowallet:</b>\n<code>${errMsg}</code>\n\n` +
+          `👉 Card remains pending. Fund your Strowallet account and retry again.`
+        ).catch(() => {});
         return res.status(400).json({ success: false, message: errMsg });
       }
 
