@@ -1702,18 +1702,25 @@ export async function registerRoutes(
       });
 
       const data = await response.json();
-      console.log("[ADMIN RETRY CARD] Strowallet response:", JSON.stringify(data));
+      console.log("[ADMIN RETRY CARD] Strowallet raw response:", JSON.stringify(data, null, 2));
 
       if (!response.ok || data.status === "error" || data.status === false) {
-        const errMsg = data.message || data.error || "Strowallet returned an error";
+        // Safely extract error — Strowallet sometimes returns objects, not strings
+        const rawErr = data.message ?? data.error ?? data.errors ?? data;
+        const errMsg = typeof rawErr === "string"
+          ? rawErr
+          : JSON.stringify(rawErr);
+        const rawDump = JSON.stringify(data, null, 2);
+
         sendTelegramMessage(
           `❌ <b>Retry Card Issuance — Failed</b>\n\n` +
           `👤 <b>User:</b> ${profile.fullName}\n` +
           `📧 <b>Email:</b> ${profile.email}\n` +
           `🪪 <b>Strowallet ID:</b> ${profile.strowalletCustomerId}\n` +
           `🗂 <b>Pending card DB ID:</b> #${cardDbId}\n\n` +
-          `⚠️ <b>Error from Strowallet:</b>\n<code>${errMsg}</code>\n\n` +
-          `👉 Card remains pending. Fund your Strowallet account and retry again.`
+          `⚠️ <b>Error:</b> <code>${errMsg}</code>\n\n` +
+          `📋 <b>Full response:</b>\n<pre>${rawDump.slice(0, 800)}</pre>\n\n` +
+          `👉 Card remains pending. Fix the issue above and retry again.`
         ).catch(() => {});
         return res.status(400).json({ success: false, message: errMsg });
       }
