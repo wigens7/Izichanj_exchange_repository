@@ -28,6 +28,7 @@ import {
   Clock,
   ShieldCheck,
   FileText,
+  RefreshCw,
 } from "lucide-react";
 import { format } from "date-fns";
 import type { VirtualCard } from "@shared/schema";
@@ -43,6 +44,7 @@ export default function VirtualCardsPage() {
   });
 
   const kycVerified = user?.kycStatus === "verified";
+  const hasPendingCard = cards?.some((c) => c.status === "pending");
 
   return (
     <div className="p-4 md:p-6 max-w-4xl mx-auto space-y-6">
@@ -61,7 +63,24 @@ export default function VirtualCardsPage() {
         </Card>
       )}
 
-      {kycVerified && <ApplyCardSection />}
+      {/* Only show Apply section when KYC done AND no pending card already in queue */}
+      {kycVerified && !hasPendingCard && <ApplyCardSection />}
+
+      {/* If they have a pending card, show a clear status banner instead of the apply form */}
+      {kycVerified && hasPendingCard && (
+        <Card className="border-amber-200 dark:border-amber-800">
+          <CardContent className="flex items-start gap-3 py-5">
+            <div className="w-8 h-8 border-4 border-amber-400 border-t-transparent rounded-full animate-spin flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="font-semibold text-sm">Card Application in Progress</p>
+              <p className="text-sm text-muted-foreground mt-0.5">
+                Your virtual card is currently being processed. Your $20.00 payment has been received and is held securely.
+                Use the <strong>"Check if my card is ready"</strong> button on the card below to check for updates.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {isLoading ? (
         <div className="space-y-4">
@@ -362,6 +381,31 @@ function CardItem({ card }: { card: VirtualCard }) {
     },
   });
 
+  const checkStatusMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch(`/api/cards/${card.id}/check-status`, {
+        method: "POST",
+        credentials: "include",
+      });
+      return res.json();
+    },
+    onSuccess: (data: any) => {
+      if (data?.found) {
+        toast({ title: "🎉 Your card is ready!", description: "Card details are now available." });
+        qc.invalidateQueries({ queryKey: ["/api/cards"] });
+        qc.invalidateQueries({ queryKey: ["/api/user"] });
+      } else {
+        toast({
+          title: "Still processing",
+          description: data?.message || "Your card is not ready yet. Please try again later.",
+        });
+      }
+    },
+    onError: () => {
+      toast({ title: "Check failed. Please try again.", variant: "destructive" });
+    },
+  });
+
   const copyToClipboard = (text: string, label: string) => {
     navigator.clipboard.writeText(text);
     setCopied(label);
@@ -520,12 +564,28 @@ function CardItem({ card }: { card: VirtualCard }) {
           )}
 
           {isPending ? (
-            <div className="flex items-start gap-3 rounded-md bg-amber-500/10 border border-amber-500/20 p-3">
-              <div className="w-4 h-4 mt-0.5 shrink-0 border-2 border-amber-500 border-t-transparent rounded-full animate-spin" />
-              <div>
-                <p className="text-sm font-medium text-amber-700 dark:text-amber-400">Card request received</p>
-                <p className="text-xs text-muted-foreground mt-0.5">Your card is being processed. Please check back in 24 hours for your card details. Thank you for choosing Izichanj!</p>
+            <div className="space-y-2">
+              <div className="flex items-start gap-3 rounded-md bg-amber-500/10 border border-amber-500/20 p-3">
+                <div className="w-4 h-4 mt-0.5 shrink-0 border-2 border-amber-500 border-t-transparent rounded-full animate-spin" />
+                <div>
+                  <p className="text-sm font-medium text-amber-700 dark:text-amber-400">Card request received</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">Your card is being processed. Your $20.00 has been secured. Please check back in 24 hours.</p>
+                </div>
               </div>
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full text-sm"
+                onClick={() => checkStatusMutation.mutate()}
+                disabled={checkStatusMutation.isPending}
+                data-testid={`button-check-card-status-${card.id}`}
+              >
+                {checkStatusMutation.isPending ? (
+                  <><Loader2 className="w-3.5 h-3.5 animate-spin mr-2" />Checking with provider…</>
+                ) : (
+                  <><RefreshCw className="w-3.5 h-3.5 mr-2" />Check if my card is ready</>
+                )}
+              </Button>
             </div>
           ) : (
           <div className="flex items-center gap-2 flex-wrap">

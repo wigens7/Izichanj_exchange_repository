@@ -1669,6 +1669,9 @@ export async function registerRoutes(
       if (!profile.strowalletCustomerId) return res.status(400).json({ message: "User has no Strowallet customer ID — cannot issue card" });
       if (!strowalletPublicKey) return res.status(500).json({ message: "Card service not configured" });
 
+      // IMPORTANT: The user's balance was already deducted when the pending card was created.
+      // This retry only calls Strowallet's API — it does NOT touch the user's balance again.
+      // card.balance holds the original amount ($20) that Strowallet should load onto the card.
       const fundAmount = parseFloat(card.balance || "20");
       const nameOnCard = card.nameOnCard || profile.fullName;
 
@@ -3019,6 +3022,99 @@ export async function registerRoutes(
     } catch (e: any) {
       console.error("Create card error:", e);
       res.status(500).json({ message: e.message || "Internal Error" });
+    }
+  });
+
+  // POST /api/cards/:id/check-status — user polls Strowallet to see if their pending card was created
+  app.post("/api/cards/:id/check-status", isAuthenticated, async (req: any, res) => {
+    try {
+      const profile = await getProfileFromReq(req);
+      if (!profile) return res.status(401).json({ message: "Unauthorized" });
+
+      const card = await storage.getVirtualCard(Number(req.params.id), profile.id);
+      if (!card) return res.status(404).json({ message: "Card not found" });
+
+      // If already active, just return that
+      if (card.status === "active") {
+        return res.json({ found: true, card, message: "Your card is already active." });
+      }
+      if (card.status !== "pending") {
+        return res.json({ found: false, message: `Card status is '${card.status}'.` });
+      }
+
+      if (!profile.strowalletCustomerId) {
+        return res.json({ found: false, message: "No Strowallet customer linked to your account." });
+      }
+
+      const _stroBase = "https://strowallet.com/api/bitvcard";
+      const _stroKey = process.env.STROWALLET_PUBLIC_KEY || "";
+
+      // Try Strowallet's list-card endpoint to see if the card was created on their side
+      let stroCard: any = null;
+      try {
+        const listRes = await strowalletFetch(`${_stroBase}/list-card/`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Accept": "application/json" },
+          body: JSON.stringify({
+            public_key: _stroKey,
+            customer_id: profile.strowalletCustomerId,
+          }),
+        });
+        const listData = await listRes.json();
+        console.log("[CHECK CARD STATUS] Strowallet list-card response:", JSON.stringify(listData));
+
+        // Strowallet may return array or object with cards array
+        const cards: any[] = Array.isArray(listData.response)
+          ? listData.response
+          : Array.isArray(listData.data)
+          ? listData.data
+          : Array.isArray(listData)
+          ? listData
+          : listData.cards || [];
+
+        // Find a card that isn't already tracked (not our pending marker ID)
+        stroCard = cards.find((c: any) =>
+          c.card_id && !String(c.card_id).startsWith("pending_")
+        ) || null;
+      } catch (e) {
+        console.warn("[CHECK CARD STATUS] list-card call failed:", e);
+      }
+
+      if (stroCard) {
+        // Card found on Strowallet — activate it in our DB
+        const newCardId = stroCard.card_id || stroCard.id;
+        const last4 = stroCard.card_number ? String(stroCard.card_number).slice(-4) : stroCard.last4 || null;
+        const updatedCard = await storage.updateVirtualCard(card.id, {
+          cardId: String(newCardId),
+          last4,
+          status: "active",
+          cardDetail: stroCard,
+        });
+
+        // In-app notification
+        await storage.createNotification({
+          profileId: profile.id,
+          type: "custom_message",
+          title: "Your Virtual Card is Ready! 💳",
+          message: "Your Visa virtual card has been issued. You can now view your card details.",
+        }).catch(() => {});
+
+        sendTelegramMessage(
+          `✅ <b>Pending Card Self-Resolved (User Check)</b>\n\n` +
+          `👤 <b>User:</b> ${profile.fullName}\n` +
+          `📧 <b>Email:</b> ${profile.email}\n` +
+          `💳 <b>Card ID:</b> ${newCardId}\n` +
+          `🔢 <b>Last 4:</b> ${last4 || "N/A"}`
+        ).catch(() => {});
+
+        return res.json({ found: true, card: updatedCard, message: "Your card is ready!" });
+      }
+
+      // Card not found on Strowallet yet
+      return res.json({ found: false, message: "Your card is still being processed. Please check again later or contact support." });
+    } catch (e: any) {
+      console.error("[check card status]", e);
+      res.status(500).json({ message: e.message });
     }
   });
 
