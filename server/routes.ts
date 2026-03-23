@@ -1645,6 +1645,101 @@ export async function registerRoutes(
     res.json(ready);
   });
 
+  // GET /api/admin/pending-cards — list all pending virtual card requests
+  app.get("/api/admin/pending-cards", isAuthenticated, isAdmin, async (req: any, res) => {
+    try {
+      const pendingCards = await storage.getAllPendingVirtualCards();
+      res.json(pendingCards);
+    } catch (e: any) {
+      console.error("[admin pending-cards]", e);
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // POST /api/admin/cards/:id/retry — retry Strowallet card creation for a pending card
+  app.post("/api/admin/cards/:id/retry", isAuthenticated, isAdmin, async (req: any, res) => {
+    try {
+      const cardDbId = Number(req.params.id);
+      const card = await storage.getVirtualCardById(cardDbId);
+      if (!card) return res.status(404).json({ message: "Card not found" });
+      if (card.status !== "pending") return res.status(400).json({ message: "Card is not in pending status" });
+
+      const profile = await storage.getProfile(card.profileId);
+      if (!profile) return res.status(404).json({ message: "User not found" });
+      if (!profile.strowalletCustomerId) return res.status(400).json({ message: "User has no Strowallet customer ID — cannot issue card" });
+      if (!strowalletPublicKey) return res.status(500).json({ message: "Card service not configured" });
+
+      const fundAmount = parseFloat(card.balance || "20");
+      const nameOnCard = card.nameOnCard || profile.fullName;
+
+      const createCardPayload: Record<string, string> = {
+        name_on_card: nameOnCard,
+        card_type: "visa",
+        public_key: strowalletPublicKey,
+        amount: fundAmount.toString(),
+        customerEmail: profile.email,
+        customer_id: profile.strowalletCustomerId,
+      };
+
+      console.log(`[ADMIN RETRY CARD] Retrying card creation for user ${profile.id} (${profile.email}), card DB id ${cardDbId}`);
+
+      const response = await strowalletFetch(`${STROWALLET_BASE}/create-card/`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Accept": "application/json" },
+        body: JSON.stringify(createCardPayload),
+      });
+
+      const data = await response.json();
+      console.log("[ADMIN RETRY CARD] Strowallet response:", JSON.stringify(data));
+
+      if (!response.ok || data.status === "error" || data.status === false) {
+        const errMsg = data.message || data.error || "Strowallet returned an error";
+        return res.status(400).json({ success: false, message: errMsg });
+      }
+
+      // Success — activate the card
+      const cardInfo = data.response || data.data || data;
+      const newCardId = cardInfo.card_id || cardInfo.id || `stro_${Date.now()}`;
+      const last4 = cardInfo.card_number ? String(cardInfo.card_number).slice(-4) : cardInfo.last4 || null;
+
+      await storage.updateVirtualCard(cardDbId, {
+        cardId: String(newCardId),
+        last4,
+        status: "active",
+        cardDetail: cardInfo,
+      });
+
+      // Notify user in-app + WhatsApp
+      await storage.createNotification({
+        profileId: profile.id,
+        type: "custom_message",
+        title: "Your Virtual Card is Ready! 💳",
+        message: "Your Visa virtual card has been issued successfully. You can now view your card details in the Virtual Cards section.",
+      }).catch(() => {});
+
+      if (profile.phone) {
+        sendWhatsAppNotification(
+          profile.phone,
+          `*Izichanj*\n\n💳 Your virtual card is ready!\n\nYour Visa virtual card has been issued. Log in to view your card details.\n\nhttps://izichanj.com`,
+          profile.fullName
+        );
+      }
+
+      sendTelegramMessage(
+        `✅ <b>Pending Card Issued Successfully</b>\n\n` +
+        `👤 <b>User:</b> ${profile.fullName}\n` +
+        `📧 <b>Email:</b> ${profile.email}\n` +
+        `💳 <b>Card ID:</b> ${newCardId}\n` +
+        `🔢 <b>Last 4:</b> ${last4 || "N/A"}`
+      ).catch(() => {});
+
+      res.json({ success: true, message: "Card issued successfully", cardId: newCardId, last4 });
+    } catch (e: any) {
+      console.error("[admin retry card]", e);
+      res.status(500).json({ message: e.message });
+    }
+  });
+
   // POST /api/admin/strowallet/check-all-cardholders — fetch Strowallet KYC/cardholder status for every registered user
   app.post("/api/admin/strowallet/check-all-cardholders", isAuthenticated, isAdmin, async (req: any, res) => {
     try {

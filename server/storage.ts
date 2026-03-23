@@ -71,8 +71,10 @@ export interface IStorage {
   createVirtualCard(data: { profileId: number; cardId: string; cardType: string; nameOnCard: string; last4?: string; brand?: string; status?: VirtualCard["status"]; balance?: string; currency?: string; cardDetail?: any }): Promise<VirtualCard>;
   getVirtualCards(profileId: number): Promise<VirtualCard[]>;
   getVirtualCard(id: number, profileId: number): Promise<VirtualCard | undefined>;
+  getVirtualCardById(id: number): Promise<VirtualCard | undefined>;
   getVirtualCardByCardId(cardId: string): Promise<VirtualCard | undefined>;
   updateVirtualCard(id: number, data: Partial<VirtualCard>): Promise<VirtualCard>;
+  getAllPendingVirtualCards(): Promise<any[]>;
 
   createP2PTransfer(data: { senderProfileId: number; receiverProfileId: number; amount: string; note?: string; transactionId?: string }): Promise<P2PTransfer>;
   getP2PTransfers(profileId: number): Promise<P2PTransfer[]>;
@@ -443,6 +445,33 @@ export class DatabaseStorage implements IStorage {
   async getVirtualCard(id: number, profileId: number): Promise<VirtualCard | undefined> {
     const [card] = await db.select().from(virtualCards).where(and(eq(virtualCards.id, id), eq(virtualCards.profileId, profileId)));
     return card;
+  }
+
+  async getVirtualCardById(id: number): Promise<VirtualCard | undefined> {
+    const [card] = await db.select().from(virtualCards).where(eq(virtualCards.id, id));
+    return card;
+  }
+
+  async getAllPendingVirtualCards(): Promise<any[]> {
+    return db
+      .select({
+        id: virtualCards.id,
+        cardId: virtualCards.cardId,
+        profileId: virtualCards.profileId,
+        nameOnCard: virtualCards.nameOnCard,
+        balance: virtualCards.balance,
+        status: virtualCards.status,
+        cardDetail: virtualCards.cardDetail,
+        createdAt: virtualCards.createdAt,
+        profileName: profiles.fullName,
+        profileEmail: profiles.email,
+        profilePhone: profiles.phone,
+        strowalletCustomerId: profiles.strowalletCustomerId,
+      })
+      .from(virtualCards)
+      .innerJoin(profiles, eq(virtualCards.profileId, profiles.id))
+      .where(eq(virtualCards.status, "pending"))
+      .orderBy(desc(virtualCards.createdAt));
   }
 
   async getVirtualCardByCardId(cardId: string): Promise<VirtualCard | undefined> {

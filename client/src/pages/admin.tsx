@@ -1995,6 +1995,111 @@ function SupportTab() {
   );
 }
 
+function PendingCardsSection() {
+  const { toast } = useToast();
+  const qc = useQueryClient();
+  const { data: pendingCards, isLoading } = useQuery<any[]>({ queryKey: ["/api/admin/pending-cards"] });
+  const [retryLoadingId, setRetryLoadingId] = useState<number | null>(null);
+  const [retryResults, setRetryResults] = useState<Record<number, { success: boolean; message: string }>>({});
+
+  const handleRetry = async (card: any) => {
+    setRetryLoadingId(card.id);
+    try {
+      const res = await apiRequest("POST", `/api/admin/cards/${card.id}/retry`);
+      const data = await res.json();
+      if (!res.ok) {
+        setRetryResults(prev => ({ ...prev, [card.id]: { success: false, message: data.message || "Strowallet returned an error" } }));
+        toast({ title: "Retry failed", description: data.message, variant: "destructive" });
+      } else {
+        setRetryResults(prev => ({ ...prev, [card.id]: { success: true, message: `Card issued ✓  Last 4: ${data.last4 || "—"}` } }));
+        toast({ title: "Card issued!", description: `${card.profileName}'s card was created successfully.` });
+        qc.invalidateQueries({ queryKey: ["/api/admin/pending-cards"] });
+      }
+    } catch {
+      setRetryResults(prev => ({ ...prev, [card.id]: { success: false, message: "Network error — could not reach server" } }));
+    } finally {
+      setRetryLoadingId(null);
+    }
+  };
+
+  if (isLoading) return <Skeleton className="h-24 w-full" />;
+  if (!pendingCards?.length) return null;
+
+  return (
+    <Card className="border-amber-300 dark:border-amber-700">
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base flex items-center gap-2">
+          <Clock className="w-4 h-4 text-amber-500" />
+          Pending Card Requests
+          <Badge className="ml-2 bg-amber-500 text-white">{pendingCards.length}</Badge>
+        </CardTitle>
+        <p className="text-xs text-muted-foreground mt-0.5">
+          These users paid $20 USDT but card issuance failed due to low Strowallet master balance. Fund your Strowallet account then click <strong>Retry Issue Card</strong>.
+        </p>
+      </CardHeader>
+      <CardContent>
+        <div className="overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>DB&nbsp;ID</TableHead>
+                <TableHead>User</TableHead>
+                <TableHead>Email</TableHead>
+                <TableHead>Phone</TableHead>
+                <TableHead>Strowallet ID</TableHead>
+                <TableHead>Amount Held</TableHead>
+                <TableHead>Requested</TableHead>
+                <TableHead>Action</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {pendingCards.map((card: any) => (
+                <TableRow key={card.id} data-testid={`row-pending-card-${card.id}`}>
+                  <TableCell className="font-mono text-xs text-muted-foreground">#{card.id}</TableCell>
+                  <TableCell className="font-medium">{card.profileName}</TableCell>
+                  <TableCell className="text-sm text-muted-foreground">{card.profileEmail}</TableCell>
+                  <TableCell className="text-sm">{card.profilePhone || <span className="text-muted-foreground">—</span>}</TableCell>
+                  <TableCell>
+                    <span className="font-mono text-xs bg-muted px-2 py-0.5 rounded">{card.strowalletCustomerId || <span className="text-muted-foreground">—</span>}</span>
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant="outline" className="font-mono text-amber-600 border-amber-300">${Number(card.balance || 20).toFixed(2)} USDT</Badge>
+                  </TableCell>
+                  <TableCell className="text-xs text-muted-foreground">
+                    {format(new Date(card.createdAt), "MMM d, h:mm a")}
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex flex-col gap-1.5">
+                      {retryResults[card.id] ? (
+                        <div className={`text-xs font-medium px-2 py-1 rounded ${retryResults[card.id].success ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400" : "bg-red-50 text-red-700 dark:bg-red-950/40 dark:text-red-400"}`}>
+                          {retryResults[card.id].message}
+                        </div>
+                      ) : null}
+                      {(!retryResults[card.id] || !retryResults[card.id].success) && (
+                        <Button
+                          size="sm"
+                          className="h-8 text-xs bg-amber-500 hover:bg-amber-600 text-white gap-1.5"
+                          onClick={() => handleRetry(card)}
+                          disabled={retryLoadingId === card.id}
+                          data-testid={`button-retry-card-${card.id}`}
+                        >
+                          {retryLoadingId === card.id
+                            ? <><Loader2 className="w-3 h-3 animate-spin" /> Retrying…</>
+                            : <><RefreshCw className="w-3 h-3" /> Retry Issue Card</>}
+                        </Button>
+                      )}
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 function VirtualCardReadyTab() {
   const { data: users, isLoading } = useQuery<any[]>({ queryKey: ["/api/admin/virtual-card-ready"] });
   const { toast } = useToast();
@@ -2019,6 +2124,7 @@ function VirtualCardReadyTab() {
 
   return (
     <div className="space-y-4">
+      <PendingCardsSection />
       <Card>
         <CardHeader className="pb-3">
           <div className="flex items-start justify-between gap-3">
