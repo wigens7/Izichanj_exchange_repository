@@ -29,6 +29,8 @@ import {
   ShieldCheck,
   FileText,
   RefreshCw,
+  XCircle,
+  RotateCcw,
 } from "lucide-react";
 import { format } from "date-fns";
 import type { VirtualCard } from "@shared/schema";
@@ -326,6 +328,7 @@ function CardItem({ card }: { card: VirtualCard }) {
   const [fundAmount, setFundAmount] = useState("");
   const [showTransactions, setShowTransactions] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
+  const [confirmCancel, setConfirmCancel] = useState(false);
 
   const isPending = card.status === "pending";
   const isFrozen = card.status === "frozen";
@@ -403,6 +406,51 @@ function CardItem({ card }: { card: VirtualCard }) {
     },
     onError: () => {
       toast({ title: "Check failed. Please try again.", variant: "destructive" });
+    },
+  });
+
+  const userRetryMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch(`/api/cards/${card.id}/user-retry`, {
+        method: "POST",
+        credentials: "include",
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.message || "Retry failed");
+      return data;
+    },
+    onSuccess: (data: any) => {
+      toast({ title: "🎉 Card issued successfully!", description: "Your virtual card is now ready." });
+      qc.invalidateQueries({ queryKey: ["/api/cards"] });
+      qc.invalidateQueries({ queryKey: ["/api/user"] });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Retry failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const cancelMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch(`/api/cards/${card.id}/cancel`, {
+        method: "POST",
+        credentials: "include",
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.message || "Cancel failed");
+      return data;
+    },
+    onSuccess: (data: any) => {
+      toast({
+        title: "Card cancelled — refund issued",
+        description: `$${Number(data.refunded || 20).toFixed(2)} USDT has been instantly returned to your balance.`,
+      });
+      qc.invalidateQueries({ queryKey: ["/api/cards"] });
+      qc.invalidateQueries({ queryKey: ["/api/user"] });
+      setConfirmCancel(false);
+    },
+    onError: (err: Error) => {
+      toast({ title: "Cancel failed", description: err.message, variant: "destructive" });
+      setConfirmCancel(false);
     },
   });
 
@@ -565,27 +613,87 @@ function CardItem({ card }: { card: VirtualCard }) {
 
           {isPending ? (
             <div className="space-y-2">
+              {/* Status bar */}
               <div className="flex items-start gap-3 rounded-md bg-amber-500/10 border border-amber-500/20 p-3">
                 <div className="w-4 h-4 mt-0.5 shrink-0 border-2 border-amber-500 border-t-transparent rounded-full animate-spin" />
                 <div>
                   <p className="text-sm font-medium text-amber-700 dark:text-amber-400">Card request received</p>
-                  <p className="text-xs text-muted-foreground mt-0.5">Your card is being processed. Your $20.00 has been secured. Please check back in 24 hours.</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">Your $20.00 is held securely. If the card is not issued, you can retry or cancel for a full refund.</p>
                 </div>
               </div>
-              <Button
-                variant="outline"
-                size="sm"
-                className="w-full text-sm"
-                onClick={() => checkStatusMutation.mutate()}
-                disabled={checkStatusMutation.isPending}
-                data-testid={`button-check-card-status-${card.id}`}
-              >
-                {checkStatusMutation.isPending ? (
-                  <><Loader2 className="w-3.5 h-3.5 animate-spin mr-2" />Checking with provider…</>
-                ) : (
-                  <><RefreshCw className="w-3.5 h-3.5 mr-2" />Check if my card is ready</>
-                )}
-              </Button>
+
+              {/* Action buttons */}
+              <div className="grid grid-cols-2 gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => checkStatusMutation.mutate()}
+                  disabled={checkStatusMutation.isPending || userRetryMutation.isPending || cancelMutation.isPending}
+                  data-testid={`button-check-card-status-${card.id}`}
+                >
+                  {checkStatusMutation.isPending ? (
+                    <><Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" />Checking…</>
+                  ) : (
+                    <><RefreshCw className="w-3.5 h-3.5 mr-1.5" />Check status</>
+                  )}
+                </Button>
+
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => userRetryMutation.mutate()}
+                  disabled={checkStatusMutation.isPending || userRetryMutation.isPending || cancelMutation.isPending}
+                  data-testid={`button-user-retry-card-${card.id}`}
+                >
+                  {userRetryMutation.isPending ? (
+                    <><Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" />Retrying…</>
+                  ) : (
+                    <><RotateCcw className="w-3.5 h-3.5 mr-1.5" />Retry creation</>
+                  )}
+                </Button>
+              </div>
+
+              {/* Cancel flow */}
+              {!confirmCancel ? (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="w-full text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30"
+                  onClick={() => setConfirmCancel(true)}
+                  disabled={cancelMutation.isPending}
+                  data-testid={`button-cancel-card-${card.id}`}
+                >
+                  <XCircle className="w-3.5 h-3.5 mr-1.5" />
+                  Cancel & get $20.00 refund
+                </Button>
+              ) : (
+                <div className="rounded-md border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-950/30 p-3 space-y-2">
+                  <p className="text-sm text-red-700 dark:text-red-400 font-medium">Are you sure you want to cancel?</p>
+                  <p className="text-xs text-muted-foreground">$20.00 USDT will be instantly refunded to your balance. This cannot be undone.</p>
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      onClick={() => cancelMutation.mutate()}
+                      disabled={cancelMutation.isPending}
+                      className="flex-1"
+                      data-testid={`button-confirm-cancel-card-${card.id}`}
+                    >
+                      {cancelMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "Yes, cancel & refund"}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setConfirmCancel(false)}
+                      disabled={cancelMutation.isPending}
+                      className="flex-1"
+                      data-testid={`button-dismiss-cancel-${card.id}`}
+                    >
+                      Keep waiting
+                    </Button>
+                  </div>
+                </div>
+              )}
             </div>
           ) : (
           <div className="flex items-center gap-2 flex-wrap">

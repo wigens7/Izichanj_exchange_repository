@@ -3025,6 +3025,147 @@ export async function registerRoutes(
     }
   });
 
+  // POST /api/cards/:id/cancel — user cancels a pending card and gets an instant refund
+  app.post("/api/cards/:id/cancel", isAuthenticated, async (req: any, res) => {
+    try {
+      const profile = await getProfileFromReq(req);
+      if (!profile) return res.status(401).json({ message: "Unauthorized" });
+
+      const card = await storage.getVirtualCard(Number(req.params.id), profile.id);
+      if (!card) return res.status(404).json({ message: "Card not found" });
+      if (card.status !== "pending") {
+        return res.status(400).json({ message: "Only pending cards can be cancelled." });
+      }
+
+      // Refund the held amount back to user balance
+      const refundAmount = parseFloat(card.balance || "20");
+      const currentBalance = parseFloat(profile.balance || "0");
+      const newBalance = currentBalance + refundAmount;
+
+      await storage.updateProfileBalance(profile.id, newBalance);
+      await storage.updateVirtualCard(card.id, { status: "cancelled" });
+
+      // In-app notification
+      await storage.createNotification({
+        profileId: profile.id,
+        type: "custom_message",
+        title: "Virtual Card Cancelled — Refund Issued",
+        message: `Your virtual card application has been cancelled and $${refundAmount.toFixed(2)} USDT has been instantly refunded to your balance.`,
+      }).catch(() => {});
+
+      // WhatsApp notification
+      if (profile.phone) {
+        sendWhatsAppNotification(
+          profile.phone,
+          `*Izichanj*\n\n❌ Virtual card request cancelled.\n\n💵 $${refundAmount.toFixed(2)} USDT has been refunded to your balance.\n\nYou can apply for a new card anytime from the Virtual Cards section.\n\nhttps://izichanj.com`,
+          profile.fullName
+        );
+      }
+
+      // Telegram alert
+      sendTelegramMessage(
+        `🔴 <b>Pending Card Cancelled (User Initiated)</b>\n\n` +
+        `👤 <b>User:</b> ${profile.fullName}\n` +
+        `📧 <b>Email:</b> ${profile.email}\n` +
+        `💵 <b>Refunded:</b> $${refundAmount.toFixed(2)} USDT\n` +
+        `💰 <b>New Balance:</b> $${newBalance.toFixed(2)} USDT\n` +
+        `🗂 <b>Card DB ID:</b> #${card.id}`
+      ).catch(() => {});
+
+      res.json({ success: true, refunded: refundAmount, newBalance });
+    } catch (e: any) {
+      console.error("[cancel card]", e);
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // POST /api/cards/:id/user-retry — user retries Strowallet card creation (no balance re-deduction)
+  app.post("/api/cards/:id/user-retry", isAuthenticated, async (req: any, res) => {
+    try {
+      const profile = await getProfileFromReq(req);
+      if (!profile) return res.status(401).json({ message: "Unauthorized" });
+
+      const card = await storage.getVirtualCard(Number(req.params.id), profile.id);
+      if (!card) return res.status(404).json({ message: "Card not found" });
+      if (card.status !== "pending") {
+        return res.status(400).json({ message: "Card is not in pending status." });
+      }
+      if (!profile.strowalletCustomerId) {
+        return res.status(400).json({ message: "No Strowallet customer account linked. Please contact support." });
+      }
+
+      const _stroBase = "https://strowallet.com/api/bitvcard";
+      const _stroKey = process.env.STROWALLET_PUBLIC_KEY || "";
+
+      // NOTE: No balance deduction — the $20 was already held when the pending card was created.
+      const fundAmount = parseFloat(card.balance || "20");
+
+      const payload: Record<string, string> = {
+        name_on_card: card.nameOnCard || profile.fullName,
+        card_type: "visa",
+        public_key: _stroKey,
+        amount: fundAmount.toString(),
+        customerEmail: profile.email,
+        customer_id: profile.strowalletCustomerId,
+      };
+
+      const response = await strowalletFetch(`${_stroBase}/create-card/`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Accept": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await response.json();
+      console.log("[USER RETRY CARD] Strowallet response:", JSON.stringify(data, null, 2));
+
+      if (!response.ok || data.status === "error" || data.status === false) {
+        const rawErr = data.message ?? data.error ?? data.errors ?? data;
+        const errMsg = typeof rawErr === "string" ? rawErr : JSON.stringify(rawErr);
+        return res.status(400).json({ success: false, message: errMsg });
+      }
+
+      // Success — activate card in DB
+      const cardInfo = data.response || data.data || data;
+      const newCardId = cardInfo.card_id || cardInfo.id || `stro_${Date.now()}`;
+      const last4 = cardInfo.card_number ? String(cardInfo.card_number).slice(-4) : cardInfo.last4 || null;
+
+      await storage.updateVirtualCard(card.id, {
+        cardId: String(newCardId),
+        last4,
+        status: "active",
+        cardDetail: cardInfo,
+      });
+
+      await storage.createNotification({
+        profileId: profile.id,
+        type: "custom_message",
+        title: "Your Virtual Card is Ready! 💳",
+        message: "Your Visa virtual card has been issued. You can now view your card details.",
+      }).catch(() => {});
+
+      if (profile.phone) {
+        sendWhatsAppNotification(
+          profile.phone,
+          `*Izichanj*\n\n💳 Your virtual card is ready!\n\nYour Visa virtual card has been successfully issued. Log in to view your card details.\n\nhttps://izichanj.com`,
+          profile.fullName
+        );
+      }
+
+      sendTelegramMessage(
+        `✅ <b>Pending Card Issued (User Retry)</b>\n\n` +
+        `👤 <b>User:</b> ${profile.fullName}\n` +
+        `📧 <b>Email:</b> ${profile.email}\n` +
+        `💳 <b>Card ID:</b> ${newCardId}\n` +
+        `🔢 <b>Last 4:</b> ${last4 || "N/A"}`
+      ).catch(() => {});
+
+      res.json({ success: true, message: "Card issued successfully!", cardId: newCardId, last4 });
+    } catch (e: any) {
+      console.error("[user retry card]", e);
+      res.status(500).json({ message: e.message });
+    }
+  });
+
   // POST /api/cards/:id/check-status — user polls Strowallet to see if their pending card was created
   app.post("/api/cards/:id/check-status", isAuthenticated, async (req: any, res) => {
     try {
