@@ -2001,6 +2001,8 @@ function PendingCardsSection() {
   const { data: pendingCards, isLoading } = useQuery<any[]>({ queryKey: ["/api/admin/pending-cards"] });
   const [retryLoadingId, setRetryLoadingId] = useState<number | null>(null);
   const [retryResults, setRetryResults] = useState<Record<number, { success: boolean; message: string }>>({});
+  const [cancelLoadingId, setCancelLoadingId] = useState<number | null>(null);
+  const [confirmCancelId, setConfirmCancelId] = useState<number | null>(null);
 
   const handleRetry = async (card: any) => {
     setRetryLoadingId(card.id);
@@ -2019,6 +2021,28 @@ function PendingCardsSection() {
       setRetryResults(prev => ({ ...prev, [card.id]: { success: false, message: "Network error — could not reach server" } }));
     } finally {
       setRetryLoadingId(null);
+    }
+  };
+
+  const handleCancelRefund = async (card: any) => {
+    setCancelLoadingId(card.id);
+    setConfirmCancelId(null);
+    try {
+      const res = await apiRequest("POST", `/api/admin/cards/${card.id}/cancel-refund`);
+      const data = await res.json();
+      if (!res.ok) {
+        toast({ title: "Cancel failed", description: data.message, variant: "destructive" });
+      } else {
+        toast({
+          title: "Card cancelled & refunded",
+          description: `$${Number(data.refunded || 20).toFixed(2)} USDT refunded to ${data.userName || card.profileName}.`,
+        });
+        qc.invalidateQueries({ queryKey: ["/api/admin/pending-cards"] });
+      }
+    } catch {
+      toast({ title: "Network error", variant: "destructive" });
+    } finally {
+      setCancelLoadingId(null);
     }
   };
 
@@ -2069,7 +2093,7 @@ function PendingCardsSection() {
                     {format(new Date(card.createdAt), "MMM d, h:mm a")}
                   </TableCell>
                   <TableCell>
-                    <div className="flex flex-col gap-1.5">
+                    <div className="flex flex-col gap-1.5 min-w-[180px]">
                       {retryResults[card.id] ? (
                         <div className={`text-xs font-medium px-2 py-1 rounded ${retryResults[card.id].success ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400" : "bg-red-50 text-red-700 dark:bg-red-950/40 dark:text-red-400"}`}>
                           {retryResults[card.id].message}
@@ -2080,12 +2104,48 @@ function PendingCardsSection() {
                           size="sm"
                           className="h-8 text-xs bg-amber-500 hover:bg-amber-600 text-white gap-1.5"
                           onClick={() => handleRetry(card)}
-                          disabled={retryLoadingId === card.id}
+                          disabled={retryLoadingId === card.id || cancelLoadingId === card.id}
                           data-testid={`button-retry-card-${card.id}`}
                         >
                           {retryLoadingId === card.id
                             ? <><Loader2 className="w-3 h-3 animate-spin" /> Retrying…</>
                             : <><RefreshCw className="w-3 h-3" /> Retry Issue Card</>}
+                        </Button>
+                      )}
+
+                      {/* Cancel & Refund */}
+                      {confirmCancelId === card.id ? (
+                        <div className="flex gap-1">
+                          <Button
+                            size="sm"
+                            variant="destructive"
+                            className="h-8 text-xs flex-1"
+                            onClick={() => handleCancelRefund(card)}
+                            disabled={cancelLoadingId === card.id}
+                            data-testid={`button-confirm-cancel-admin-${card.id}`}
+                          >
+                            {cancelLoadingId === card.id ? <Loader2 className="w-3 h-3 animate-spin" /> : "Confirm refund"}
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-8 text-xs"
+                            onClick={() => setConfirmCancelId(null)}
+                            data-testid={`button-dismiss-cancel-admin-${card.id}`}
+                          >
+                            No
+                          </Button>
+                        </div>
+                      ) : (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-8 text-xs text-red-600 border-red-300 hover:bg-red-50 dark:hover:bg-red-950/30 gap-1.5"
+                          onClick={() => setConfirmCancelId(card.id)}
+                          disabled={retryLoadingId === card.id || cancelLoadingId === card.id}
+                          data-testid={`button-cancel-refund-admin-${card.id}`}
+                        >
+                          <XCircle className="w-3 h-3" /> Cancel &amp; Refund
                         </Button>
                       )}
                     </div>

@@ -1656,6 +1656,67 @@ export async function registerRoutes(
     }
   });
 
+  // POST /api/admin/cards/:id/cancel-refund — admin manually cancels a pending card and refunds the user
+  app.post("/api/admin/cards/:id/cancel-refund", isAuthenticated, isAdmin, async (req: any, res) => {
+    try {
+      const cardDbId = Number(req.params.id);
+
+      // Atomic: only cancel if still pending, return the balance we need to refund
+      const cancelled = await db
+        .update(virtualCards)
+        .set({ status: "cancelled" })
+        .where(and(
+          eq(virtualCards.id, cardDbId),
+          eq(virtualCards.status, "pending"),
+        ))
+        .returning({ balance: virtualCards.balance, profileId: virtualCards.profileId });
+
+      if (cancelled.length === 0) {
+        return res.status(409).json({ message: "Card is not in pending status or was already cancelled." });
+      }
+
+      const { balance: heldBalance, profileId } = cancelled[0];
+      const refundAmount = parseFloat(heldBalance || "20");
+
+      const profile = await storage.getProfile(profileId);
+      if (!profile) return res.status(404).json({ message: "User not found" });
+
+      const newBalance = parseFloat(profile.balance || "0") + refundAmount;
+      await storage.updateProfileBalance(profileId, newBalance);
+
+      // In-app notification to user
+      await storage.createNotification({
+        profileId,
+        type: "custom_message",
+        title: "Virtual Card Request Cancelled — Refund Issued",
+        message: `Your virtual card application was cancelled by support. $${refundAmount.toFixed(2)} USDT has been refunded to your balance. You can apply for a new card anytime.`,
+      }).catch(() => {});
+
+      // WhatsApp
+      if (profile.phone) {
+        sendWhatsAppNotification(
+          profile.phone,
+          `*Izichanj*\n\n❌ Your virtual card request was cancelled by our team.\n\n💵 $${refundAmount.toFixed(2)} USDT has been refunded to your balance.\n\nYou can apply for a new card anytime from the Virtual Cards section.\n\nhttps://izichanj.com`,
+          profile.fullName
+        );
+      }
+
+      sendTelegramMessage(
+        `🔴 <b>Pending Card Cancelled (Admin)</b>\n\n` +
+        `👤 <b>User:</b> ${profile.fullName}\n` +
+        `📧 <b>Email:</b> ${profile.email}\n` +
+        `💵 <b>Refunded:</b> $${refundAmount.toFixed(2)} USDT\n` +
+        `💰 <b>New Balance:</b> $${newBalance.toFixed(2)} USDT\n` +
+        `🗂 <b>Card DB ID:</b> #${cardDbId}`
+      ).catch(() => {});
+
+      res.json({ success: true, refunded: refundAmount, newBalance, userName: profile.fullName });
+    } catch (e: any) {
+      console.error("[admin cancel-refund card]", e);
+      res.status(500).json({ message: e.message });
+    }
+  });
+
   // POST /api/admin/cards/:id/retry — retry Strowallet card creation for a pending card
   app.post("/api/admin/cards/:id/retry", isAuthenticated, isAdmin, async (req: any, res) => {
     try {
