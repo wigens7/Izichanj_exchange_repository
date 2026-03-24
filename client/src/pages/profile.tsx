@@ -1,6 +1,7 @@
 import { useUser, useUpdateProfile } from "@/hooks/use-auth";
 import { useKycStatus, useUploadKyc } from "@/hooks/use-kyc";
 import { useUpload } from "@/hooks/use-upload";
+import { compressImage } from "@/lib/image-compress";
 import { useLanguage, languageNames, type Language } from "@/lib/i18n";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -65,9 +66,21 @@ export default function ProfilePage() {
   const canEdit = !!user.canEditProfile;
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, type: 'id' | 'id-back' | 'selfie') => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    
+    const raw = e.target.files?.[0];
+    if (!raw) return;
+
+    // Compress ID photos to stay under 1.5 MB — Strowallet rejects larger images
+    let file = raw;
+    const MAX_BYTES = 1.5 * 1024 * 1024;
+    if (raw.size > MAX_BYTES && raw.type.startsWith("image/")) {
+      try {
+        toast({ title: t.profile?.compressingImage || "Optimising image…", description: t.profile?.compressingDesc || "Reducing file size for compatibility." });
+        file = await compressImage(raw, MAX_BYTES);
+      } catch {
+        toast({ title: "Compression failed", description: "Using original file. Upload may be slower.", variant: "destructive" });
+      }
+    }
+
     const res = await uploadFile(file);
     if (res) {
         if (type === 'id') setIdUrl(res.objectPath);

@@ -11,6 +11,7 @@ import crypto from "crypto";
 import bcrypt from "bcryptjs";
 import { WITHDRAWAL_MIN_USDT, WITHDRAWAL_MAX_USDT, usdtToHtg, htgToUsdt, formatHtg, WITHDRAWAL_MIN_HTG, WITHDRAWAL_MAX_HTG, EXCHANGE_RATE_USDT_HTG, NETWORK_FEE_CONFIG } from "@shared/constants";
 import { generateReceiptPDF, generateAdjustmentReceiptPDF } from "./receipt";
+import { ensureKycImageSize } from "./image-compress";
 import { deposits, profiles, virtualCards } from "@shared/schema";
 import { db } from "./db";
 import { eq, and } from "drizzle-orm";
@@ -1472,6 +1473,13 @@ export async function registerRoutes(
     if (kycProfile && !kycProfile.strowalletCustomerId && _stroKey) {
       try {
         const kyc = await storage.getKyc(profileId);
+
+        // Compress KYC images server-side — Strowallet rejects images > 2 MB
+        const [autoCompressedId, autoCompressedSelfie] = await Promise.all([
+          ensureKycImageSize(kyc?.idDocumentUrl || ""),
+          ensureKycImageSize(kyc?.selfieUrl || ""),
+        ]);
+
         const firstName = kycProfile.firstName || kycProfile.fullName.split(" ")[0] || "";
         const lastName = kycProfile.lastName || kycProfile.fullName.split(" ").slice(1).join(" ") || firstName;
         const payload = {
@@ -1485,8 +1493,8 @@ export async function registerRoutes(
           id_type: kyc?.idType || "national_id",
           id_number: kyc?.idNumber || kycProfile.email,
           address_line_1: kyc?.addressLine1 || kycProfile.city || "",
-          user_photo: kyc?.selfieUrl || "",
-          id_image: kyc?.idDocumentUrl || "",
+          user_photo: autoCompressedSelfie,
+          id_image: autoCompressedId,
         };
         console.log("[STROWALLET][AUTO-KYC] Registering cardholder for profile:", profileId);
         const proxyUrl = process.env.PROXY_URL;
@@ -1588,6 +1596,12 @@ export async function registerRoutes(
       const _stroKey = process.env.STROWALLET_PUBLIC_KEY || "";
       if (!_stroKey) return res.status(500).json({ message: "Strowallet key not configured" });
 
+      // Compress KYC images server-side — Strowallet rejects images > 2 MB
+      const [compressedIdImage, compressedSelfie] = await Promise.all([
+        ensureKycImageSize(kyc?.idDocumentUrl || ""),
+        ensureKycImageSize(kyc?.selfieUrl || ""),
+      ]);
+
       const firstName = profile.firstName || profile.fullName.split(" ")[0] || "";
       const lastName = profile.lastName || profile.fullName.split(" ").slice(1).join(" ") || firstName;
       const payload = {
@@ -1601,9 +1615,11 @@ export async function registerRoutes(
         id_type: kyc?.idType || "",
         id_number: kyc?.idNumber || "",
         address_line_1: kyc?.addressLine1 || profile.city || "",
-        user_photo: kyc?.selfieUrl || "",
-        id_image: kyc?.idDocumentUrl || "",
+        user_photo: compressedSelfie,
+        id_image: compressedIdImage,
       };
+
+      console.log(`[STROWALLET][ADMIN-RETRY] Image sizes — id: ${compressedIdImage}, selfie: ${compressedSelfie}`);
 
       const stroRes = await strowalletFetch(`${STROWALLET_BASE}/create-user/`, {
         method: "POST",
@@ -2867,6 +2883,12 @@ export async function registerRoutes(
       const phone = profile.phone || "";
       const addressLine1 = bodyAddressLine1 || kycDoc?.addressLine1 || profile.city || "";
 
+      // Compress KYC images server-side — Strowallet rejects images > 2 MB
+      const [compressedIdImage, compressedSelfie] = await Promise.all([
+        ensureKycImageSize(kycDoc?.idDocumentUrl || ""),
+        ensureKycImageSize(kycDoc?.selfieUrl || ""),
+      ]);
+
       const payload = {
         public_key: strowalletPublicKey,
         first_name: firstName,
@@ -2878,8 +2900,8 @@ export async function registerRoutes(
         id_type: idType,
         id_number: idNumber,
         address_line_1: addressLine1,
-        user_photo: kycDoc?.selfieUrl || "",
-        id_image: kycDoc?.idDocumentUrl || "",
+        user_photo: compressedSelfie,
+        id_image: compressedIdImage,
       };
 
       console.log("[STROWALLET][CARDHOLDER] Registering:", { email: profile.email, idType });
