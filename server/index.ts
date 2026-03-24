@@ -70,6 +70,21 @@ app.use((req, res, next) => {
     console.warn("[startup migration] card_status enum update skipped:", (e as Error).message);
   }
 
+  // Fix: reset any card marked "active" that still has a pending_ card_id (never really issued)
+  try {
+    const fixed = await db.execute(sql`
+      UPDATE virtual_cards
+      SET status = 'pending'
+      WHERE card_id LIKE 'pending_%'
+        AND status = 'active'
+    `);
+    if ((fixed.rowCount ?? 0) > 0) {
+      console.log(`[startup migration] Reset ${fixed.rowCount} fake-active pending card(s) → status=pending`);
+    }
+  } catch (e) {
+    console.warn("[startup migration] pending card status fix skipped:", (e as Error).message);
+  }
+
   // One-time fix: correct incomplete name for wigens7@gmail.com
   try {
     await db.execute(sql`

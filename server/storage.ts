@@ -470,7 +470,10 @@ export class DatabaseStorage implements IStorage {
       })
       .from(virtualCards)
       .innerJoin(profiles, eq(virtualCards.profileId, profiles.id))
-      .where(eq(virtualCards.status, "pending"))
+      .where(
+        // Catch both: explicitly pending status OR wrongly-active cards with a pending_ ID
+        sql`(${virtualCards.status} = 'pending' OR ${virtualCards.cardId} LIKE 'pending_%')`
+      )
       .orderBy(desc(virtualCards.createdAt));
   }
 
