@@ -2973,7 +2973,11 @@ export async function registerRoutes(
       console.log("[STROWALLET] Create card response:", JSON.stringify(data));
 
       if (!response.ok || data.status === "error" || data.status === false) {
-        const rawMsg = (data.message || data.error || "").toLowerCase();
+        // Safely convert to string — Strowallet sometimes returns objects instead of strings
+        const rawErr = data.message ?? data.error ?? data.errors ?? "";
+        const rawMsg = String(typeof rawErr === "object" ? JSON.stringify(rawErr) : rawErr).toLowerCase();
+
+        console.log("[STROWALLET] Create card error rawMsg:", rawMsg);
 
         const isProviderNoFunds =
           rawMsg.includes("insufficient") || rawMsg.includes("no fund") ||
@@ -3045,6 +3049,7 @@ export async function registerRoutes(
         }
 
         // ── All other Strowallet errors ───────────────────────────────────────
+        const friendlyErr = rawMsg || "Unknown error from card provider";
         sendTelegramMessage(
           `❌ <b>Card Creation Failed</b>\n\n` +
           `👤 <b>User:</b> ${profile.fullName}\n` +
@@ -3052,11 +3057,12 @@ export async function registerRoutes(
           `📞 <b>Phone:</b> ${profile.phone || "—"}\n` +
           `💵 <b>Amount:</b> $${CARD_COST_USD} USDT\n` +
           `💰 <b>User balance:</b> $${balanceUsdt.toFixed(2)} USDT\n` +
-          `⚠️ <b>Error:</b> ${data.message || data.error || "Unknown error"}\n\n` +
+          `⚠️ <b>Error:</b> ${friendlyErr}\n` +
+          `📋 <b>Full response:</b>\n<pre>${JSON.stringify(data, null, 2).slice(0, 600)}</pre>\n\n` +
           `👉 Review this card request manually or contact Strowallet support.`
         ).catch(() => {});
 
-        return res.status(400).json({ message: data.message || data.error || "Failed to create virtual card" });
+        return res.status(400).json({ message: friendlyErr || "Failed to create virtual card" });
       }
 
       const cardInfo = data.response || data.data || data;
