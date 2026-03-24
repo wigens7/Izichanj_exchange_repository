@@ -70,6 +70,19 @@ app.use((req, res, next) => {
     console.warn("[startup migration] card_status enum update skipped:", (e as Error).message);
   }
 
+  // One-time fix: correct incomplete name for wigens7@gmail.com
+  try {
+    await db.execute(sql`
+      UPDATE profiles
+      SET full_name = 'Wilgentz PIERRE'
+      WHERE email = 'wigens7@gmail.com'
+        AND full_name != 'Wilgentz PIERRE'
+    `);
+    console.log("[startup migration] wigens7 full_name ensured: Wilgentz PIERRE");
+  } catch (e) {
+    console.warn("[startup migration] wigens7 name fix skipped:", (e as Error).message);
+  }
+
   await registerRoutes(httpServer, app);
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
