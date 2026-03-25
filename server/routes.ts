@@ -1712,6 +1712,33 @@ export async function registerRoutes(
     }
   });
 
+  // GET /api/admin/card-stats — profit tracker for virtual cards
+  app.get("/api/admin/card-stats", isAuthenticated, isAdmin, async (req: any, res) => {
+    try {
+      const allCards = await db.select().from(virtualCards);
+      const activeCards   = allCards.filter(c => c.status === "active").length;
+      const pendingCards2 = allCards.filter(c => c.status === "pending").length;
+      const frozenCards   = allCards.filter(c => c.status === "frozen").length;
+      const totalIssued   = activeCards + frozenCards; // cards that actually went through
+      const CARD_PRICE    = 30;    // what user pays
+      const CARD_COST     = 22.80; // our actual cost (Strowallet $20 + ~$2.80 buffer/fees)
+      const PROFIT_PER    = Number((CARD_PRICE - CARD_COST).toFixed(2)); // 7.20
+      res.json({
+        activeCards,
+        pendingCards: pendingCards2,
+        frozenCards,
+        totalIssued,
+        cardPrice: CARD_PRICE,
+        cardCost: CARD_COST,
+        profitPerCard: PROFIT_PER,
+        totalProfit: Number((totalIssued * PROFIT_PER).toFixed(2)),
+        totalRevenue: Number((totalIssued * CARD_PRICE).toFixed(2)),
+      });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
   // POST /api/admin/cards/:id/cancel-refund — admin manually cancels a pending card and refunds the user
   app.post("/api/admin/cards/:id/cancel-refund", isAuthenticated, isAdmin, async (req: any, res) => {
     try {
@@ -3064,8 +3091,8 @@ export async function registerRoutes(
         return res.status(500).json({ message: "Card service not configured" });
       }
 
-      const CARD_COST_USD = 26;        // Amount deducted from user's Izichanj balance
-      const STROWALLET_FUND_AMOUNT = 20; // Amount loaded onto the card via Strowallet (the rest is our fee)
+      const CARD_COST_USD = 30;        // Amount deducted from user's Izichanj balance
+      const STROWALLET_FUND_AMOUNT = 20; // Amount loaded onto the card via Strowallet ($10 activation fee kept by Izichanj)
 
       const balanceUsdt = parseFloat(profile.balance || "0");
       if (balanceUsdt < CARD_COST_USD) {
@@ -3126,11 +3153,11 @@ export async function registerRoutes(
 
         // ── Strowallet master account has insufficient funds ──────────────────
         if (isProviderNoFunds) {
-          // Deduct the full $26 user charge from their balance (funds are held pending card issuance)
+          // Deduct the full $30 user charge from their balance (funds are held pending card issuance)
           const newBalance = balanceUsdt - CARD_COST_USD;
           await storage.updateProfileBalance(profile.id, newBalance);
 
-          // Store CARD_COST_USD ($26) in balance so refund returns the full amount user paid
+          // Store CARD_COST_USD ($30) in balance so refund returns the full amount user paid
           const pendingCard = await storage.createVirtualCard({
             profileId: profile.id,
             cardId: `pending_${Date.now()}`,
@@ -3195,7 +3222,7 @@ export async function registerRoutes(
       const cardId = cardInfo.card_id || cardInfo.id || `stro_${Date.now()}`;
       const last4 = cardInfo.card_number ? cardInfo.card_number.slice(-4) : cardInfo.last4 || null;
 
-      // Deduct the full $26 user charge (fundAmount $20 goes to card, $6 is Izichanj's fee)
+      // Deduct the full $30 user charge (fundAmount $20 goes to card, $10 is Izichanj's activation fee)
       const newBalance = balanceUsdt - CARD_COST_USD;
       await storage.updateProfileBalance(profile.id, newBalance);
 

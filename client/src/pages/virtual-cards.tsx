@@ -83,7 +83,7 @@ export default function VirtualCardsPage() {
             <div>
               <p className="font-semibold text-sm">Card Application in Progress</p>
               <p className="text-sm text-muted-foreground mt-0.5">
-                Your virtual card is currently being processed. Your $26.00 payment has been received and is held securely.
+                Your virtual card is currently being processed. Your $30.00 payment has been received and is held securely.
                 Use the <strong>"Check if my card is ready"</strong> button on the card below to check for updates.
               </p>
             </div>
@@ -121,7 +121,7 @@ function ApplyCardSection() {
   const { toast } = useToast();
   const qc = useQueryClient();
 
-  const CARD_COST = 26;          // Price user pays for card activation
+  const CARD_COST = 30;          // Price user pays for card activation
   const CARD_LOAD_AMOUNT = 20;   // Initial balance loaded onto the card
   const userBalance = parseFloat(user?.balance || "0");
   const hasEnoughBalance = userBalance >= CARD_COST;
@@ -274,7 +274,7 @@ function ApplyCardSection() {
               <div className="flex items-center justify-between gap-3 flex-wrap">
                 <div>
                   <p className="text-sm text-muted-foreground">{vc.cardCost}</p>
-                  <p className="text-2xl font-bold font-display" data-testid="text-card-cost">$26.00 <span className="text-sm font-normal text-muted-foreground">USD</span></p>
+                  <p className="text-2xl font-bold font-display" data-testid="text-card-cost">$30.00 <span className="text-sm font-normal text-muted-foreground">USD</span></p>
                 </div>
                 <div className="text-right">
                   <p className="text-sm text-muted-foreground">{vc.yourBalance}</p>
@@ -332,7 +332,7 @@ function ApplyCardSection() {
                 {createMutation.isPending ? (
                   <><Loader2 className="w-4 h-4 animate-spin mr-2" />{vc.applying}</>
                 ) : (
-                  <><CreditCard className="w-4 h-4 mr-2" />{vc.applyButton} — $26.00</>  
+                  <><CreditCard className="w-4 h-4 mr-2" />{vc.applyButton} — $30.00</>  
                 )}
               </Button>
             )}
@@ -702,7 +702,7 @@ function CardItem({ card }: { card: VirtualCard }) {
                 <div className="w-4 h-4 mt-0.5 shrink-0 border-2 border-amber-500 border-t-transparent rounded-full animate-spin" />
                 <div>
                   <p className="text-sm font-medium text-amber-700 dark:text-amber-400">Card request received</p>
-                  <p className="text-xs text-muted-foreground mt-0.5">Your $26.00 is held securely. If the card is not issued, you can retry or cancel for a full refund.</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">Your $30.00 is held securely. If the card is not issued, you can retry or cancel for a full refund.</p>
                 </div>
               </div>
 
@@ -748,12 +748,12 @@ function CardItem({ card }: { card: VirtualCard }) {
                   data-testid={`button-cancel-card-${card.id}`}
                 >
                   <XCircle className="w-3.5 h-3.5 mr-1.5" />
-                  Cancel & get $26.00 refund
+                  Cancel & get $30.00 refund
                 </Button>
               ) : (
                 <div className="rounded-md border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-950/30 p-3 space-y-2">
                   <p className="text-sm text-red-700 dark:text-red-400 font-medium">Are you sure you want to cancel?</p>
-                  <p className="text-xs text-muted-foreground">$26.00 USDT will be instantly refunded to your balance. This cannot be undone.</p>
+                  <p className="text-xs text-muted-foreground">$30.00 USDT will be instantly refunded to your balance. This cannot be undone.</p>
                   <div className="flex gap-2">
                     <Button
                       size="sm"

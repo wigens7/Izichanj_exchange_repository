@@ -62,6 +62,8 @@ import {
   LogIn,
   RefreshCw,
   CreditCard,
+  TrendingUp,
+  DollarSign,
 } from "lucide-react";
 import { format } from "date-fns";
 import { usdtToHtg, formatHtg, formatUsdt } from "@shared/constants";
@@ -2094,7 +2096,7 @@ function PendingCardsSection() {
           <Badge className="ml-2 bg-amber-500 text-white">{pendingCards.length}</Badge>
         </CardTitle>
         <p className="text-xs text-muted-foreground mt-0.5">
-          These users paid $20 USDT but card issuance failed due to low Strowallet master balance. Fund your Strowallet account then click <strong>Retry Issue Card</strong>.
+          These users paid $30 USDT but card issuance failed due to low Strowallet master balance. Fund your Strowallet account then click <strong>Retry Issue Card</strong>.
         </p>
       </CardHeader>
       <CardContent>
@@ -2220,6 +2222,65 @@ function PendingCardsSection() {
   );
 }
 
+function CardProfitTracker() {
+  const { data: stats, isLoading } = useQuery<any>({ queryKey: ["/api/admin/card-stats"] });
+
+  const statItems = [
+    { label: "Active Cards", value: stats?.activeCards ?? 0, icon: CreditCard, color: "text-blue-600 dark:text-blue-400", bg: "bg-blue-50 dark:bg-blue-950/30" },
+    { label: "Pending Cards", value: stats?.pendingCards ?? 0, icon: Clock, color: "text-amber-600 dark:text-amber-400", bg: "bg-amber-50 dark:bg-amber-950/30" },
+    { label: "Total Issued", value: stats?.totalIssued ?? 0, icon: TrendingUp, color: "text-emerald-600 dark:text-emerald-400", bg: "bg-emerald-50 dark:bg-emerald-950/30" },
+  ];
+
+  return (
+    <Card className="border-emerald-200 dark:border-emerald-800">
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base flex items-center gap-2">
+          <DollarSign className="w-4 h-4 text-emerald-600" />
+          Virtual Card Revenue Tracker
+        </CardTitle>
+        <p className="text-xs text-muted-foreground mt-0.5">
+          Price: <strong>$30.00</strong> per card &nbsp;·&nbsp; Our cost: <strong>$22.80</strong> &nbsp;·&nbsp; Net profit: <strong className="text-emerald-600">${stats?.profitPerCard?.toFixed(2) ?? "7.20"}</strong> per card
+        </p>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {isLoading ? (
+          <div className="grid grid-cols-3 gap-3">
+            {[1,2,3].map(i => <Skeleton key={i} className="h-16 w-full" />)}
+          </div>
+        ) : (
+          <div className="grid grid-cols-3 gap-3">
+            {statItems.map(item => (
+              <div key={item.label} className={`rounded-lg p-3 ${item.bg}`}>
+                <div className="flex items-center gap-2 mb-1">
+                  <item.icon className={`w-3.5 h-3.5 ${item.color}`} />
+                  <span className="text-xs text-muted-foreground">{item.label}</span>
+                </div>
+                <p className={`text-2xl font-bold font-display ${item.color}`}>{item.value}</p>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Revenue summary */}
+        <div className="rounded-lg border border-border/50 p-3 grid grid-cols-3 gap-3 text-center">
+          <div>
+            <p className="text-xs text-muted-foreground mb-0.5">Total Revenue</p>
+            <p className="text-base font-semibold">${isLoading ? "—" : (stats?.totalRevenue ?? 0).toFixed(2)}</p>
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground mb-0.5">Total Cost</p>
+            <p className="text-base font-semibold text-red-500">${isLoading ? "—" : ((stats?.totalIssued ?? 0) * 22.80).toFixed(2)}</p>
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground mb-0.5">Net Profit</p>
+            <p className="text-base font-bold text-emerald-600">${isLoading ? "—" : (stats?.totalProfit ?? 0).toFixed(2)}</p>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 function VirtualCardReadyTab() {
   const { data: users, isLoading } = useQuery<any[]>({ queryKey: ["/api/admin/virtual-card-ready"] });
   const { toast } = useToast();
@@ -2244,6 +2305,7 @@ function VirtualCardReadyTab() {
 
   return (
     <div className="space-y-4">
+      <CardProfitTracker />
       <PendingCardsSection />
       <Card>
         <CardHeader className="pb-3">
