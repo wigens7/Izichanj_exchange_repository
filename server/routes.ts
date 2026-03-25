@@ -3572,11 +3572,22 @@ export async function registerRoutes(
       });
 
       const data = await response.json();
-      if (!response.ok || data.status === "error" || data.status === false) {
+      console.log("[CARD TX] Strowallet response keys:", Object.keys(data || {}));
+      if (!response.ok || data.success === false || data.status === "error" || data.status === false) {
+        console.log("[CARD TX] Error response:", JSON.stringify(data));
         return res.json([]);
       }
 
-      res.json(data.response || data.data || []);
+      // Strowallet may return transactions nested in various ways
+      const txList =
+        Array.isArray(data.response) ? data.response :
+        Array.isArray(data.response?.transactions) ? data.response.transactions :
+        Array.isArray(data.response?.data) ? data.response.data :
+        Array.isArray(data.data) ? data.data :
+        Array.isArray(data.transactions) ? data.transactions :
+        [];
+
+      res.json(txList);
     } catch (e: any) {
       console.error("Card transactions error:", e);
       res.status(500).json({ message: e.message || "Internal Error" });

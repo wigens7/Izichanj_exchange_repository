@@ -11,6 +11,8 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Separator } from "@/components/ui/separator";
 import {
   CreditCard,
   Plus,
@@ -31,6 +33,11 @@ import {
   RefreshCw,
   XCircle,
   RotateCcw,
+  History,
+  Store,
+  CheckCircle2,
+  XOctagon,
+  AlertTriangle,
 } from "lucide-react";
 import { format } from "date-fns";
 import type { VirtualCard } from "@shared/schema";
@@ -326,7 +333,6 @@ function CardItem({ card }: { card: VirtualCard }) {
   const [showDetails, setShowDetails] = useState(false);
   const [showFund, setShowFund] = useState(false);
   const [fundAmount, setFundAmount] = useState("");
-  const [showTransactions, setShowTransactions] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
   const [confirmCancel, setConfirmCancel] = useState(false);
 
@@ -344,6 +350,8 @@ function CardItem({ card }: { card: VirtualCard }) {
     enabled: showDetails,
   });
 
+  const [showTxModal, setShowTxModal] = useState(false);
+
   const transactionsQuery = useQuery<any[]>({
     queryKey: ["/api/cards", card.id, "transactions"],
     queryFn: async () => {
@@ -351,7 +359,7 @@ function CardItem({ card }: { card: VirtualCard }) {
       if (!res.ok) throw new Error("Failed to fetch transactions");
       return res.json();
     },
-    enabled: showTransactions,
+    enabled: showTxModal,
   });
 
   const fundMutation = useMutation({
@@ -581,44 +589,93 @@ function CardItem({ card }: { card: VirtualCard }) {
             </div>
           )}
 
-          {showTransactions && (
-            <div className="bg-muted/30 rounded-md p-3 space-y-2">
-              <p className="text-sm font-medium mb-2">{vc.transactions}</p>
-              {transactionsQuery.isLoading ? (
-                <div className="flex justify-center py-4">
-                  <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
-                </div>
-              ) : transactionsQuery.data && transactionsQuery.data.length > 0 ? (
-                <div className="space-y-1.5 max-h-60 overflow-y-auto">
-                  {transactionsQuery.data.map((tx: any, idx: number) => (
-                    <div key={idx} className="flex items-center justify-between text-sm py-1.5 border-b last:border-0">
-                      <div className="flex items-center gap-2">
-                        {tx.type === "credit" ? (
-                          <ArrowDownLeft className="w-3.5 h-3.5 text-emerald-500" />
-                        ) : (
-                          <ArrowUpRight className="w-3.5 h-3.5 text-red-500" />
-                        )}
-                        <span className="truncate max-w-[150px]">{tx.description || tx.merchant || tx.type}</span>
+          {/* Transaction History Modal */}
+          <Dialog open={showTxModal} onOpenChange={setShowTxModal}>
+            <DialogContent className="max-w-lg w-full max-h-[85vh] flex flex-col">
+              <DialogHeader className="pb-2">
+                <DialogTitle className="flex items-center gap-2">
+                  <History className="w-5 h-5 text-primary" />
+                  Transaction History
+                  <span className="text-sm font-normal text-muted-foreground ml-1">— {card.nameOnCard}</span>
+                </DialogTitle>
+              </DialogHeader>
+              <Separator />
+
+              <div className="flex-1 overflow-y-auto mt-2 space-y-1 pr-1">
+                {transactionsQuery.isLoading ? (
+                  <div className="flex flex-col items-center justify-center py-10 gap-3">
+                    <Loader2 className="w-7 h-7 animate-spin text-primary" />
+                    <p className="text-sm text-muted-foreground">Loading transactions…</p>
+                  </div>
+                ) : transactionsQuery.isError ? (
+                  <div className="flex flex-col items-center justify-center py-10 gap-3 text-center">
+                    <AlertTriangle className="w-8 h-8 text-amber-500" />
+                    <p className="text-sm font-medium">Could not load transactions</p>
+                    <p className="text-xs text-muted-foreground">Please try again later.</p>
+                  </div>
+                ) : transactionsQuery.data && transactionsQuery.data.length > 0 ? (
+                  transactionsQuery.data.map((tx: any, idx: number) => {
+                    const merchant = tx.merchant_name || tx.merchant || tx.narration || tx.description || tx.reference || "Unknown Merchant";
+                    const amount = Number(tx.amount || tx.transaction_amount || 0);
+                    const currency = (tx.currency || tx.transaction_currency || "USD").toUpperCase();
+                    const rawStatus = (tx.status || tx.transaction_status || "").toLowerCase();
+                    const isCredit = (tx.type || tx.transaction_type || "").toLowerCase() === "credit" || rawStatus === "reversal";
+                    const statusOk = rawStatus === "success" || rawStatus === "successful" || rawStatus === "completed" || rawStatus === "approved";
+                    const statusFail = rawStatus === "failed" || rawStatus === "declined" || rawStatus === "rejected" || rawStatus === "error";
+                    const rawDate = tx.created_at || tx.date || tx.transaction_date || tx.createdAt || null;
+                    const txDate = rawDate ? (() => { try { return format(new Date(rawDate), "MMM d, yyyy · h:mm a"); } catch { return rawDate; } })() : null;
+
+                    return (
+                      <div key={idx} className="flex items-start gap-3 p-3 rounded-lg hover:bg-muted/40 transition-colors border border-transparent hover:border-border/50">
+                        {/* Icon */}
+                        <div className={`mt-0.5 flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center ${isCredit ? "bg-emerald-100 dark:bg-emerald-900/40" : "bg-slate-100 dark:bg-slate-800"}`}>
+                          {isCredit
+                            ? <ArrowDownLeft className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                            : <Store className="w-4 h-4 text-slate-500 dark:text-slate-400" />}
+                        </div>
+
+                        {/* Details */}
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium truncate">{merchant}</p>
+                          <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                            {statusOk ? (
+                              <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 border-emerald-300 text-emerald-600 dark:text-emerald-400 dark:border-emerald-700 gap-0.5">
+                                <CheckCircle2 className="w-2.5 h-2.5" /> Success
+                              </Badge>
+                            ) : statusFail ? (
+                              <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 border-red-300 text-red-600 dark:text-red-400 dark:border-red-700 gap-0.5">
+                                <XOctagon className="w-2.5 h-2.5" /> Failed
+                              </Badge>
+                            ) : rawStatus ? (
+                              <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 capitalize">{rawStatus}</Badge>
+                            ) : null}
+                            {txDate && (
+                              <span className="text-[11px] text-muted-foreground">{txDate}</span>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Amount */}
+                        <div className="text-right flex-shrink-0">
+                          <p className={`text-sm font-semibold ${isCredit ? "text-emerald-600 dark:text-emerald-400" : "text-foreground"}`}>
+                            {isCredit ? "+" : "-"}{currency} {amount.toFixed(2)}
+                          </p>
+                        </div>
                       </div>
-                      <div className="text-right flex items-center gap-2">
-                        <span className={`font-medium ${tx.type === "credit" ? "text-emerald-600" : ""}`}>
-                          {tx.type === "credit" ? "+" : "-"}${Number(tx.amount).toFixed(2)}
-                        </span>
-                        {tx.date && (
-                          <span className="text-xs text-muted-foreground">
-                            <Clock className="w-3 h-3 inline mr-0.5" />
-                            {format(new Date(tx.date), "MM/dd")}
-                          </span>
-                        )}
-                      </div>
+                    );
+                  })
+                ) : (
+                  <div className="flex flex-col items-center justify-center py-12 gap-3 text-center">
+                    <div className="w-14 h-14 rounded-full bg-muted flex items-center justify-center">
+                      <History className="w-7 h-7 text-muted-foreground" />
                     </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-sm text-muted-foreground text-center py-3">{vc.noTransactions}</p>
-              )}
-            </div>
-          )}
+                    <p className="text-base font-medium">No transactions yet</p>
+                    <p className="text-sm text-muted-foreground max-w-[220px]">No transactions found for this card yet. Use your card to see activity here.</p>
+                  </div>
+                )}
+              </div>
+            </DialogContent>
+          </Dialog>
 
           {isPending ? (
             <div className="space-y-2">
@@ -709,7 +766,7 @@ function CardItem({ card }: { card: VirtualCard }) {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => { setShowDetails(!showDetails); if (showFund) setShowFund(false); if (showTransactions) setShowTransactions(false); }}
+              onClick={() => { setShowDetails(!showDetails); if (showFund) setShowFund(false); }}
               data-testid={`button-view-details-${card.id}`}
             >
               {showDetails ? <EyeOff className="w-3.5 h-3.5 mr-1.5" /> : <Eye className="w-3.5 h-3.5 mr-1.5" />}
@@ -720,7 +777,7 @@ function CardItem({ card }: { card: VirtualCard }) {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => { setShowFund(!showFund); if (showDetails) setShowDetails(false); if (showTransactions) setShowTransactions(false); }}
+                onClick={() => { setShowFund(!showFund); if (showDetails) setShowDetails(false); }}
                 data-testid={`button-toggle-fund-${card.id}`}
               >
                 <DollarSign className="w-3.5 h-3.5 mr-1.5" />
@@ -731,10 +788,10 @@ function CardItem({ card }: { card: VirtualCard }) {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => { setShowTransactions(!showTransactions); if (showDetails) setShowDetails(false); if (showFund) setShowFund(false); }}
+              onClick={() => setShowTxModal(true)}
               data-testid={`button-transactions-${card.id}`}
             >
-              <Clock className="w-3.5 h-3.5 mr-1.5" />
+              <History className="w-3.5 h-3.5 mr-1.5" />
               {vc.transactions}
             </Button>
 
