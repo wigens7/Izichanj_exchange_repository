@@ -3532,12 +3532,14 @@ export async function registerRoutes(
       });
 
       const data = await response.json();
-      if (!response.ok || data.status === "error" || data.status === false) {
+      if (!response.ok || data.success === false || data.status === "error" || data.status === false) {
+        console.log("[CARD DETAIL] Strowallet error response:", JSON.stringify(data));
         return res.json({ card, remoteDetail: null });
       }
 
-      const detail = data.response || data.data || data;
-      console.log("[CARD DETAIL] Strowallet raw response keys:", Object.keys(data), "| detail keys:", Object.keys(detail || {}));
+      // Strowallet wraps card details one level deeper: data.response.card_detail
+      const detail = data.response?.card_detail || data.response || data.data || data;
+      console.log("[CARD DETAIL] Strowallet detail keys:", Object.keys(detail || {}));
       if (detail.balance !== undefined) {
         await storage.updateVirtualCard(card.id, {
           balance: String(detail.balance),
