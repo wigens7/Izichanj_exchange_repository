@@ -1525,7 +1525,7 @@ export async function registerRoutes(
         console.log("[STROWALLET][AUTO-KYC] Response:", JSON.stringify(stroData));
         // Must check success===false explicitly — Strowallet uses {success:false} not {status:"error"}
         if (stroRes.ok && stroData.success !== false && stroData.status !== "error" && stroData.status !== false) {
-          const customerId = stroData.response?.customer_id || stroData.customer_id || stroData.data?.customer_id;
+          const customerId = stroData.response?.customerId || stroData.response?.customer_id || stroData.customer_id || stroData.customerId || stroData.data?.customer_id;
           if (!customerId) {
             console.error("[STROWALLET][AUTO-KYC] Registration appeared to succeed but no customer_id in response:", JSON.stringify(stroData));
             throw new Error("Strowallet registration returned no customer_id");
@@ -1653,7 +1653,7 @@ export async function registerRoutes(
         return res.status(400).json({ message: errMsg });
       }
 
-      const customerId = data.response?.customer_id || data.customer_id || data.data?.customer_id;
+      const customerId = data.response?.customerId || data.response?.customer_id || data.customer_id || data.customerId || data.data?.customer_id;
       if (!customerId) {
         return res.status(500).json({ message: "Strowallet registration returned no customer_id. Raw: " + JSON.stringify(data) });
       }
@@ -1802,7 +1802,7 @@ export async function registerRoutes(
           const errMsg = typeof regData.message === "object" ? JSON.stringify(regData.message) : (regData.message || regData.error || "Strowallet cardholder registration failed");
           return res.status(400).json({ message: `Auto-register failed: ${errMsg}` });
         }
-        const customerId = regData.response?.customer_id || regData.customer_id || regData.data?.customer_id;
+        const customerId = regData.response?.customerId || regData.response?.customer_id || regData.customer_id || regData.customerId || regData.data?.customer_id;
         if (!customerId) {
           return res.status(500).json({ message: "Auto-register returned no customer_id. Raw: " + JSON.stringify(regData) });
         }
@@ -2992,7 +2992,7 @@ export async function registerRoutes(
         return res.status(400).json({ message: errMsg });
       }
 
-      const customerId = data.response?.customer_id || data.customer_id || data.data?.customer_id;
+      const customerId = data.response?.customerId || data.response?.customer_id || data.customer_id || data.customerId || data.data?.customer_id;
       if (!customerId) {
         return res.status(500).json({ message: "Strowallet returned no customer_id. Raw: " + JSON.stringify(data) });
       }
