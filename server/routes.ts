@@ -1482,23 +1482,25 @@ export async function registerRoutes(
 
         const firstName = kycProfile.firstName || kycProfile.fullName.split(" ")[0] || "";
         const lastName = kycProfile.lastName || kycProfile.fullName.split(" ").slice(1).join(" ") || firstName;
+        // Strowallet expects camelCase field names (confirmed from API error response)
         const payload = {
           public_key: _stroKey,
-          first_name: firstName,
-          last_name: lastName,
-          customer_email: kycProfile.email,
-          phone_number: kycProfile.phone || "",
-          date_of_birth: kycProfile.dateOfBirth || "",
+          firstName,
+          lastName,
+          customerEmail: kycProfile.email,
+          phoneNumber: kycProfile.phone || "",
+          dateOfBirth: kycProfile.dateOfBirth || "",
           // Hardcoded US billing address — required by Strowallet for card issuance
           country: "US",
-          address_line_1: "3401 N Miami Ave Ste 230",
+          line1: "3401 N Miami Ave Ste 230",
+          houseNumber: "3401",
           city: "Miami",
           state: "FL",
-          zip_code: "33127",
-          id_type: kyc?.idType || "national_id",
-          id_number: kyc?.idNumber || kycProfile.email,
-          user_photo: autoCompressedSelfie,
-          id_image: autoCompressedId,
+          zipCode: "33127",
+          idType: kyc?.idType || "national_id",
+          idNumber: kyc?.idNumber || kycProfile.email,
+          userPhoto: autoCompressedSelfie,
+          idImage: autoCompressedId,
         };
         console.log("[STROWALLET][AUTO-KYC] Registering cardholder for profile:", profileId);
         const proxyUrl = process.env.PROXY_URL;
@@ -1521,8 +1523,13 @@ export async function registerRoutes(
         }
         const stroData = await stroRes.json() as any;
         console.log("[STROWALLET][AUTO-KYC] Response:", JSON.stringify(stroData));
-        if (stroRes.ok && stroData.status !== "error" && stroData.status !== false) {
-          const customerId = stroData.response?.customer_id || stroData.customer_id || stroData.data?.customer_id || String(profileId);
+        // Must check success===false explicitly — Strowallet uses {success:false} not {status:"error"}
+        if (stroRes.ok && stroData.success !== false && stroData.status !== "error" && stroData.status !== false) {
+          const customerId = stroData.response?.customer_id || stroData.customer_id || stroData.data?.customer_id;
+          if (!customerId) {
+            console.error("[STROWALLET][AUTO-KYC] Registration appeared to succeed but no customer_id in response:", JSON.stringify(stroData));
+            throw new Error("Strowallet registration returned no customer_id");
+          }
           await storage.updateProfile(profileId, { strowalletCustomerId: customerId });
           console.log("[STROWALLET][AUTO-KYC] Registered customer:", customerId);
           // Telegram — user is now ready for virtual card
@@ -1608,26 +1615,28 @@ export async function registerRoutes(
 
       const firstName = profile.firstName || profile.fullName.split(" ")[0] || "";
       const lastName = profile.lastName || profile.fullName.split(" ").slice(1).join(" ") || firstName;
+      // Strowallet expects camelCase field names (confirmed from API error response)
       const payload = {
         public_key: _stroKey,
-        first_name: firstName,
-        last_name: lastName,
-        customer_email: profile.email,
-        phone_number: profile.phone || "",
-        date_of_birth: profile.dateOfBirth || "",
+        firstName,
+        lastName,
+        customerEmail: profile.email,
+        phoneNumber: profile.phone || "",
+        dateOfBirth: profile.dateOfBirth || "",
         // Hardcoded US billing address — required by Strowallet for card issuance
         country: "US",
-        address_line_1: "3401 N Miami Ave Ste 230",
+        line1: "3401 N Miami Ave Ste 230",
+        houseNumber: "3401",
         city: "Miami",
         state: "FL",
-        zip_code: "33127",
-        id_type: kyc?.idType || "",
-        id_number: kyc?.idNumber || "",
-        user_photo: compressedSelfie,
-        id_image: compressedIdImage,
+        zipCode: "33127",
+        idType: kyc?.idType || "",
+        idNumber: kyc?.idNumber || "",
+        userPhoto: compressedSelfie,
+        idImage: compressedIdImage,
       };
 
-      console.log(`[STROWALLET][ADMIN-RETRY] Image sizes — id: ${compressedIdImage}, selfie: ${compressedSelfie}`);
+      console.log(`[STROWALLET][ADMIN-RETRY] Payload keys: ${Object.keys(payload).join(", ")}`);
 
       const stroRes = await strowalletFetch(`${STROWALLET_BASE}/create-user/`, {
         method: "POST",
@@ -1638,11 +1647,16 @@ export async function registerRoutes(
       const data = await stroRes.json() as any;
       console.log("[STROWALLET][ADMIN-RETRY] Response:", JSON.stringify(data));
 
-      if (!stroRes.ok || data.status === "error" || data.status === false) {
-        return res.status(400).json({ message: data.message || data.error || "Strowallet registration failed" });
+      // Check both status and success fields — Strowallet uses {success:false} not always {status:"error"}
+      if (!stroRes.ok || data.success === false || data.status === "error" || data.status === false) {
+        const errMsg = typeof data.message === "object" ? JSON.stringify(data.message) : (data.message || data.error || "Strowallet registration failed");
+        return res.status(400).json({ message: errMsg });
       }
 
-      const customerId = data.response?.customer_id || data.customer_id || data.data?.customer_id || String(profileId);
+      const customerId = data.response?.customer_id || data.customer_id || data.data?.customer_id;
+      if (!customerId) {
+        return res.status(500).json({ message: "Strowallet registration returned no customer_id. Raw: " + JSON.stringify(data) });
+      }
       await storage.updateProfile(profileId, { strowalletCustomerId: customerId });
 
       // Telegram — user is now ready for virtual card
@@ -2897,23 +2911,25 @@ export async function registerRoutes(
         ensureKycImageSize(kycDoc?.selfieUrl || ""),
       ]);
 
+      // Strowallet expects camelCase field names (confirmed from API error response)
       const payload = {
         public_key: strowalletPublicKey,
-        first_name: firstName,
-        last_name: lastName,
-        customer_email: profile.email,
-        phone_number: phone,
-        date_of_birth: dob,
+        firstName,
+        lastName,
+        customerEmail: profile.email,
+        phoneNumber: phone,
+        dateOfBirth: dob,
         // Hardcoded US billing address — required by Strowallet for card issuance
         country: "US",
-        address_line_1: "3401 N Miami Ave Ste 230",
+        line1: "3401 N Miami Ave Ste 230",
+        houseNumber: "3401",
         city: "Miami",
         state: "FL",
-        zip_code: "33127",
-        id_type: idType,
-        id_number: idNumber,
-        user_photo: compressedSelfie,
-        id_image: compressedIdImage,
+        zipCode: "33127",
+        idType,
+        idNumber,
+        userPhoto: compressedSelfie,
+        idImage: compressedIdImage,
       };
 
       console.log("[STROWALLET][CARDHOLDER] Registering:", { email: profile.email, idType });
@@ -2927,11 +2943,16 @@ export async function registerRoutes(
       const data = await response.json() as any;
       console.log("[STROWALLET][CARDHOLDER] Response:", JSON.stringify(data));
 
-      if (!response.ok || data.status === "error" || data.status === false) {
-        return res.status(400).json({ message: data.message || data.error || "Strowallet KYC registration failed" });
+      // Check both status and success fields — Strowallet uses {success:false} not always {status:"error"}
+      if (!response.ok || data.success === false || data.status === "error" || data.status === false) {
+        const errMsg = typeof data.message === "object" ? JSON.stringify(data.message) : (data.message || data.error || "Strowallet KYC registration failed");
+        return res.status(400).json({ message: errMsg });
       }
 
-      const customerId = data.response?.customer_id || data.customer_id || data.data?.customer_id || String(profile.id);
+      const customerId = data.response?.customer_id || data.customer_id || data.data?.customer_id;
+      if (!customerId) {
+        return res.status(500).json({ message: "Strowallet returned no customer_id. Raw: " + JSON.stringify(data) });
+      }
       await storage.updateProfile(profile.id, { strowalletCustomerId: customerId });
 
       // Telegram — user is now ready for virtual card

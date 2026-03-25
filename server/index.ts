@@ -70,6 +70,22 @@ app.use((req, res, next) => {
     console.warn("[startup migration] card_status enum update skipped:", (e as Error).message);
   }
 
+  // Fix: clear fake Strowallet customer IDs that are just our internal profile IDs (e.g. "38", "39")
+  // Real Strowallet IDs are UUIDs or alphanumeric — never plain small integers
+  try {
+    const cleared = await db.execute(sql`
+      UPDATE profiles
+      SET strowallet_customer_id = NULL
+      WHERE strowallet_customer_id ~ '^[0-9]+$'
+        AND strowallet_customer_id::integer = id
+    `);
+    if ((cleared.rowCount ?? 0) > 0) {
+      console.log(`[startup migration] Cleared ${cleared.rowCount} fake Strowallet customer ID(s) (were just profile IDs)`);
+    }
+  } catch (e) {
+    console.warn("[startup migration] fake strowallet ID cleanup skipped:", (e as Error).message);
+  }
+
   // Fix: reset any card marked "active" that still has a pending_ card_id (never really issued)
   try {
     const fixed = await db.execute(sql`
