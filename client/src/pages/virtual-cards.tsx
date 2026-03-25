@@ -34,7 +34,7 @@ import {
 } from "lucide-react";
 import { format } from "date-fns";
 import type { VirtualCard } from "@shared/schema";
-import cardTemplateBg from "@assets/file_000000002a1871f587aff1c533656f7f_1774458686435.png";
+import cardTemplateBg from "@assets/IMG_20260325_122830_199_1774459787355.jpg";
 
 export default function VirtualCardsPage() {
   const { t } = useLanguage();
