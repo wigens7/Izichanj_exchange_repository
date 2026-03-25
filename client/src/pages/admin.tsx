@@ -2000,9 +2000,11 @@ function PendingCardsSection() {
   const qc = useQueryClient();
   const { data: pendingCards, isLoading } = useQuery<any[]>({ queryKey: ["/api/admin/pending-cards"] });
   const [retryLoadingId, setRetryLoadingId] = useState<number | null>(null);
-  const [retryResults, setRetryResults] = useState<Record<number, { success: boolean; message: string }>>({});
+  const [retryResults, setRetryResults] = useState<Record<number, { success: boolean; message: string; alreadyRegistered?: boolean }>>({});
   const [cancelLoadingId, setCancelLoadingId] = useState<number | null>(null);
   const [confirmCancelId, setConfirmCancelId] = useState<number | null>(null);
+  const [manualIds, setManualIds] = useState<Record<number, string>>({});
+  const [manualIdLoadingId, setManualIdLoadingId] = useState<number | null>(null);
 
   const handleRetry = async (card: any) => {
     setRetryLoadingId(card.id);
@@ -2020,16 +2022,41 @@ function PendingCardsSection() {
     } catch (err: any) {
       // apiRequest throws "STATUS: {json}" for non-2xx — extract the json message
       let msg = "Network error — could not reach server";
+      let alreadyRegistered = false;
       try {
         const rawMsg = err?.message || "";
         const jsonPart = rawMsg.includes(": ") ? rawMsg.slice(rawMsg.indexOf(": ") + 2) : rawMsg;
         const parsed = JSON.parse(jsonPart);
         msg = parsed?.message || jsonPart;
+        alreadyRegistered = parsed?.alreadyRegistered === true;
       } catch { /* leave msg as-is */ }
-      setRetryResults(prev => ({ ...prev, [card.id]: { success: false, message: msg } }));
-      toast({ title: "Retry failed", description: msg, variant: "destructive" });
+      setRetryResults(prev => ({ ...prev, [card.id]: { success: false, message: msg, alreadyRegistered } }));
+      if (!alreadyRegistered) toast({ title: "Retry failed", description: msg, variant: "destructive" });
     } finally {
       setRetryLoadingId(null);
+    }
+  };
+
+  const handleSetManualId = async (card: any) => {
+    const customerId = (manualIds[card.id] || "").trim();
+    if (!customerId) return;
+    setManualIdLoadingId(card.id);
+    try {
+      const res = await apiRequest("PATCH", `/api/admin/profiles/${card.profileId}/strowallet-customer-id`, { customerId });
+      const data = await res.json();
+      if (!res.ok) {
+        toast({ title: "Failed to set ID", description: data.message, variant: "destructive" });
+      } else {
+        toast({ title: "Customer ID saved", description: "Now retrying card issuance…" });
+        setRetryResults(prev => ({ ...prev, [card.id]: { success: false, message: "", alreadyRegistered: false } }));
+        qc.invalidateQueries({ queryKey: ["/api/admin/pending-cards"] });
+        // Auto-retry card issuance now that the ID is saved
+        setTimeout(() => handleRetry({ ...card, strowalletCustomerId: customerId }), 500);
+      }
+    } catch {
+      toast({ title: "Network error", variant: "destructive" });
+    } finally {
+      setManualIdLoadingId(null);
     }
   };
 
@@ -2102,12 +2129,36 @@ function PendingCardsSection() {
                     {format(new Date(card.createdAt), "MMM d, h:mm a")}
                   </TableCell>
                   <TableCell>
-                    <div className="flex flex-col gap-1.5 min-w-[180px]">
-                      {retryResults[card.id] ? (
+                    <div className="flex flex-col gap-1.5 min-w-[220px]">
+                      {retryResults[card.id] && retryResults[card.id].message ? (
                         <div className={`text-xs font-medium px-2 py-1 rounded ${retryResults[card.id].success ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400" : "bg-red-50 text-red-700 dark:bg-red-950/40 dark:text-red-400"}`}>
                           {retryResults[card.id].message}
                         </div>
                       ) : null}
+
+                      {/* Manual customer ID input shown when Strowallet says email already taken */}
+                      {retryResults[card.id]?.alreadyRegistered && (
+                        <div className="flex gap-1 mt-0.5">
+                          <input
+                            type="text"
+                            placeholder="Strowallet customer ID…"
+                            value={manualIds[card.id] || ""}
+                            onChange={e => setManualIds(prev => ({ ...prev, [card.id]: e.target.value }))}
+                            className="flex-1 h-7 text-xs px-2 rounded border border-input bg-background font-mono"
+                            data-testid={`input-strowallet-id-${card.id}`}
+                          />
+                          <Button
+                            size="sm"
+                            className="h-7 text-xs px-2 bg-blue-600 hover:bg-blue-700 text-white"
+                            onClick={() => handleSetManualId(card)}
+                            disabled={manualIdLoadingId === card.id || !manualIds[card.id]?.trim()}
+                            data-testid={`button-set-strowallet-id-${card.id}`}
+                          >
+                            {manualIdLoadingId === card.id ? <Loader2 className="w-3 h-3 animate-spin" /> : "Save & Retry"}
+                          </Button>
+                        </div>
+                      )}
+
                       {(!retryResults[card.id] || !retryResults[card.id].success) && (
                         <Button
                           size="sm"

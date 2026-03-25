@@ -1676,6 +1676,24 @@ export async function registerRoutes(
     }
   });
 
+  // PATCH /api/admin/profiles/:id/strowallet-customer-id — manually set a user's Strowallet customer ID
+  app.patch("/api/admin/profiles/:id/strowallet-customer-id", isAuthenticated, isAdmin, async (req: any, res) => {
+    try {
+      const profileId = Number(req.params.id);
+      const { customerId } = req.body;
+      if (!customerId || typeof customerId !== "string" || customerId.trim().length < 5) {
+        return res.status(400).json({ message: "Invalid customer ID" });
+      }
+      const profile = await storage.getProfile(profileId);
+      if (!profile) return res.status(404).json({ message: "User not found" });
+      await storage.updateProfile(profileId, { strowalletCustomerId: customerId.trim() });
+      console.log(`[ADMIN] Manually set Strowallet customer ID for profile ${profileId}: ${customerId.trim()}`);
+      res.json({ success: true, customerId: customerId.trim() });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
   // GET /api/admin/virtual-card-ready — list users verified by Strowallet and ready to create a card
   app.get("/api/admin/virtual-card-ready", isAuthenticated, isAdmin, async (req: any, res) => {
     const allProfiles = await storage.getAllProfiles();
@@ -1799,8 +1817,17 @@ export async function registerRoutes(
         const regData = await regRes.json() as any;
         console.log("[ADMIN RETRY CARD] Auto-register response:", JSON.stringify(regData));
         if (!regRes.ok || regData.success === false || regData.status === "error" || regData.status === false) {
-          const errMsg = typeof regData.message === "object" ? JSON.stringify(regData.message) : (regData.message || regData.error || "Strowallet cardholder registration failed");
-          return res.status(400).json({ message: `Auto-register failed: ${errMsg}` });
+          // "Email already taken" means user was previously registered in Strowallet successfully —
+          // we just don't have their customer_id saved. Admin must set it manually.
+          const rawMsg = regData.message || regData.error || "";
+          const msgStr = typeof rawMsg === "object" ? JSON.stringify(rawMsg) : String(rawMsg);
+          if (msgStr.toLowerCase().includes("already been taken") || msgStr.toLowerCase().includes("already taken") || msgStr.toLowerCase().includes("already exists")) {
+            return res.status(409).json({
+              alreadyRegistered: true,
+              message: "This user is already registered in Strowallet but the customer ID is missing from our records. Use the 'Set Customer ID' field to enter their Strowallet customer ID manually, then retry.",
+            });
+          }
+          return res.status(400).json({ message: `Auto-register failed: ${msgStr}` });
         }
         const customerId = regData.response?.customerId || regData.response?.customer_id || regData.customer_id || regData.customerId || regData.data?.customer_id;
         if (!customerId) {

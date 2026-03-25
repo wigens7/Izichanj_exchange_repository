@@ -86,6 +86,21 @@ app.use((req, res, next) => {
     console.warn("[startup migration] fake strowallet ID cleanup skipped:", (e as Error).message);
   }
 
+  // Fix: restore Manoucheka's real Strowallet customer ID lost due to snake_case bug
+  try {
+    const result = await db.execute(sql`
+      UPDATE profiles
+      SET strowallet_customer_id = 'fd7b7b47-7873-4deb-b281-a8f188cf497f'
+      WHERE id = 38
+        AND (strowallet_customer_id IS NULL OR strowallet_customer_id = '')
+    `);
+    if ((result.rowCount ?? 0) > 0) {
+      console.log("[startup migration] Restored Manoucheka's real Strowallet customer ID");
+    }
+  } catch (e) {
+    console.warn("[startup migration] Manoucheka strowallet ID restore skipped:", (e as Error).message);
+  }
+
   // Fix: reset any card marked "active" that still has a pending_ card_id (never really issued)
   try {
     const fixed = await db.execute(sql`
