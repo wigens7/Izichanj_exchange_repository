@@ -1838,10 +1838,10 @@ export async function registerRoutes(
         console.log(`[ADMIN RETRY CARD] Cardholder registered — Strowallet ID: ${customerId}`);
       }
 
-      // IMPORTANT: The user's balance was already deducted when the pending card was created.
+      // IMPORTANT: The user's balance was already deducted ($26) when the pending card was created.
       // This retry only calls Strowallet's API — it does NOT touch the user's balance again.
-      // card.balance holds the original amount ($20) that Strowallet should load onto the card.
-      const fundAmount = parseFloat(card.balance || "20");
+      // Strowallet always receives $20 to load onto the card (regardless of what user paid).
+      const fundAmount = 20;
       const nameOnCard = card.nameOnCard || profile.fullName;
 
       const createCardPayload: Record<string, string> = {
@@ -3064,14 +3064,15 @@ export async function registerRoutes(
         return res.status(500).json({ message: "Card service not configured" });
       }
 
-      const CARD_COST_USD = 20;
+      const CARD_COST_USD = 26;        // Amount deducted from user's Izichanj balance
+      const STROWALLET_FUND_AMOUNT = 20; // Amount loaded onto the card via Strowallet (the rest is our fee)
 
       const balanceUsdt = parseFloat(profile.balance || "0");
       if (balanceUsdt < CARD_COST_USD) {
         return res.status(400).json({ message: `Insufficient balance. You need at least $${CARD_COST_USD} USDT to apply for a virtual card. Your current balance is $${balanceUsdt.toFixed(2)} USDT.` });
       }
 
-      const fundAmount = CARD_COST_USD;
+      const fundAmount = STROWALLET_FUND_AMOUNT; // What Strowallet loads onto the card
 
       const nameOnCard = `${profile.firstName || ""} ${profile.lastName || ""}`.trim() || profile.fullName;
 
@@ -3125,11 +3126,11 @@ export async function registerRoutes(
 
         // ── Strowallet master account has insufficient funds ──────────────────
         if (isProviderNoFunds) {
-          // Deduct the $20 from user's balance (funds are held)
-          const newBalance = balanceUsdt - fundAmount;
+          // Deduct the full $26 user charge from their balance (funds are held pending card issuance)
+          const newBalance = balanceUsdt - CARD_COST_USD;
           await storage.updateProfileBalance(profile.id, newBalance);
 
-          // Create a pending card record so the request is tracked
+          // Store CARD_COST_USD ($26) in balance so refund returns the full amount user paid
           const pendingCard = await storage.createVirtualCard({
             profileId: profile.id,
             cardId: `pending_${Date.now()}`,
@@ -3138,7 +3139,7 @@ export async function registerRoutes(
             last4: null,
             brand: "Visa",
             status: "pending",
-            balance: fundAmount.toString(),
+            balance: CARD_COST_USD.toString(),
             currency: "USD",
             cardDetail: { pendingReason: "provider_no_funds", requestedAt: new Date().toISOString() },
           });
@@ -3159,7 +3160,7 @@ export async function registerRoutes(
             `📧 <b>Email:</b> ${profile.email}\n` +
             `📞 <b>Phone:</b> ${profile.phone || "—"}\n` +
             `🪪 <b>Strowallet ID:</b> ${profile.strowalletCustomerId}\n` +
-            `💵 <b>Card cost deducted:</b> $${fundAmount} USDT\n` +
+            `💵 <b>User charged:</b> $${CARD_COST_USD} USDT (card loaded with $${fundAmount})\n` +
             `💰 <b>Remaining balance:</b> $${newBalance.toFixed(2)} USDT\n` +
             `🗂 <b>Pending card ID:</b> ${pendingCard.id}\n\n` +
             `👉 <b>Fund your Strowallet account, then issue the card manually or re-trigger card creation.</b>\n` +
@@ -3194,7 +3195,8 @@ export async function registerRoutes(
       const cardId = cardInfo.card_id || cardInfo.id || `stro_${Date.now()}`;
       const last4 = cardInfo.card_number ? cardInfo.card_number.slice(-4) : cardInfo.last4 || null;
 
-      const newBalance = balanceUsdt - fundAmount;
+      // Deduct the full $26 user charge (fundAmount $20 goes to card, $6 is Izichanj's fee)
+      const newBalance = balanceUsdt - CARD_COST_USD;
       await storage.updateProfileBalance(profile.id, newBalance);
 
       const card = await storage.createVirtualCard({
@@ -3205,7 +3207,7 @@ export async function registerRoutes(
         last4,
         brand: "Visa",
         status: "active",
-        balance: fundAmount.toString(),
+        balance: fundAmount.toString(), // $20 — the actual card loaded balance shown to user
         currency: "USD",
         cardDetail: cardInfo,
       });
@@ -3301,8 +3303,9 @@ export async function registerRoutes(
       const _stroBase = "https://strowallet.com/api/bitvcard";
       const _stroKey = process.env.STROWALLET_PUBLIC_KEY || "";
 
-      // NOTE: No balance deduction — the $20 was already held when the pending card was created.
-      const fundAmount = parseFloat(card.balance || "20");
+      // NOTE: No balance deduction — the $26 was already deducted when the pending card was created.
+      // Strowallet always receives $20 for card funding regardless of what user paid.
+      const fundAmount = 20;
 
       const payload: Record<string, string> = {
         name_on_card: card.nameOnCard || profile.fullName,
