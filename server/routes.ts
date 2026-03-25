@@ -3537,6 +3537,7 @@ export async function registerRoutes(
       }
 
       const detail = data.response || data.data || data;
+      console.log("[CARD DETAIL] Strowallet raw response keys:", Object.keys(data), "| detail keys:", Object.keys(detail || {}));
       if (detail.balance !== undefined) {
         await storage.updateVirtualCard(card.id, {
           balance: String(detail.balance),

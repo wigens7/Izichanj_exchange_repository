@@ -460,7 +460,16 @@ function CardItem({ card }: { card: VirtualCard }) {
     setTimeout(() => setCopied(null), 2000);
   };
 
-  const cardDetails = detailsQuery.data;
+  // Backend returns { card, remoteDetail } — extract the actual detail object
+  // Also normalize camelCase vs snake_case field names from Strowallet
+  const rawDetail = detailsQuery.data?.remoteDetail ?? detailsQuery.data;
+  const cardDetails = rawDetail ? {
+    card_number: rawDetail.card_number || rawDetail.cardNumber || rawDetail.card_pan || rawDetail.pan || null,
+    cvv:         rawDetail.cvv       || rawDetail.cvv2      || rawDetail.card_cvv  || null,
+    expiry_month: rawDetail.expiry_month || rawDetail.expiryMonth || rawDetail.expiry?.split("/")?.[0] || null,
+    expiry_year:  rawDetail.expiry_year  || rawDetail.expiryYear  || rawDetail.expiry?.split("/")?.[1] || null,
+    balance:      rawDetail.balance ?? null,
+  } : null;
 
   return (
     <Card data-testid={`card-virtual-${card.id}`}>
