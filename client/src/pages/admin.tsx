@@ -2017,8 +2017,17 @@ function PendingCardsSection() {
         toast({ title: "Card issued!", description: `${card.profileName}'s card was created successfully.` });
         qc.invalidateQueries({ queryKey: ["/api/admin/pending-cards"] });
       }
-    } catch {
-      setRetryResults(prev => ({ ...prev, [card.id]: { success: false, message: "Network error — could not reach server" } }));
+    } catch (err: any) {
+      // apiRequest throws "STATUS: {json}" for non-2xx — extract the json message
+      let msg = "Network error — could not reach server";
+      try {
+        const rawMsg = err?.message || "";
+        const jsonPart = rawMsg.includes(": ") ? rawMsg.slice(rawMsg.indexOf(": ") + 2) : rawMsg;
+        const parsed = JSON.parse(jsonPart);
+        msg = parsed?.message || jsonPart;
+      } catch { /* leave msg as-is */ }
+      setRetryResults(prev => ({ ...prev, [card.id]: { success: false, message: msg } }));
+      toast({ title: "Retry failed", description: msg, variant: "destructive" });
     } finally {
       setRetryLoadingId(null);
     }

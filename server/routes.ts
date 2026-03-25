@@ -1763,10 +1763,53 @@ export async function registerRoutes(
       if (!card) return res.status(404).json({ message: "Card not found" });
       if (card.status !== "pending") return res.status(400).json({ message: "Card is not in pending status" });
 
-      const profile = await storage.getProfile(card.profileId);
+      let profile = await storage.getProfile(card.profileId);
       if (!profile) return res.status(404).json({ message: "User not found" });
-      if (!profile.strowalletCustomerId) return res.status(400).json({ message: "User has no Strowallet customer ID — cannot issue card" });
       if (!strowalletPublicKey) return res.status(500).json({ message: "Card service not configured" });
+
+      // Auto-register the cardholder with Strowallet if they don't have a customer ID yet
+      if (!profile.strowalletCustomerId) {
+        if (profile.kycStatus !== "verified") {
+          return res.status(400).json({ message: "User KYC is not verified — cannot register cardholder" });
+        }
+        const kyc = await storage.getKyc(profile.id);
+        const [compressedIdImage, compressedSelfie] = await Promise.all([
+          ensureKycImageSize(kyc?.idDocumentUrl || ""),
+          ensureKycImageSize(kyc?.selfieUrl || ""),
+        ]);
+        const firstName = profile.firstName || profile.fullName.split(" ")[0] || "";
+        const lastName  = profile.lastName  || profile.fullName.split(" ").slice(1).join(" ") || firstName;
+        const regPayload = {
+          public_key: strowalletPublicKey,
+          firstName, lastName,
+          customerEmail: profile.email,
+          phoneNumber: profile.phone || "",
+          dateOfBirth: profile.dateOfBirth || "",
+          country: "US", line1: "3401 N Miami Ave Ste 230", houseNumber: "3401",
+          city: "Miami", state: "FL", zipCode: "33127",
+          idType: kyc?.idType || "", idNumber: kyc?.idNumber || "",
+          userPhoto: compressedSelfie, idImage: compressedIdImage,
+        };
+        console.log(`[ADMIN RETRY CARD] Auto-registering cardholder for user ${profile.id} (${profile.email})`);
+        const regRes = await strowalletFetch(`${STROWALLET_BASE}/create-user/`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Accept": "application/json" },
+          body: JSON.stringify(regPayload),
+        });
+        const regData = await regRes.json() as any;
+        console.log("[ADMIN RETRY CARD] Auto-register response:", JSON.stringify(regData));
+        if (!regRes.ok || regData.success === false || regData.status === "error" || regData.status === false) {
+          const errMsg = typeof regData.message === "object" ? JSON.stringify(regData.message) : (regData.message || regData.error || "Strowallet cardholder registration failed");
+          return res.status(400).json({ message: `Auto-register failed: ${errMsg}` });
+        }
+        const customerId = regData.response?.customer_id || regData.customer_id || regData.data?.customer_id;
+        if (!customerId) {
+          return res.status(500).json({ message: "Auto-register returned no customer_id. Raw: " + JSON.stringify(regData) });
+        }
+        await storage.updateProfile(profile.id, { strowalletCustomerId: customerId });
+        profile = (await storage.getProfile(profile.id))!;
+        console.log(`[ADMIN RETRY CARD] Cardholder registered — Strowallet ID: ${customerId}`);
+      }
 
       // IMPORTANT: The user's balance was already deducted when the pending card was created.
       // This retry only calls Strowallet's API — it does NOT touch the user's balance again.
