@@ -176,6 +176,29 @@ export function useAdminRejectDeposit() {
   });
 }
 
+export function useAdminRejectDepositWithReason() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  return useMutation({
+    mutationFn: async ({ id, reason }: { id: number; reason: string }) => {
+      const res = await apiRequest("PATCH", `/api/admin/deposits/${id}/reject-manual`, { reason });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.message || "Failed to reject deposit");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [api.admin.allDeposits.path] });
+      toast({ title: "Deposit Rejected", description: "User has been notified with the rejection reason." });
+    },
+    onError: (e: Error) => {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    },
+  });
+}
+
 export function useAdminApproveWithdrawal() {
   const queryClient = useQueryClient();
   const { toast } = useToast();

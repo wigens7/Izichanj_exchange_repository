@@ -9,7 +9,7 @@ import { setupAuth, isAuthenticated } from "./auth";
 import { registerObjectStorageRoutes } from "./replit_integrations/object_storage";
 import crypto from "crypto";
 import bcrypt from "bcryptjs";
-import { WITHDRAWAL_MIN_USDT, WITHDRAWAL_MAX_USDT, usdtToHtg, htgToUsdt, formatHtg, WITHDRAWAL_MIN_HTG, WITHDRAWAL_MAX_HTG, EXCHANGE_RATE_USDT_HTG, NETWORK_FEE_CONFIG } from "@shared/constants";
+import { WITHDRAWAL_MIN_USDT, WITHDRAWAL_MAX_USDT, usdtToHtg, htgToUsdt, formatHtg, WITHDRAWAL_MIN_HTG, WITHDRAWAL_MAX_HTG, EXCHANGE_RATE_USDT_HTG, NETWORK_FEE_CONFIG, MANUAL_DEPOSIT_MIN_HTG, MANUAL_DEPOSIT_MIN_USDT, MANUAL_DEPOSIT_EXCHANGE_RATE } from "@shared/constants";
 import { generateReceiptPDF, generateAdjustmentReceiptPDF } from "./receipt";
 import { ensureKycImageSize } from "./image-compress";
 import { deposits, profiles, virtualCards } from "@shared/schema";
@@ -1440,6 +1440,130 @@ export async function registerRoutes(
       status: "approved",
     };
   }
+
+  // ── Manual MonCash/NatCash Deposit ─────────────────────────────────────────
+
+  // GET company payment accounts for manual deposit
+  app.get("/api/deposits/manual/payment-info", isAuthenticated, async (_req, res) => {
+    res.json({
+      moncash: process.env.COMPANY_MONCASH_PHONE || "509-XXXX-XXXX",
+      natcash: process.env.COMPANY_NATCASH_PHONE || "509-XXXX-XXXX",
+      exchangeRate: MANUAL_DEPOSIT_EXCHANGE_RATE,
+      minHtg: MANUAL_DEPOSIT_MIN_HTG,
+      minUsdt: MANUAL_DEPOSIT_MIN_USDT,
+    });
+  });
+
+  // GET upload URL for proof screenshot
+  app.post("/api/deposits/manual/upload-url", isAuthenticated, async (req: any, res) => {
+    try {
+      const { ObjectStorageService } = await import("./replit_integrations/object_storage");
+      const objectStorage = new ObjectStorageService();
+      const uploadURL = await objectStorage.getObjectEntityUploadURL();
+      const objectPath = objectStorage.normalizeObjectEntityPath(uploadURL);
+      res.json({ uploadURL, objectPath });
+    } catch (e: any) {
+      res.status(500).json({ message: "Failed to generate upload URL" });
+    }
+  });
+
+  // POST submit manual deposit (MonCash or NatCash)
+  app.post("/api/deposits/manual", isAuthenticated, async (req: any, res) => {
+    try {
+      const profileId = req.session.profileId;
+      const profile = await storage.getProfile(profileId);
+      if (!profile) return res.status(401).json({ message: "Unauthorized" });
+      if (profile.kycStatus !== "verified") return res.status(403).json({ message: "KYC verification required to make deposits" });
+      if (profile.isBanned) return res.status(403).json({ message: "Account suspended" });
+
+      const { amountHtg, mobileWallet, transactionId, proofImageUrl } = req.body;
+
+      if (!amountHtg || !mobileWallet || !transactionId || !proofImageUrl) {
+        return res.status(400).json({ message: "All fields are required: amount, wallet type, transaction ID, and proof screenshot" });
+      }
+
+      if (!["moncash", "natcash"].includes(mobileWallet)) {
+        return res.status(400).json({ message: "Invalid mobile wallet. Use 'moncash' or 'natcash'" });
+      }
+
+      const htgAmount = parseFloat(amountHtg);
+      if (isNaN(htgAmount) || htgAmount < MANUAL_DEPOSIT_MIN_HTG) {
+        return res.status(400).json({ message: `Minimum deposit is ${MANUAL_DEPOSIT_MIN_HTG} HTG (${MANUAL_DEPOSIT_MIN_USDT} USDT)` });
+      }
+
+      // Anti-fraud: deduplicate transaction ID — check if already used
+      const existingByTxId = await storage.getDepositByMoncashTransactionId(transactionId.trim());
+      if (existingByTxId) {
+        return res.status(409).json({ message: "This transaction ID has already been submitted. If this is an error, please contact support." });
+      }
+
+      const amountUsdt = (htgAmount / MANUAL_DEPOSIT_EXCHANGE_RATE).toFixed(2);
+
+      const deposit = await storage.createDeposit({
+        profileId,
+        amountUsdt,
+        amountHtg: htgAmount.toFixed(2),
+        depositMethod: "moncash",
+        moncashTransactionId: transactionId.trim(),
+        proofImageUrl,
+        txHash: null,
+      });
+
+      // Notify admins
+      const allProfiles = await storage.getAllProfiles();
+      const admins = allProfiles.filter(a => a.role === "admin");
+      const walletLabel = mobileWallet === "moncash" ? "MonCash" : "NatCash";
+      for (const admin of admins) {
+        await storage.createNotification({
+          profileId: admin.id,
+          type: "custom_message",
+          title: `New ${walletLabel} Deposit Pending`,
+          message: `User ${profile.fullName} (ID: ${profileId}) submitted a ${walletLabel} deposit of ${htgAmount.toFixed(0)} HTG (${amountUsdt} USDT). Transaction ID: ${transactionId}. Please review in the Admin panel.`,
+        });
+      }
+
+      await sendTelegramMessage(`🏦 *New ${walletLabel} Manual Deposit*\n\nUser: ${profile.fullName} (ID: ${profileId})\nAmount: ${htgAmount.toFixed(0)} HTG = ${amountUsdt} USDT\nTx ID: \`${transactionId}\`\nStatus: ⏳ Pending Review`);
+
+      res.json({ message: "Deposit submitted successfully. It will be reviewed within 24 hours.", depositId: deposit.id });
+    } catch (e: any) {
+      console.error("[manual deposit]", e);
+      res.status(500).json({ message: e.message || "Failed to submit deposit" });
+    }
+  });
+
+  // PATCH reject a manual deposit with reason
+  app.patch("/api/admin/deposits/:id/reject-manual", isAuthenticated, isAdmin, async (req: any, res) => {
+    try {
+      const id = Number(req.params.id);
+      const { reason } = req.body;
+      if (!reason?.trim()) return res.status(400).json({ message: "Rejection reason is required" });
+
+      const deposit = await storage.getDepositById(id);
+      if (!deposit) return res.status(404).json({ message: "Deposit not found" });
+      if (deposit.status === "approved") return res.status(400).json({ message: "Cannot reject an already approved deposit" });
+
+      await storage.rejectDepositWithReason(id, reason.trim());
+      const profile = await storage.getProfile(deposit.profileId);
+
+      const htgEquiv = formatHtg(usdtToHtg(Number(deposit.amountUsdt)));
+      const rejectMsg = `Your deposit of ${Number(deposit.amountUsdt).toFixed(2)} USDT (${htgEquiv} HTG) was rejected. Reason: ${reason.trim()}. Please contact support if you believe this is an error.`;
+      await storage.createNotification({
+        profileId: deposit.profileId,
+        type: "deposit_rejected",
+        title: "Deposit Rejected",
+        message: rejectMsg,
+      });
+
+      if (profile?.phone) {
+        sendWhatsAppNotification(profile.phone, `*Izichanj*\n\n❌ Deposit Rejected\n\n${rejectMsg}`, profile.fullName);
+      }
+
+      res.json({ message: "Deposit rejected and user notified" });
+    } catch (e: any) {
+      console.error("[reject manual deposit]", e);
+      res.status(500).json({ message: e.message });
+    }
+  });
 
   app.patch("/api/admin/deposits/:id/approve-release", isAuthenticated, isAdmin, async (req: any, res) => {
     try {

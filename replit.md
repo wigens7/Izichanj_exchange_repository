@@ -20,7 +20,7 @@ The application features a modern, secure architecture. The UI/UX is built with 
 - **Deposits**:
     - Automated crypto deposits via NOWPayments API for USDT (TRC20/BEP20), with IPN callback for auto-approval.
     - Manual USDT deposit option requiring transaction hash submission.
-    - MonCash payment gateway integration (currently disabled).
+    - Manual MonCash/NatCash deposit system: User selects wallet, uploads payment screenshot + transaction ID. Reviewed by admin. Duplicate TX ID detection (anti-fraud). Admin sees proof screenshot, rejects with reason (user notified via WhatsApp + in-app). Company phone numbers via `COMPANY_MONCASH_PHONE` and `COMPANY_NATCASH_PHONE` env vars. DB: `proof_image_url` + `rejection_reason` columns on deposits (startup migration).
 - **Withdrawals**: Users can withdraw to local mobile money accounts, with options for phone number or QR code.
 - **KYC Verification**: Mandatory KYC process involving ID document uploads, selfie, and personal information collection, integrated with Strowallet API. KYC status is managed with admin approval/rejection flows and options for re-submission requests.
 - **P2P Transfers**: Allows users to send USDT to other users via reference ID, email, or phone.

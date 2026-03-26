@@ -4,6 +4,7 @@ import {
   useAdminWithdrawals,
   useAdminApproveDeposit,
   useAdminRejectDeposit,
+  useAdminRejectDepositWithReason,
   useAdminApproveWithdrawal,
   useAdminRejectWithdrawal,
   useAdminVerifyKyc,
@@ -64,6 +65,8 @@ import {
   CreditCard,
   TrendingUp,
   DollarSign,
+  AlertTriangle,
+  ExternalLink,
 } from "lucide-react";
 import { format } from "date-fns";
 import { usdtToHtg, formatHtg, formatUsdt } from "@shared/constants";
@@ -760,7 +763,13 @@ function DepositsTab() {
   const { data: deposits, isLoading } = useAdminDeposits();
   const { mutate: approve, isPending: isApproving } = useAdminApproveDeposit();
   const { mutate: reject, isPending: isRejecting } = useAdminRejectDeposit();
+  const { mutate: rejectWithReason, isPending: isRejectingWithReason } = useAdminRejectDepositWithReason();
   const [releaseLoadingId, setReleaseLoadingId] = useState<number | null>(null);
+  const [rejectModalDepositId, setRejectModalDepositId] = useState<number | null>(null);
+  const [rejectReason, setRejectReason] = useState("");
+  const [proofViewUrl, setProofViewUrl] = useState<string | null>(null);
+
+  const isManualDeposit = (deposit: any) => deposit.depositMethod === "moncash" && deposit.moncashTransactionId;
 
   if (isLoading) {
     return (
@@ -775,147 +784,297 @@ function DepositsTab() {
   }
 
   const pendingCount = deposits?.filter((d: any) => d.status === "pending").length || 0;
+  const pendingManualCount = deposits?.filter((d: any) => d.status === "pending" && isManualDeposit(d)).length || 0;
 
   return (
-    <Card>
-      <CardHeader className="flex flex-row items-center justify-between gap-2">
-        <CardTitle className="flex items-center gap-2">
-          <ArrowDownCircle className="w-5 h-5 text-emerald-600" />
-          Deposit Management
-        </CardTitle>
-        {pendingCount > 0 && (
-          <Badge variant="destructive" data-testid="badge-pending-deposits">
-            {pendingCount} pending
-          </Badge>
-        )}
-      </CardHeader>
-      <CardContent>
-        <div className="overflow-x-auto">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>ID</TableHead>
-                <TableHead>User ID</TableHead>
-                <TableHead>Method</TableHead>
-                <TableHead>Amount (USDT)</TableHead>
-                <TableHead>HTG Value</TableHead>
-                <TableHead>Tx Hash</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Date</TableHead>
-                <TableHead>Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {deposits?.map((deposit: any) => (
-                <TableRow key={deposit.id} data-testid={`row-deposit-${deposit.id}`}>
-                  <TableCell className="font-mono text-xs">{deposit.id}</TableCell>
-                  <TableCell>{deposit.profileId}</TableCell>
-                  <TableCell>
-                    <Badge variant={deposit.depositMethod === "moncash" ? "secondary" : deposit.depositMethod === "nowpayments" ? "default" : "outline"} className="text-xs">
-                      {deposit.depositMethod === "moncash" ? "MonCash" : deposit.depositMethod === "nowpayments" ? "Crypto (Auto)" : "USDT"}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="font-medium">${Number(deposit.amountUsdt).toFixed(2)}</TableCell>
-                  <TableCell className="text-muted-foreground">{formatHtg(usdtToHtg(Number(deposit.amountUsdt)))} HTG</TableCell>
-                  <TableCell>
-                    <span className="font-mono text-xs break-all max-w-[200px] block truncate" title={deposit.txHash}>
-                      {deposit.txHash}
-                    </span>
-                  </TableCell>
-                  <TableCell>
-                    <StatusBadge status={deposit.status} />
-                  </TableCell>
-                  <TableCell className="text-sm text-muted-foreground">
-                    <div>{format(new Date(deposit.createdAt), "MMM d, yyyy h:mm a")}</div>
-                    {deposit.expiresAt && (
-                      <div className={`text-[10px] mt-0.5 ${deposit.status === "expired" ? "text-orange-500" : "text-muted-foreground/60"}`}>
-                        {deposit.status === "expired" ? "⏰ Expired" : "⏳ Expires"}: {format(new Date(deposit.expiresAt), "h:mm a")}
-                      </div>
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    {(deposit.status === "pending" || deposit.status === "expired") ? (
-                      <div className="flex flex-col gap-1.5">
-                        {deposit.status === "expired" && (
-                          <p className="text-[10px] text-orange-600 dark:text-orange-400 font-medium">Auto-expired — manual override allowed</p>
-                        )}
-                        <Button
-                          size="sm"
-                          onClick={() => approveAndRelease("deposits", deposit.id, (v) => setReleaseLoadingId(v ? deposit.id : null))}
-                          disabled={releaseLoadingId === deposit.id}
-                          className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs"
-                          data-testid={`button-approve-release-deposit-${deposit.id}`}
-                        >
-                          {releaseLoadingId === deposit.id ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Download className="w-3 h-3 mr-1" />}
-                          Approve & Release Receipt
-                        </Button>
-                        <div className="flex gap-1.5">
-                          <Button
-                            size="sm"
-                            onClick={() => approve(deposit.id)}
-                            disabled={isApproving}
-                            className="bg-emerald-600 hover:bg-emerald-700 text-xs flex-1"
-                            data-testid={`button-approve-deposit-${deposit.id}`}
-                          >
-                            {isApproving ? <Loader2 className="w-3 h-3 animate-spin" /> : <CheckCircle className="w-3 h-3 mr-1" />}
-                            Approve
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="destructive"
-                            onClick={() => reject(deposit.id)}
-                            disabled={isRejecting}
-                            className="text-xs flex-1"
-                            data-testid={`button-reject-deposit-${deposit.id}`}
-                          >
-                            {isRejecting ? <Loader2 className="w-3 h-3 animate-spin" /> : <XCircle className="w-3 h-3 mr-1" />}
-                            Reject
-                          </Button>
-                        </div>
-                      </div>
-                    ) : deposit.status === "approved" ? (
-                      <div className="flex flex-col gap-1.5">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => previewReceipt("deposits", deposit.id)}
-                          className="text-xs border-indigo-500/40 text-indigo-600 hover:bg-indigo-50"
-                          data-testid={`button-preview-receipt-deposit-${deposit.id}`}
-                        >
-                          <FileText className="w-3 h-3 mr-1" />
-                          {deposit.receiptId ? "Preview Receipt" : "Release Receipt"}
-                        </Button>
-                        {!deposit.receiptId && (
-                          <Button
-                            size="sm"
-                            onClick={() => approveAndRelease("deposits", deposit.id, (v) => setReleaseLoadingId(v ? deposit.id : null))}
-                            disabled={releaseLoadingId === deposit.id}
-                            className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs"
-                            data-testid={`button-release-receipt-deposit-${deposit.id}`}
-                          >
-                            {releaseLoadingId === deposit.id ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Download className="w-3 h-3 mr-1" />}
-                            Release Receipt
-                          </Button>
-                        )}
-                      </div>
-                    ) : (
-                      <span className="text-sm text-muted-foreground">Rejected</span>
-                    )}
-                  </TableCell>
-                </TableRow>
-              ))}
-              {(!deposits || deposits.length === 0) && (
-                <TableRow>
-                  <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
-                    No deposits found
-                  </TableCell>
-                </TableRow>
-              )}
-            </TableBody>
-          </Table>
+    <>
+      {/* Rejection reason modal */}
+      {rejectModalDepositId !== null && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" data-testid="modal-reject-deposit">
+          <Card className="w-full max-w-md">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-red-600">
+                <AlertTriangle className="w-5 h-5" />
+                Reject Deposit #{rejectModalDepositId}
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                Provide a clear reason for rejecting this deposit. The user will be notified via in-app notification and WhatsApp.
+              </p>
+              <div>
+                <label className="text-sm font-medium mb-1.5 block">Rejection Reason</label>
+                <textarea
+                  className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm min-h-[80px] resize-y focus:outline-none focus:ring-2 focus:ring-ring"
+                  placeholder="e.g. Transaction ID not found, Screenshot does not match amount, Duplicate submission..."
+                  value={rejectReason}
+                  onChange={(e) => setRejectReason(e.target.value)}
+                  data-testid="textarea-reject-reason"
+                />
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  variant="destructive"
+                  className="flex-1"
+                  disabled={!rejectReason.trim() || isRejectingWithReason}
+                  onClick={() => {
+                    rejectWithReason(
+                      { id: rejectModalDepositId, reason: rejectReason },
+                      {
+                        onSuccess: () => {
+                          setRejectModalDepositId(null);
+                          setRejectReason("");
+                        },
+                      }
+                    );
+                  }}
+                  data-testid="button-confirm-reject-deposit"
+                >
+                  {isRejectingWithReason ? <Loader2 className="w-3 h-3 animate-spin mr-2" /> : <XCircle className="w-3 h-3 mr-2" />}
+                  Confirm Rejection
+                </Button>
+                <Button
+                  variant="outline"
+                  className="flex-1"
+                  onClick={() => { setRejectModalDepositId(null); setRejectReason(""); }}
+                  data-testid="button-cancel-reject-deposit"
+                >
+                  Cancel
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
         </div>
-      </CardContent>
-    </Card>
+      )}
+
+      {/* Proof image viewer */}
+      {proofViewUrl && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
+          onClick={() => setProofViewUrl(null)}
+          data-testid="modal-proof-viewer"
+        >
+          <div className="relative max-w-2xl w-full max-h-[80vh]" onClick={(e) => e.stopPropagation()}>
+            <Button
+              variant="secondary"
+              size="icon"
+              className="absolute -top-10 right-0"
+              onClick={() => setProofViewUrl(null)}
+            >
+              <X className="w-4 h-4" />
+            </Button>
+            <img src={proofViewUrl} alt="Deposit proof" className="w-full rounded-lg object-contain max-h-[75vh]" />
+            <a
+              href={proofViewUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="absolute bottom-2 right-2 text-xs bg-background/90 rounded px-2 py-1 flex items-center gap-1"
+            >
+              <ExternalLink className="w-3 h-3" />
+              Open original
+            </a>
+          </div>
+        </div>
+      )}
+
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between gap-2">
+          <CardTitle className="flex items-center gap-2">
+            <ArrowDownCircle className="w-5 h-5 text-emerald-600" />
+            Deposit Management
+          </CardTitle>
+          <div className="flex items-center gap-2">
+            {pendingManualCount > 0 && (
+              <Badge variant="destructive" className="text-xs" data-testid="badge-pending-manual-deposits">
+                {pendingManualCount} manual pending
+              </Badge>
+            )}
+            {pendingCount > 0 && (
+              <Badge variant="destructive" data-testid="badge-pending-deposits">
+                {pendingCount} pending
+              </Badge>
+            )}
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>ID</TableHead>
+                  <TableHead>User</TableHead>
+                  <TableHead>Method</TableHead>
+                  <TableHead>Amount</TableHead>
+                  <TableHead>Tx / Proof</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Date</TableHead>
+                  <TableHead>Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {deposits?.map((deposit: any) => {
+                  const isManual = isManualDeposit(deposit);
+                  return (
+                    <TableRow key={deposit.id} data-testid={`row-deposit-${deposit.id}`} className={isManual && deposit.status === "pending" ? "bg-amber-500/5 border-l-2 border-l-amber-500" : ""}>
+                      <TableCell className="font-mono text-xs">{deposit.id}</TableCell>
+                      <TableCell>
+                        <div className="text-xs">
+                          <div className="font-medium text-foreground">ID: {deposit.profileId}</div>
+                          {deposit.userEmail && <div className="text-muted-foreground truncate max-w-[120px]">{deposit.userEmail}</div>}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <Badge
+                          variant={isManual ? "secondary" : deposit.depositMethod === "nowpayments" ? "default" : "outline"}
+                          className="text-xs"
+                        >
+                          {isManual ? "MonCash/NatCash" : deposit.depositMethod === "nowpayments" ? "Crypto (Auto)" : "USDT"}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <div className="text-sm font-medium">${Number(deposit.amountUsdt).toFixed(2)}</div>
+                        <div className="text-xs text-muted-foreground">{formatHtg(usdtToHtg(Number(deposit.amountUsdt)))} HTG</div>
+                      </TableCell>
+                      <TableCell className="max-w-[180px]">
+                        {isManual ? (
+                          <div className="space-y-1">
+                            {deposit.moncashTransactionId && (
+                              <div>
+                                <p className="text-[10px] text-muted-foreground uppercase font-medium">TX ID</p>
+                                <p className="font-mono text-xs break-all">{deposit.moncashTransactionId}</p>
+                              </div>
+                            )}
+                            {deposit.proofImageUrl && (
+                              <button
+                                type="button"
+                                onClick={() => setProofViewUrl(deposit.proofImageUrl)}
+                                className="flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-800 underline"
+                                data-testid={`button-view-proof-${deposit.id}`}
+                              >
+                                <ImageIcon className="w-3 h-3" />
+                                View Screenshot
+                              </button>
+                            )}
+                            {deposit.rejectionReason && (
+                              <div className="text-[10px] text-red-600 dark:text-red-400 bg-red-500/10 rounded px-1.5 py-0.5">
+                                Reason: {deposit.rejectionReason}
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="font-mono text-xs break-all block truncate" title={deposit.txHash}>
+                            {deposit.txHash || "—"}
+                          </span>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <StatusBadge status={deposit.status} />
+                        {deposit.expiresAt && deposit.status !== "approved" && deposit.status !== "rejected" && (
+                          <div className={`text-[10px] mt-0.5 ${deposit.status === "expired" ? "text-orange-500" : "text-muted-foreground/60"}`}>
+                            {deposit.status === "expired" ? "⏰ Expired" : "⏳"} {format(new Date(deposit.expiresAt), "h:mm a")}
+                          </div>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-xs text-muted-foreground">
+                        {format(new Date(deposit.createdAt), "MMM d, yyyy h:mm a")}
+                      </TableCell>
+                      <TableCell>
+                        {(deposit.status === "pending" || deposit.status === "expired") ? (
+                          <div className="flex flex-col gap-1.5">
+                            {deposit.status === "expired" && !isManual && (
+                              <p className="text-[10px] text-orange-600 dark:text-orange-400 font-medium">Auto-expired — manual override allowed</p>
+                            )}
+                            <Button
+                              size="sm"
+                              onClick={() => approveAndRelease("deposits", deposit.id, (v) => setReleaseLoadingId(v ? deposit.id : null))}
+                              disabled={releaseLoadingId === deposit.id}
+                              className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs"
+                              data-testid={`button-approve-release-deposit-${deposit.id}`}
+                            >
+                              {releaseLoadingId === deposit.id ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Download className="w-3 h-3 mr-1" />}
+                              Approve & Release Receipt
+                            </Button>
+                            <div className="flex gap-1.5">
+                              <Button
+                                size="sm"
+                                onClick={() => approve(deposit.id)}
+                                disabled={isApproving}
+                                className="bg-emerald-600 hover:bg-emerald-700 text-xs flex-1"
+                                data-testid={`button-approve-deposit-${deposit.id}`}
+                              >
+                                {isApproving ? <Loader2 className="w-3 h-3 animate-spin" /> : <CheckCircle className="w-3 h-3 mr-1" />}
+                                Approve
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="destructive"
+                                onClick={() => {
+                                  if (isManual) {
+                                    setRejectModalDepositId(deposit.id);
+                                    setRejectReason("");
+                                  } else {
+                                    reject(deposit.id);
+                                  }
+                                }}
+                                disabled={isRejecting}
+                                className="text-xs flex-1"
+                                data-testid={`button-reject-deposit-${deposit.id}`}
+                              >
+                                {isRejecting ? <Loader2 className="w-3 h-3 animate-spin" /> : <XCircle className="w-3 h-3 mr-1" />}
+                                Reject
+                              </Button>
+                            </div>
+                          </div>
+                        ) : deposit.status === "approved" ? (
+                          <div className="flex flex-col gap-1.5">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => previewReceipt("deposits", deposit.id)}
+                              className="text-xs border-indigo-500/40 text-indigo-600 hover:bg-indigo-50"
+                              data-testid={`button-preview-receipt-deposit-${deposit.id}`}
+                            >
+                              <FileText className="w-3 h-3 mr-1" />
+                              {deposit.receiptId ? "Preview Receipt" : "Release Receipt"}
+                            </Button>
+                            {!deposit.receiptId && (
+                              <Button
+                                size="sm"
+                                onClick={() => approveAndRelease("deposits", deposit.id, (v) => setReleaseLoadingId(v ? deposit.id : null))}
+                                disabled={releaseLoadingId === deposit.id}
+                                className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs"
+                                data-testid={`button-release-receipt-deposit-${deposit.id}`}
+                              >
+                                {releaseLoadingId === deposit.id ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Download className="w-3 h-3 mr-1" />}
+                                Release Receipt
+                              </Button>
+                            )}
+                          </div>
+                        ) : (
+                          <div>
+                            <span className="text-sm text-red-500">Rejected</span>
+                            {deposit.rejectionReason && (
+                              <p className="text-[10px] text-muted-foreground mt-0.5 max-w-[150px] leading-tight">{deposit.rejectionReason}</p>
+                            )}
+                          </div>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+                {(!deposits || deposits.length === 0) && (
+                  <TableRow>
+                    <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
+                      No deposits found
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </div>
+        </CardContent>
+      </Card>
+    </>
   );
 }
 

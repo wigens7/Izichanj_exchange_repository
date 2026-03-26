@@ -20,6 +20,7 @@ export interface IStorage {
   getDeposits(profileId?: number): Promise<Deposit[]>;
   getDepositById(id: number): Promise<Deposit | undefined>;
   updateDepositStatus(id: number, status: "approved" | "rejected" | "expired"): Promise<Deposit>;
+  rejectDepositWithReason(id: number, reason: string): Promise<Deposit>;
   autoExpirePendingDeposits(): Promise<number>;
   getDepositByMoncashTransactionId(transactionId: string): Promise<Deposit | undefined>;
   getDepositByNowpaymentsPaymentId(paymentId: string): Promise<Deposit | undefined>;
@@ -172,6 +173,11 @@ export class DatabaseStorage implements IStorage {
 
   async updateDepositStatus(id: number, status: "approved" | "rejected" | "expired"): Promise<Deposit> {
     const [deposit] = await db.update(deposits).set({ status }).where(eq(deposits.id, id)).returning();
+    return deposit;
+  }
+
+  async rejectDepositWithReason(id: number, reason: string): Promise<Deposit> {
+    const [deposit] = await db.update(deposits).set({ status: "rejected", rejectionReason: reason }).where(eq(deposits.id, id)).returning();
     return deposit;
   }
 

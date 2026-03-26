@@ -101,6 +101,15 @@ app.use((req, res, next) => {
     console.warn("[startup migration] Manoucheka strowallet ID restore skipped:", (e as Error).message);
   }
 
+  // Add proof_image_url and rejection_reason columns for manual deposits
+  try {
+    await db.execute(sql`ALTER TABLE deposits ADD COLUMN IF NOT EXISTS proof_image_url TEXT`);
+    await db.execute(sql`ALTER TABLE deposits ADD COLUMN IF NOT EXISTS rejection_reason TEXT`);
+    console.log("[startup migration] Manual deposit columns ensured");
+  } catch (e) {
+    console.warn("[startup migration] manual deposit columns skipped:", (e as Error).message);
+  }
+
   // Fix: reset any card marked "active" that still has a pending_ card_id (never really issued)
   try {
     const fixed = await db.execute(sql`
