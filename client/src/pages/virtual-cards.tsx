@@ -369,6 +369,7 @@ function CardItem({ card }: { card: VirtualCard }) {
   });
 
   const [showTxModal, setShowTxModal] = useState(false);
+  const [localBalance, setLocalBalance] = useState<string | null>(null);
 
   const transactionsQuery = useQuery<any[]>({
     queryKey: ["/api/cards", card.id, "transactions"],
@@ -378,6 +379,29 @@ function CardItem({ card }: { card: VirtualCard }) {
       return res.json();
     },
     enabled: showTxModal,
+  });
+
+  const refreshBalanceMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch(`/api/cards/${card.id}/refresh-balance`, {
+        method: "POST",
+        credentials: "include",
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.message || "Refresh failed");
+      return data as { balance: string; synced: boolean };
+    },
+    onSuccess: (data) => {
+      setLocalBalance(data.balance);
+      qc.invalidateQueries({ queryKey: ["/api/cards"] });
+      toast({
+        title: data.synced ? "Balance updated" : "Balance is current",
+        description: `Card balance: $${Number(data.balance).toFixed(2)} USD`,
+      });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Refresh failed", description: err.message, variant: "destructive" });
+    },
   });
 
   const fundMutation = useMutation({
@@ -526,9 +550,23 @@ function CardItem({ card }: { card: VirtualCard }) {
                     {isFrozen ? vc.frozen : vc.active}
                   </Badge>
                 )}
-                <Badge variant="outline" className="text-white/80 border-white/20 bg-white/10">
-                  ${Number(card.balance).toFixed(2)}
-                </Badge>
+                {/* Balance badge with refresh button */}
+                <div className="flex items-center gap-1">
+                  <Badge variant="outline" className="text-white/90 border-white/30 bg-white/10 font-mono" data-testid={`badge-card-balance-${card.id}`}>
+                    ${Number(localBalance ?? card.balance).toFixed(2)}
+                  </Badge>
+                  {!isPending && (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); refreshBalanceMutation.mutate(); }}
+                      disabled={refreshBalanceMutation.isPending}
+                      className="text-white/60 hover:text-white/90 transition-colors disabled:opacity-40"
+                      title="Refresh card balance"
+                      data-testid={`button-refresh-balance-${card.id}`}
+                    >
+                      <RefreshCw className={`w-3 h-3 ${refreshBalanceMutation.isPending ? "animate-spin" : ""}`} />
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
 
@@ -608,14 +646,49 @@ function CardItem({ card }: { card: VirtualCard }) {
           )}
 
           {/* Transaction History Modal */}
-          <Dialog open={showTxModal} onOpenChange={setShowTxModal}>
+          <Dialog open={showTxModal} onOpenChange={(open) => {
+            setShowTxModal(open);
+            // Auto-refresh balance whenever the modal opens
+            if (open && !isPending) refreshBalanceMutation.mutate();
+          }}>
             <DialogContent className="max-w-lg w-full max-h-[85vh] flex flex-col">
               <DialogHeader className="pb-2">
-                <DialogTitle className="flex items-center gap-2">
-                  <History className="w-5 h-5 text-primary" />
-                  Transaction History
-                  <span className="text-sm font-normal text-muted-foreground ml-1">— {card.nameOnCard}</span>
-                </DialogTitle>
+                <div className="flex items-center justify-between gap-2">
+                  <DialogTitle className="flex items-center gap-2">
+                    <History className="w-5 h-5 text-primary" />
+                    Transaction History
+                    <span className="text-sm font-normal text-muted-foreground ml-1">— {card.nameOnCard}</span>
+                  </DialogTitle>
+                  <div className="flex items-center gap-2 shrink-0">
+                    {/* Live balance inside modal */}
+                    <div className="text-right">
+                      <p className="text-[10px] text-muted-foreground leading-none mb-0.5">Card Balance</p>
+                      <p className="text-sm font-bold font-mono text-primary">
+                        {refreshBalanceMutation.isPending ? (
+                          <span className="inline-flex items-center gap-1 text-muted-foreground">
+                            <Loader2 className="w-3 h-3 animate-spin" /> Syncing…
+                          </span>
+                        ) : (
+                          `$${Number(localBalance ?? card.balance).toFixed(2)} USD`
+                        )}
+                      </p>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        refreshBalanceMutation.mutate();
+                        qc.invalidateQueries({ queryKey: ["/api/cards", card.id, "transactions"] });
+                      }}
+                      disabled={refreshBalanceMutation.isPending || transactionsQuery.isFetching}
+                      className="h-8 gap-1.5"
+                      data-testid={`button-refresh-modal-${card.id}`}
+                    >
+                      <RefreshCw className={`w-3.5 h-3.5 ${(refreshBalanceMutation.isPending || transactionsQuery.isFetching) ? "animate-spin" : ""}`} />
+                      Refresh
+                    </Button>
+                  </div>
+                </div>
               </DialogHeader>
               <Separator />
 
@@ -811,6 +884,17 @@ function CardItem({ card }: { card: VirtualCard }) {
             >
               <History className="w-3.5 h-3.5 mr-1.5" />
               {vc.transactions}
+            </Button>
+
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => refreshBalanceMutation.mutate()}
+              disabled={refreshBalanceMutation.isPending}
+              data-testid={`button-refresh-balance-action-${card.id}`}
+            >
+              <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${refreshBalanceMutation.isPending ? "animate-spin" : ""}`} />
+              {refreshBalanceMutation.isPending ? "Syncing…" : "Refresh Balance"}
             </Button>
 
             <Button

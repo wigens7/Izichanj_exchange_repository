@@ -3584,6 +3584,42 @@ export async function registerRoutes(
     }
   });
 
+  // POST /api/cards/:id/refresh-balance — sync card balance from Strowallet and update DB
+  app.post("/api/cards/:id/refresh-balance", isAuthenticated, async (req: any, res) => {
+    try {
+      const profile = await getProfileFromReq(req);
+      if (!profile) return res.status(401).json({ message: "Unauthorized" });
+
+      const card = await storage.getVirtualCard(Number(req.params.id), profile.id);
+      if (!card) return res.status(404).json({ message: "Card not found" });
+      if (card.status === "pending" || card.status === "cancelled") {
+        return res.status(400).json({ message: "Cannot refresh balance for a pending or cancelled card" });
+      }
+
+      const response = await strowalletFetch(`${STROWALLET_BASE}/fetch-card-detail/`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Accept": "application/json" },
+        body: JSON.stringify({ card_id: card.cardId, public_key: strowalletPublicKey }),
+      });
+
+      const data = await response.json();
+      const detail = data.response?.card_detail || data.response || data.data || data;
+
+      if (detail?.balance !== undefined && detail?.balance !== null) {
+        const newBalance = String(detail.balance);
+        await storage.updateVirtualCard(card.id, { balance: newBalance, cardDetail: detail });
+        console.log(`[REFRESH BALANCE] Card ${card.id}: ${card.balance} → ${newBalance}`);
+        return res.json({ balance: newBalance, synced: true });
+      }
+
+      // If Strowallet didn't return a balance, just return the stored one
+      return res.json({ balance: card.balance, synced: false });
+    } catch (e: any) {
+      console.error("Refresh balance error:", e);
+      res.status(500).json({ message: e.message || "Internal Error" });
+    }
+  });
+
   app.get("/api/cards/:id/transactions", isAuthenticated, async (req: any, res) => {
     try {
       const profile = await getProfileFromReq(req);
@@ -3616,6 +3652,12 @@ export async function registerRoutes(
         Array.isArray(data.data) ? data.data :
         Array.isArray(data.transactions) ? data.transactions :
         [];
+
+      // Auto-sync balance from the transaction response if provided
+      const latestBalance = data.response?.balance ?? data.balance ?? null;
+      if (latestBalance !== null && latestBalance !== undefined) {
+        await storage.updateVirtualCard(card.id, { balance: String(latestBalance) });
+      }
 
       res.json(txList);
     } catch (e: any) {
