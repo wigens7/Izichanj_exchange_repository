@@ -85,6 +85,8 @@ export const deposits = pgTable("deposits", {
   nowpaymentsPaymentId: text("nowpayments_payment_id"),
   payAddress: text("pay_address"),
   payCurrency: text("pay_currency"),
+  proofImageUrl: text("proof_image_url"), // Manual MonCash/NatCash deposit proof screenshot
+  rejectionReason: text("rejection_reason"), // Reason for rejecting a manual deposit
   status: txnStatusEnum("status").default("pending").notNull(),
   receiptId: text("receipt_id").unique(),
   receiptUrl: text("receipt_url"),

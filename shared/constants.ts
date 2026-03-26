@@ -1,4 +1,6 @@
-export const EXCHANGE_RATE_USDT_HTG = 139.50;
+export const EXCHANGE_RATE_USDT_HTG = 143; // Updated for manual deposits
+export const MANUAL_DEPOSIT_MIN_HTG = 1430; // 10 USDT minimum
+export const MANUAL_DEPOSIT_MIN_USDT = 10;
 
 export const NETWORK_FEE_CONFIG = {
   usdttrc20: { label: "TRC20", network: "TRON", minAmount: 12.00, fee: 1.50 },
