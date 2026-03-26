@@ -644,7 +644,12 @@ export default function DepositPage() {
                     className="mt-1.5"
                     placeholder={t.deposit.manualTxIdPlaceholder}
                     value={transactionId}
-                    onChange={(e) => setTransactionId(e.target.value)}
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    onChange={(e) => {
+                      const digitsOnly = e.target.value.replace(/\D/g, "");
+                      setTransactionId(digitsOnly);
+                    }}
                     data-testid="input-manual-tx-id"
                   />
                 </div>

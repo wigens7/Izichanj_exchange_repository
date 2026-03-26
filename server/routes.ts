@@ -1495,6 +1495,11 @@ export async function registerRoutes(
         return res.status(400).json({ message: `Minimum deposit is ${MANUAL_DEPOSIT_MIN_HTG} HTG (${MANUAL_DEPOSIT_MIN_USDT} USDT)` });
       }
 
+      // Validate transaction ID is digits only
+      if (!/^\d+$/.test(transactionId.trim())) {
+        return res.status(400).json({ message: "Transaction ID must contain digits only (numbers)" });
+      }
+
       // Anti-fraud: deduplicate transaction ID — check if already used
       const existingByTxId = await storage.getDepositByMoncashTransactionId(transactionId.trim());
       if (existingByTxId) {

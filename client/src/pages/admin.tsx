@@ -68,6 +68,7 @@ import {
   DollarSign,
   AlertTriangle,
   ExternalLink,
+  ShieldOff,
 } from "lucide-react";
 import { format } from "date-fns";
 import { usdtToHtg, formatHtg, formatUsdt } from "@shared/constants";
@@ -850,6 +851,55 @@ function DepositsTab() {
         </div>
       )}
 
+      {/* Fraud rejection confirmation modal */}
+      {fraudModalDepositId !== null && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" data-testid="modal-fraud-deposit">
+          <Card className="w-full max-w-md border-red-500">
+            <CardHeader className="bg-red-500/10">
+              <CardTitle className="flex items-center gap-2 text-red-600">
+                <ShieldOff className="w-5 h-5" />
+                Reject for Fraud — Deposit #{fraudModalDepositId}
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4 pt-4">
+              <div className="rounded-md bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 p-3 text-sm text-red-700 dark:text-red-300 space-y-1">
+                <p className="font-semibold">⚠️ This action will:</p>
+                <ul className="list-disc ml-4 space-y-0.5 text-xs">
+                  <li>Reject the deposit as fraudulent</li>
+                  <li>Record a fraud strike against the user</li>
+                  <li>After 3 strikes in 30 minutes → account frozen 24h</li>
+                  <li>Alert sent to admin Telegram + user WhatsApp</li>
+                </ul>
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  variant="destructive"
+                  className="flex-1"
+                  disabled={isRejectingForFraud}
+                  onClick={() => {
+                    rejectForFraud(fraudModalDepositId, {
+                      onSuccess: () => setFraudModalDepositId(null),
+                    });
+                  }}
+                  data-testid="button-confirm-fraud-reject"
+                >
+                  {isRejectingForFraud ? <Loader2 className="w-3 h-3 animate-spin mr-2" /> : <ShieldOff className="w-3 h-3 mr-2" />}
+                  Confirm Fraud Rejection
+                </Button>
+                <Button
+                  variant="outline"
+                  className="flex-1"
+                  onClick={() => setFraudModalDepositId(null)}
+                  data-testid="button-cancel-fraud-reject"
+                >
+                  Cancel
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
       {/* Proof image viewer */}
       {proofViewUrl && (
         <div
@@ -1027,6 +1077,18 @@ function DepositsTab() {
                                 Reject
                               </Button>
                             </div>
+                            {isManual && (
+                              <Button
+                                size="sm"
+                                onClick={() => setFraudModalDepositId(deposit.id)}
+                                disabled={isRejectingForFraud}
+                                className="w-full text-xs bg-orange-600 hover:bg-orange-700 text-white"
+                                data-testid={`button-reject-fraud-deposit-${deposit.id}`}
+                              >
+                                <ShieldOff className="w-3 h-3 mr-1" />
+                                Reject for Fraud
+                              </Button>
+                            )}
                           </div>
                         ) : deposit.status === "approved" ? (
                           <div className="flex flex-col gap-1.5">
