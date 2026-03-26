@@ -425,6 +425,38 @@ export async function registerRoutes(
       const lowerEvent = eventType.toLowerCase();
       const lowerReason = String(reason).toLowerCase();
 
+      // ── Merchant / spend details ─────────────────────────────────────────
+      const merchant     = event.merchant_name || event.merchant || event.narration || event.description || event.reference || "";
+      const mcc          = String(event.mcc || event.merchant_category_code || event.category || "");
+      const last4        = event.last4 || event.card_last4 || event.pan_last4 || "";
+      const lowerMerchant = merchant.toLowerCase();
+      const newCardBal   = event.available_balance ?? event.balance ?? event.card_balance ?? null;
+
+      // ── Suspicious merchant keyword lists ───────────────────────────────
+      const CRYPTO_KEYWORDS = [
+        "coinbase","binance","kraken","gemini","bitstamp","bitfinex","kucoin","bybit","okx",
+        "huobi","crypto.com","blockchain","bitcoin","ethereum","solana","usdt","tether",
+        "bitpay","moonpay","simplex","wyre","transak","ramp.network","onramper","localbitcoin",
+        "paxful","hodlnaut","nexo","celsius","blockfi","coinmama","changelly","shapeshift",
+        "cex.io","gate.io","mexc","bitmart","bkex","poloniex","bittrex","luno","coindcx",
+      ];
+      const ADULT_KEYWORDS = [
+        "pornhub","onlyfans","xvideos","xhamster","brazzers","bang bros","bangbros",
+        "naughtyamerica","naughty america","realitykings","reality kings","mofos",
+        "digitalplayground","digital playground","kink","fetlife","jerkmate","chaturbate",
+        "myfreecams","cam4","bongacams","stripchat","livejasmin","jasmin","imlive",
+        "adulttime","adult time","hentai","xxxblackbook","adultfriendfinder","ashley madison",
+        "fuckbook","sexplanet","fuckedhard","18eighteen","penthouse","playboy","hustler",
+        "escort","massage parlor","strip club","adult content","xxx","pornography",
+        "sexwork","sex work","webcam model","only fans","fansly","admireme",
+      ];
+
+      const isCryptoMerchant = CRYPTO_KEYWORDS.some(k => lowerMerchant.includes(k));
+      // MCC 7995 = gambling, 7273 = escort, 5912 = adult stores
+      const isAdultMcc    = ["7273","5912","7993","7995"].includes(mcc);
+      const isAdultMerchant = isAdultMcc || ADULT_KEYWORDS.some(k => lowerMerchant.includes(k));
+      const isSuspicious  = isCryptoMerchant || isAdultMerchant;
+
       // ── Classify the event ──────────────────────────────────────────────
       const isSuccess   = lowerEvent.includes("approved") || lowerEvent.includes("active") || lowerEvent.includes("created") || lowerEvent.includes("success");
       const isFailure   = lowerEvent.includes("fail") || lowerEvent.includes("declined") || lowerEvent.includes("rejected") || lowerEvent.includes("error") || lowerEvent.includes("denied");
@@ -436,24 +468,47 @@ export async function registerRoutes(
       // ── Choose emoji & header label ──────────────────────────────────────
       let emoji = "🔔";
       let label = "Strowallet Event";
-      if (isNoFunds)  { emoji = "🚨"; label = "NO FUNDS — Card Creation Failed"; }
-      else if (isFailure) { emoji = "❌"; label = "Card Event Failed"; }
-      else if (isSuccess) { emoji = "✅"; label = "Card Activated"; }
-      else if (isDebit)   { emoji = "💸"; label = "Card Transaction"; }
-      else if (isFreeze)  { emoji = "🔒"; label = "Card Frozen/Blocked"; }
-      else if (isKycEvent){ emoji = "🪪"; label = "KYC Event"; }
+      if (isNoFunds)          { emoji = "🚨"; label = "NO FUNDS — Card Creation Failed"; }
+      else if (isFailure)     { emoji = "❌"; label = "Card Event Failed"; }
+      else if (isSuccess)     { emoji = "✅"; label = "Card Activated"; }
+      else if (isDebit && isSuspicious) { emoji = "🚨"; label = isCryptoMerchant ? "BLOCKED CATEGORY — Crypto Site Spend" : "BLOCKED CATEGORY — Adult Site Spend"; }
+      else if (isDebit)       { emoji = "💳"; label = "Card Transaction — Spend Alert"; }
+      else if (isFreeze)      { emoji = "🔒"; label = "Card Frozen/Blocked"; }
+      else if (isKycEvent)    { emoji = "🪪"; label = "KYC Event"; }
 
       // ── Telegram admin alert (always sent for every event) ───────────────
-      const rawPayload = JSON.stringify(event, null, 2).slice(0, 900);
-      await sendTelegramMessage(
-        `${emoji} <b>${label}</b>\n\n` +
-        `📌 <b>Event:</b> <code>${eventType}</code>\n` +
-        `📧 <b>Email:</b> ${customerEmail || "—"}\n` +
-        `💳 <b>Card ID:</b> ${cardId || "—"}\n` +
-        `💵 <b>Amount:</b> ${amount ? `${amount} ${currency}` : "—"}\n` +
-        (reason ? `⚠️ <b>Reason:</b> ${reason}\n` : "") +
-        `\n<pre>${rawPayload}</pre>`
-      ).catch(() => {});
+      if (isDebit) {
+        // Rich spend alert for every transaction
+        const suspiciousWarning = isSuspicious
+          ? `\n⛔ <b>POLICY VIOLATION DETECTED!</b>\n` +
+            (isCryptoMerchant ? `   🪙 Crypto exchange / crypto site\n` : "") +
+            (isAdultMerchant  ? `   🔞 Adult / pornography site\n` : "") +
+            `   👉 Card has been automatically frozen.\n`
+          : "";
+
+        await sendTelegramMessage(
+          `${emoji} <b>${label}</b>\n\n` +
+          `👤 <b>User:</b> ${customerEmail || "—"}\n` +
+          `💳 <b>Card:</b> ${cardId || "—"}${last4 ? ` (••••${last4})` : ""}\n` +
+          `🏪 <b>Merchant:</b> ${merchant || "Unknown"}\n` +
+          (mcc ? `🏷 <b>MCC:</b> ${mcc}\n` : "") +
+          `💵 <b>Amount:</b> ${amount ? `$${amount} ${currency}` : "—"}\n` +
+          (newCardBal !== null ? `💰 <b>Card Balance After:</b> $${newCardBal}\n` : "") +
+          suspiciousWarning
+        ).catch(() => {});
+      } else {
+        // Generic alert for non-spend events
+        const rawPayload = JSON.stringify(event, null, 2).slice(0, 600);
+        await sendTelegramMessage(
+          `${emoji} <b>${label}</b>\n\n` +
+          `📌 <b>Event:</b> <code>${eventType}</code>\n` +
+          `📧 <b>Email:</b> ${customerEmail || "—"}\n` +
+          `💳 <b>Card ID:</b> ${cardId || "—"}\n` +
+          `💵 <b>Amount:</b> ${amount ? `${amount} ${currency}` : "—"}\n` +
+          (reason ? `⚠️ <b>Reason:</b> ${reason}\n` : "") +
+          `\n<pre>${rawPayload}</pre>`
+        ).catch(() => {});
+      }
 
       // ── Extra urgent alert for no-funds situation ────────────────────────
       if (isNoFunds) {
@@ -467,11 +522,60 @@ export async function registerRoutes(
         ).catch(() => {});
       }
 
-      // ── In-app notifications for the user ───────────────────────────────
-      if (customerEmail) {
+      // ── Locate card & user in DB for in-app actions ──────────────────────
+      let dbCard: any = null;
+      let profile: any = null;
+      if (cardId) {
+        try {
+          const allCards = await db.select().from(virtualCards).where(eq(virtualCards.cardId, cardId));
+          dbCard = allCards[0] || null;
+        } catch {}
+      }
+      if (!profile && customerEmail) {
         const allProfiles = await storage.getAllProfiles();
-        const profile = allProfiles.find(p => p.email === customerEmail);
-        if (profile) {
+        profile = allProfiles.find((p: any) => p.email === customerEmail) || null;
+      }
+      if (!profile && dbCard) {
+        try { profile = await storage.getProfile(dbCard.profileId); } catch {}
+      }
+
+      // ── Auto-sync card balance if Strowallet sent the new balance ─────────
+      if (dbCard && isDebit && newCardBal !== null) {
+        await storage.updateVirtualCard(dbCard.id, { balance: String(newCardBal) }).catch(() => {});
+        console.log(`[WEBHOOK] Card ${dbCard.id} balance synced → ${newCardBal}`);
+      }
+
+      // ── Auto-freeze card on policy violations ────────────────────────────
+      if (dbCard && isDebit && isSuspicious && dbCard.status === "active") {
+        try {
+          // Freeze on Strowallet side
+          await strowalletFetch(`${STROWALLET_BASE}/freeze-card/`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "Accept": "application/json" },
+            body: JSON.stringify({ card_id: dbCard.cardId, public_key: strowalletPublicKey, action: "freeze" }),
+          });
+          // Update status in our DB
+          await storage.updateVirtualCard(dbCard.id, { status: "frozen" });
+          console.log(`[WEBHOOK] Card ${dbCard.id} auto-frozen due to policy violation`);
+
+          // Extra admin alert confirming freeze
+          await sendTelegramMessage(
+            `🔒 <b>Auto-Freeze Applied</b>\n\n` +
+            `Card <code>${cardId}</code> has been automatically frozen due to the policy violation above.\n` +
+            `User: ${customerEmail || profile?.email || "—"}\n\n` +
+            `To unfreeze, go to Admin → Cards and toggle the freeze status.`
+          ).catch(() => {});
+        } catch (freezeErr) {
+          console.error("[WEBHOOK] Auto-freeze failed:", freezeErr);
+          await sendTelegramMessage(
+            `⚠️ <b>Auto-Freeze FAILED</b> for card <code>${cardId}</code>.\n` +
+            `Please freeze it manually in Strowallet dashboard immediately.`
+          ).catch(() => {});
+        }
+      }
+
+      // ── In-app notifications for the user ───────────────────────────────
+      if (profile) {
           if (isSuccess) {
             await storage.createNotification({
               profileId: profile.id,
@@ -489,12 +593,27 @@ export async function registerRoutes(
           }
 
           if (isDebit) {
+            const txMsg = isSuspicious
+              ? `A transaction of $${amount} ${currency} was detected on a restricted site (${merchant || "unknown"}). Your card has been frozen for security. Contact support if needed.`
+              : `You spent $${amount || "—"} ${currency}${merchant ? ` at ${merchant}` : ""} on your virtual card.${newCardBal !== null ? ` Remaining balance: $${newCardBal}.` : ""}`;
+
             await storage.createNotification({
               profileId: profile.id,
               type: "custom_message",
-              title: "Card Transaction",
-              message: `A transaction of ${amount} ${currency} was processed on your virtual card.`,
+              title: isSuspicious ? "⛔ Card Frozen — Policy Violation" : "💳 Card Transaction",
+              message: txMsg,
             });
+
+            // WhatsApp notification for every spend
+            if (profile.phone) {
+              sendWhatsAppNotification(
+                profile.phone,
+                isSuspicious
+                  ? `*Izichanj — Security Alert*\n\n⛔ Your virtual card was used on a restricted site (${merchant || "unknown"}) and has been automatically frozen.\n\nAmount: $${amount} ${currency}\n\nContact support if this was a mistake.\n\nhttps://izichanj.com`
+                  : `*Izichanj*\n\n💳 Card Transaction\n\nYou spent $${amount || "—"} ${currency}${merchant ? ` at ${merchant}` : ""}.${newCardBal !== null ? `\nRemaining balance: $${newCardBal}` : ""}\n\nhttps://izichanj.com`,
+                profile.fullName
+              );
+            }
           }
 
           if (isFreeze) {
@@ -523,6 +642,17 @@ export async function registerRoutes(
               message: `Your card verification status has been updated: ${eventType}. ${reason || ""}`.trim(),
             });
           }
+      } else if (customerEmail) {
+        // Profile lookup via email (fallback path already handled above)
+        const allProfiles2 = await storage.getAllProfiles();
+        const profile2 = allProfiles2.find((p: any) => p.email === customerEmail);
+        if (profile2 && isSuccess) {
+          await storage.createNotification({
+            profileId: profile2.id,
+            type: "custom_message",
+            title: "Virtual Card Ready",
+            message: "Your virtual card is now active and ready to use.",
+          });
         }
       }
 
