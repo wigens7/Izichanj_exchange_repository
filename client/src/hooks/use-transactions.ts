@@ -199,6 +199,33 @@ export function useAdminRejectDepositWithReason() {
   });
 }
 
+export function useAdminRejectDepositForFraud() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  return useMutation({
+    mutationFn: async (id: number) => {
+      const res = await apiRequest("PATCH", `/api/admin/deposits/${id}/reject-fraud`, {});
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.message || "Failed to reject deposit for fraud");
+      }
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: [api.admin.allDeposits.path] });
+      toast({
+        title: data.accountFrozen ? "🚨 Account Frozen — Fraud Detected" : "⚠️ Fraud Rejection Sent",
+        description: data.message,
+        variant: data.accountFrozen ? "destructive" : "default",
+      });
+    },
+    onError: (e: Error) => {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    },
+  });
+}
+
 export function useAdminApproveWithdrawal() {
   const queryClient = useQueryClient();
   const { toast } = useToast();

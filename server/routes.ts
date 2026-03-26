@@ -1475,6 +1475,10 @@ export async function registerRoutes(
       if (!profile) return res.status(401).json({ message: "Unauthorized" });
       if (profile.kycStatus !== "verified") return res.status(403).json({ message: "KYC verification required to make deposits" });
       if (profile.isBanned) return res.status(403).json({ message: "Account suspended" });
+      if ((profile as any).frozenUntil && new Date((profile as any).frozenUntil) > new Date()) {
+        const until = new Date((profile as any).frozenUntil).toLocaleString();
+        return res.status(403).json({ message: `Your account is temporarily frozen due to suspicious activity until ${until}. Contact support if you believe this is an error.` });
+      }
 
       const { amountHtg, mobileWallet, transactionId, proofImageUrl } = req.body;
 
@@ -1561,6 +1565,90 @@ export async function registerRoutes(
       res.json({ message: "Deposit rejected and user notified" });
     } catch (e: any) {
       console.error("[reject manual deposit]", e);
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // ── Reject for Fraud (admin) ────────────────────────────────────────────
+  app.patch("/api/admin/deposits/:id/reject-fraud", isAuthenticated, isAdmin, async (req: any, res) => {
+    try {
+      const id = Number(req.params.id);
+      const adminId = req.session.profileId;
+
+      const deposit = await storage.getDepositById(id);
+      if (!deposit) return res.status(404).json({ message: "Deposit not found" });
+      if (deposit.status === "approved") return res.status(400).json({ message: "Cannot flag an already approved deposit" });
+
+      const fraudReason = "Fraud detected — fake or invalid payment proof submitted";
+
+      // Reject the deposit with the fraud reason
+      await storage.rejectDepositWithReason(id, fraudReason);
+
+      const profile = await storage.getProfile(deposit.profileId);
+
+      // Record the fraud rejection for this user
+      await storage.recordFraudRejection(deposit.profileId, id, adminId);
+
+      // Count how many fraud rejections in the last 30 minutes
+      const thirtyMinsAgo = new Date(Date.now() - 30 * 60 * 1000);
+      const recentFrauds = await storage.getRecentFraudRejections(deposit.profileId, thirtyMinsAgo);
+
+      let accountFrozen = false;
+      let frozenUntil: Date | null = null;
+
+      if (recentFrauds.length >= 3) {
+        // Freeze the account for 24 hours
+        frozenUntil = new Date(Date.now() + 24 * 60 * 60 * 1000);
+        await storage.freezeUser(deposit.profileId, frozenUntil);
+        accountFrozen = true;
+      }
+
+      const amountDisplay = `${Number(deposit.amountUsdt).toFixed(2)} USDT`;
+      const frozenMsg = accountFrozen
+        ? `\n\n🚨 ACCOUNT FROZEN until ${frozenUntil!.toLocaleString()} — 3 fraud attempts detected in 30 minutes!`
+        : `\n⚠️ Warning ${recentFrauds.length}/3 fraud attempts in the last 30 minutes.`;
+
+      // Notify admin via Telegram
+      const adminMsg = `🚨 <b>FRAUD ALERT — Deposit #${id}</b>\n\n` +
+        `User: ${profile?.fullName || "Unknown"} (ID: ${deposit.profileId})\n` +
+        `Email: ${profile?.email || "—"}\n` +
+        `Phone: ${profile?.phone || "—"}\n` +
+        `Amount: ${amountDisplay}\n` +
+        `TX ID: ${deposit.moncashTransactionId || "—"}\n` +
+        `Fraud attempts (30min): ${recentFrauds.length}` +
+        frozenMsg;
+
+      await sendTelegramMessage(adminMsg);
+
+      // Notify user via in-app notification
+      const userNotifMsg = accountFrozen
+        ? `Your deposit of ${amountDisplay} was rejected as fraudulent. Your account has been frozen for 24 hours due to repeated suspicious activity. Contact support if you believe this is an error.`
+        : `Your deposit of ${amountDisplay} was rejected. Reason: Fraudulent or invalid payment proof. This is warning ${recentFrauds.length}/3 — further violations will result in account suspension.`;
+
+      await storage.createNotification({
+        profileId: deposit.profileId,
+        type: "deposit_rejected",
+        title: accountFrozen ? "🚨 Account Frozen — Fraud Detected" : "⚠️ Deposit Rejected — Fraud Warning",
+        message: userNotifMsg,
+      });
+
+      // WhatsApp notification to user
+      if (profile?.phone) {
+        const whatsappMsg = accountFrozen
+          ? `*Izichanj Security Alert*\n\n🚨 Your account has been *frozen for 24 hours* due to submitting fraudulent payment proof (3 violations detected).\n\nDeposit ${amountDisplay} rejected.\n\nContact support to appeal.`
+          : `*Izichanj Security Warning*\n\n⚠️ Your deposit of ${amountDisplay} was rejected as fraudulent.\n\nThis is warning *${recentFrauds.length}/3* — after 3 violations your account will be frozen for 24 hours.`;
+        sendWhatsAppNotification(profile.phone, whatsappMsg, profile.fullName);
+      }
+
+      res.json({
+        message: accountFrozen
+          ? `Deposit rejected for fraud. Account frozen for 24 hours (3 violations detected). Admin and user notified.`
+          : `Deposit rejected for fraud (${recentFrauds.length}/3 violations). User warned. ${3 - recentFrauds.length} more will trigger auto-freeze.`,
+        accountFrozen,
+        fraudCount: recentFrauds.length,
+      });
+    } catch (e: any) {
+      console.error("[reject fraud]", e);
       res.status(500).json({ message: e.message });
     }
   });

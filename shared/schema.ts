@@ -35,6 +35,7 @@ export const profiles = pgTable("profiles", {
   isBanned: boolean("is_banned").default(false).notNull(),
   isDeleted: boolean("is_deleted").default(false).notNull(),
   canEditProfile: boolean("can_edit_profile").default(false).notNull(),
+  frozenUntil: timestamp("frozen_until"),
   deletedAt: timestamp("deleted_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
@@ -252,6 +253,15 @@ export const loginLogs = pgTable("login_logs", {
   loginAt: timestamp("login_at").defaultNow().notNull(),
 });
 export type LoginLog = typeof loginLogs.$inferSelect;
+
+export const fraudRejections = pgTable("fraud_rejections", {
+  id: serial("id").primaryKey(),
+  profileId: integer("profile_id").references(() => profiles.id).notNull(),
+  depositId: integer("deposit_id").notNull(),
+  adminId: integer("admin_id").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+export type FraudRejection = typeof fraudRejections.$inferSelect;
 
 export const profileInfoSchema = z.object({
   firstName: z.string().min(1, "First name is required"),

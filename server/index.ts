@@ -110,6 +110,30 @@ app.use((req, res, next) => {
     console.warn("[startup migration] manual deposit columns skipped:", (e as Error).message);
   }
 
+  // Add frozen_until column for anti-fraud account freezing
+  try {
+    await db.execute(sql`ALTER TABLE profiles ADD COLUMN IF NOT EXISTS frozen_until TIMESTAMP`);
+    console.log("[startup migration] frozen_until column ensured");
+  } catch (e) {
+    console.warn("[startup migration] frozen_until column skipped:", (e as Error).message);
+  }
+
+  // Create fraud_rejections table for tracking admin fraud flags
+  try {
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS fraud_rejections (
+        id SERIAL PRIMARY KEY,
+        profile_id INTEGER NOT NULL REFERENCES profiles(id),
+        deposit_id INTEGER NOT NULL,
+        admin_id INTEGER NOT NULL,
+        created_at TIMESTAMP DEFAULT NOW() NOT NULL
+      )
+    `);
+    console.log("[startup migration] fraud_rejections table ensured");
+  } catch (e) {
+    console.warn("[startup migration] fraud_rejections table skipped:", (e as Error).message);
+  }
+
   // Fix: reset any card marked "active" that still has a pending_ card_id (never really issued)
   try {
     const fixed = await db.execute(sql`

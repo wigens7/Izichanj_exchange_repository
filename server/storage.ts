@@ -1,4 +1,4 @@
-import { profiles, deposits, withdrawals, kycDocuments, otps, webauthnCredentials, notifications, supportConversations, supportMessages, virtualCards, blacklistedUsers, p2pTransfers, loginLogs, type Profile, type Deposit, type InsertDeposit, type Withdrawal, type InsertWithdrawal, type KycDocument, type WebAuthnCredential, type Notification, type SupportConversation, type SupportMessage, type VirtualCard, type BlacklistedUser, type P2PTransfer, type LoginLog } from "@shared/schema";
+import { profiles, deposits, withdrawals, kycDocuments, otps, webauthnCredentials, notifications, supportConversations, supportMessages, virtualCards, blacklistedUsers, p2pTransfers, loginLogs, fraudRejections, type Profile, type Deposit, type InsertDeposit, type Withdrawal, type InsertWithdrawal, type KycDocument, type WebAuthnCredential, type Notification, type SupportConversation, type SupportMessage, type VirtualCard, type BlacklistedUser, type P2PTransfer, type LoginLog, type FraudRejection } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, lt, sql, or, ilike } from "drizzle-orm";
 import crypto from "crypto";
@@ -41,7 +41,11 @@ export interface IStorage {
   updateKycStatus(profileId: number, status: "verified" | "rejected"): Promise<void>;
   updateProfile(id: number, data: Partial<Profile>): Promise<Profile>;
   setUserBanStatus(id: number, isBanned: boolean): Promise<Profile>;
+  freezeUser(id: number, frozenUntil: Date): Promise<Profile>;
   getAllProfiles(): Promise<Profile[]>;
+
+  recordFraudRejection(profileId: number, depositId: number, adminId: number): Promise<FraudRejection>;
+  getRecentFraudRejections(profileId: number, since: Date): Promise<FraudRejection[]>;
 
   setTwoFactorSecret(profileId: number, secret: string): Promise<void>;
   enableTwoFactor(profileId: number): Promise<void>;
@@ -291,8 +295,25 @@ export class DatabaseStorage implements IStorage {
     return profile;
   }
 
+  async freezeUser(id: number, frozenUntil: Date): Promise<Profile> {
+    const [profile] = await db.update(profiles).set({ frozenUntil } as any).where(eq(profiles.id, id)).returning();
+    if (!profile) throw new Error("Profile not found");
+    return profile;
+  }
+
   async getAllProfiles(): Promise<Profile[]> {
     return db.select().from(profiles).orderBy(desc(profiles.createdAt));
+  }
+
+  async recordFraudRejection(profileId: number, depositId: number, adminId: number): Promise<FraudRejection> {
+    const [record] = await db.insert(fraudRejections).values({ profileId, depositId, adminId }).returning();
+    return record;
+  }
+
+  async getRecentFraudRejections(profileId: number, since: Date): Promise<FraudRejection[]> {
+    return db.select().from(fraudRejections)
+      .where(and(eq(fraudRejections.profileId, profileId), sql`created_at >= ${since.toISOString()}`))
+      .orderBy(desc(fraudRejections.createdAt));
   }
 
   async setTwoFactorSecret(profileId: number, secret: string): Promise<void> {

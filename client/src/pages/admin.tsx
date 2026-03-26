@@ -5,6 +5,7 @@ import {
   useAdminApproveDeposit,
   useAdminRejectDeposit,
   useAdminRejectDepositWithReason,
+  useAdminRejectDepositForFraud,
   useAdminApproveWithdrawal,
   useAdminRejectWithdrawal,
   useAdminVerifyKyc,
@@ -764,8 +765,10 @@ function DepositsTab() {
   const { mutate: approve, isPending: isApproving } = useAdminApproveDeposit();
   const { mutate: reject, isPending: isRejecting } = useAdminRejectDeposit();
   const { mutate: rejectWithReason, isPending: isRejectingWithReason } = useAdminRejectDepositWithReason();
+  const { mutate: rejectForFraud, isPending: isRejectingForFraud } = useAdminRejectDepositForFraud();
   const [releaseLoadingId, setReleaseLoadingId] = useState<number | null>(null);
   const [rejectModalDepositId, setRejectModalDepositId] = useState<number | null>(null);
+  const [fraudModalDepositId, setFraudModalDepositId] = useState<number | null>(null);
   const [rejectReason, setRejectReason] = useState("");
   const [proofViewUrl, setProofViewUrl] = useState<string | null>(null);
 
