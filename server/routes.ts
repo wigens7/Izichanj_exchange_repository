@@ -3204,8 +3204,18 @@ export async function registerRoutes(
 
       // Check both status and success fields — Strowallet uses {success:false} not always {status:"error"}
       if (!response.ok || data.success === false || data.status === "error" || data.status === false) {
-        const errMsg = typeof data.message === "object" ? JSON.stringify(data.message) : (data.message || data.error || "Strowallet KYC registration failed");
-        return res.status(400).json({ message: errMsg });
+        const rawMsg = data.message || data.error || "";
+        const msgStr = typeof rawMsg === "object" ? JSON.stringify(rawMsg) : String(rawMsg);
+        
+        // "Email already taken" means user was previously registered in Strowallet
+        // Give helpful guidance to use the manual entry feature
+        if (msgStr.toLowerCase().includes("already been taken") || msgStr.toLowerCase().includes("already taken") || msgStr.toLowerCase().includes("already exists")) {
+          return res.status(409).json({
+            alreadyRegistered: true,
+            message: "This email is already registered in Strowallet. Please use the 'Already Registered?' option below and enter your Strowallet Customer ID.",
+          });
+        }
+        return res.status(400).json({ message: `KYC registration failed: ${msgStr}` });
       }
 
       const customerId = data.response?.customerId || data.response?.customer_id || data.customer_id || data.customerId || data.data?.customer_id;

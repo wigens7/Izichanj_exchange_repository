@@ -166,6 +166,16 @@ function ApplyCardSection() {
       if (needsDob       && extraDob.trim())        body.dateOfBirth = extraDob.trim();
       if (needsPhone     && extraPhone.trim())      body.phone       = extraPhone.trim();
       const res = await apiRequest("POST", "/api/cards/register-cardholder", body);
+      if (!res.ok) {
+        const data = await res.json() as any;
+        // Check for 409 — email already registered in Strowallet
+        if (res.status === 409 && data.alreadyRegistered) {
+          // Auto-show manual entry form
+          setShowManualId(true);
+          throw new Error(data.message || "Email already registered. Enter your Strowallet Customer ID below.");
+        }
+        throw new Error(data.message || "Failed to register card KYC");
+      }
       return res.json();
     },
     onSuccess: () => {
