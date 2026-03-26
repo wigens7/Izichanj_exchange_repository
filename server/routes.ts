@@ -3231,6 +3231,44 @@ export async function registerRoutes(
     }
   });
 
+  // POST /api/cards/set-strowallet-customer-id — manually set Strowallet ID when already registered
+  app.post("/api/cards/set-strowallet-customer-id", isAuthenticated, async (req: any, res) => {
+    try {
+      const profile = await getProfileFromReq(req);
+      if (!profile) return res.status(401).json({ message: "Unauthorized" });
+      if (profile.kycStatus !== "verified") return res.status(403).json({ message: "Complete your Izichanj KYC verification first" });
+
+      if (profile.strowalletCustomerId) {
+        return res.json({ success: true, customerId: profile.strowalletCustomerId, alreadySet: true });
+      }
+
+      const { strowalletCustomerId } = req.body;
+      if (!strowalletCustomerId || typeof strowalletCustomerId !== "string" || !strowalletCustomerId.trim()) {
+        return res.status(400).json({ message: "Strowallet Customer ID is required" });
+      }
+
+      const customerId = strowalletCustomerId.trim();
+      await storage.updateProfile(profile.id, { strowalletCustomerId: customerId });
+
+      console.log(`[CARDHOLDER] Set Strowallet ID for ${profile.email}:`, customerId);
+
+      // Telegram notification
+      sendTelegramMessage(
+        `✅ <b>User Linked to Strowallet</b>\n\n` +
+        `👤 <b>Name:</b> ${profile.fullName}\n` +
+        `📧 <b>Email:</b> ${profile.email}\n` +
+        `🆔 <b>User ID:</b> ${profile.referenceId || profile.id}\n` +
+        `🏦 <b>Strowallet ID:</b> <code>${customerId}</code>\n\n` +
+        `💳 This user can now create a virtual Visa card.`
+      ).catch(() => {});
+
+      res.json({ success: true, customerId, source: "manual" });
+    } catch (e: any) {
+      console.error("[CARDHOLDER] Set Strowallet ID Error:", e);
+      res.status(500).json({ message: e.message || "Internal Error" });
+    }
+  });
+
   app.get("/api/cards", isAuthenticated, async (req: any, res) => {
     try {
       const profile = await getProfileFromReq(req);

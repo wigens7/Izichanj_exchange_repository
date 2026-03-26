@@ -135,6 +135,8 @@ function ApplyCardSection() {
   const [extraLastName, setExtraLastName] = useState("");
   const [extraDob, setExtraDob] = useState("");
   const [extraPhone, setExtraPhone] = useState("");
+  const [showManualId, setShowManualId] = useState(false);
+  const [manualCustomerId, setManualCustomerId] = useState("");
 
   // Determine which fields are missing (need user input)
   const needsFirstName = !user?.firstName;
@@ -170,6 +172,24 @@ function ApplyCardSection() {
       toast({ title: "Card KYC registered successfully!" });
       qc.invalidateQueries({ queryKey: ["/api/cards/strowallet-status"] });
       qc.invalidateQueries({ queryKey: ["/api/user"] }); // Refresh user to show saved phone/dob
+    },
+    onError: (err: Error) => {
+      toast({ title: err.message, variant: "destructive" });
+    },
+  });
+
+  const manualIdMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/cards/set-strowallet-customer-id", {
+        strowalletCustomerId: manualCustomerId.trim(),
+      });
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Strowallet ID linked successfully!" });
+      setShowManualId(false);
+      setManualCustomerId("");
+      qc.invalidateQueries({ queryKey: ["/api/cards/strowallet-status"] });
     },
     onError: (err: Error) => {
       toast({ title: err.message, variant: "destructive" });
@@ -332,18 +352,60 @@ function ApplyCardSection() {
               </div>
             </div>
 
-            <Button
-              onClick={() => registerMutation.mutate()}
-              disabled={registerMutation.isPending || !idType || !idNumber.trim() || !missingFieldsFilled}
-              className="w-full sm:w-auto"
-              data-testid="button-register-cardholder"
-            >
-              {registerMutation.isPending ? (
-                <><Loader2 className="w-4 h-4 animate-spin mr-2" />Submitting…</>
-              ) : (
-                <><ShieldCheck className="w-4 h-4 mr-2" />Submit Card KYC</>
-              )}
-            </Button>
+            <div className="flex items-center gap-3">
+              <Button
+                onClick={() => registerMutation.mutate()}
+                disabled={registerMutation.isPending || !idType || !idNumber.trim() || !missingFieldsFilled}
+                className="w-full sm:w-auto"
+                data-testid="button-register-cardholder"
+              >
+                {registerMutation.isPending ? (
+                  <><Loader2 className="w-4 h-4 animate-spin mr-2" />Submitting…</>
+                ) : (
+                  <><ShieldCheck className="w-4 h-4 mr-2" />Submit Card KYC</>
+                )}
+              </Button>
+              <Button
+                onClick={() => setShowManualId(!showManualId)}
+                variant="outline"
+                size="sm"
+                data-testid="button-toggle-manual-id"
+              >
+                {showManualId ? "Hide Manual Entry" : "Already Registered?"}
+              </Button>
+            </div>
+
+            {/* Manual Strowallet ID entry – for users already registered manually */}
+            {showManualId && (
+              <div className="border rounded-lg p-4 space-y-3 bg-blue-50/50 dark:bg-blue-950/20 border-blue-200 dark:border-blue-800">
+                <div className="flex items-start gap-2">
+                  <AlertCircle className="w-4 h-4 text-blue-600 mt-1 flex-shrink-0" />
+                  <p className="text-xs text-muted-foreground">If you were already registered with Strowallet, enter your Customer ID below:</p>
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Strowallet Customer ID</Label>
+                  <Input
+                    placeholder="e.g. 12345678"
+                    value={manualCustomerId}
+                    onChange={e => setManualCustomerId(e.target.value)}
+                    data-testid="input-strowallet-customer-id"
+                  />
+                </div>
+                <Button
+                  onClick={() => manualIdMutation.mutate()}
+                  disabled={manualIdMutation.isPending || !manualCustomerId.trim()}
+                  className="w-full sm:w-auto"
+                  variant="secondary"
+                  data-testid="button-set-manual-customer-id"
+                >
+                  {manualIdMutation.isPending ? (
+                    <><Loader2 className="w-4 h-4 animate-spin mr-2" />Linking…</>
+                  ) : (
+                    <>Link Customer ID</>
+                  )}
+                </Button>
+              </div>
+            )}
           </div>
         ) : (
           <div className="flex items-center gap-2 text-sm text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/30 rounded-md p-3">
