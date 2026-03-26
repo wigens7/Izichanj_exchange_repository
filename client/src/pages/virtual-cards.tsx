@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useLanguage } from "@/lib/i18n";
@@ -130,23 +130,58 @@ function ApplyCardSection() {
   const [idNumber, setIdNumber] = useState("");
   const [kycPending, setKycPending] = useState(false);
 
+  // Extra fields — shown when missing from profile
+  const [extraFirstName, setExtraFirstName] = useState("");
+  const [extraLastName, setExtraLastName] = useState("");
+  const [extraDob, setExtraDob] = useState("");
+  const [extraPhone, setExtraPhone] = useState("");
+
+  // Determine which fields are missing (need user input)
+  const needsFirstName = !user?.firstName;
+  const needsLastName  = !user?.lastName;
+  const needsDob       = !user?.dateOfBirth;
+  const needsPhone     = !user?.phone;
+  const hasMissingFields = needsFirstName || needsLastName || needsDob || needsPhone;
+
+  // Pre-populate name fields from fullName when user data loads
+  useEffect(() => {
+    if (user && !user.firstName && user.fullName) {
+      const parts = (user.fullName as string).trim().split(/\s+/);
+      if (!extraFirstName) setExtraFirstName(parts[0] || "");
+      if (!extraLastName && parts.length > 1) setExtraLastName(parts.slice(1).join(" "));
+    }
+  }, [user?.id]);
+
   const { data: stroStatus, isLoading: stroLoading } = useQuery<{ registered: boolean; customerId: string | null }>({
     queryKey: ["/api/cards/strowallet-status"],
   });
 
   const registerMutation = useMutation({
     mutationFn: async () => {
-      const res = await apiRequest("POST", "/api/cards/register-cardholder", { idType, idNumber });
+      const body: Record<string, string> = { idType, idNumber };
+      if (needsFirstName && extraFirstName.trim()) body.firstName   = extraFirstName.trim();
+      if (needsLastName  && extraLastName.trim())  body.lastName    = extraLastName.trim();
+      if (needsDob       && extraDob.trim())        body.dateOfBirth = extraDob.trim();
+      if (needsPhone     && extraPhone.trim())      body.phone       = extraPhone.trim();
+      const res = await apiRequest("POST", "/api/cards/register-cardholder", body);
       return res.json();
     },
     onSuccess: () => {
       toast({ title: "Card KYC registered successfully!" });
       qc.invalidateQueries({ queryKey: ["/api/cards/strowallet-status"] });
+      qc.invalidateQueries({ queryKey: ["/api/user"] }); // Refresh user to show saved phone/dob
     },
     onError: (err: Error) => {
       toast({ title: err.message, variant: "destructive" });
     },
   });
+
+  // Validate that all required missing fields are filled before allowing submit
+  const missingFieldsFilled =
+    (!needsFirstName || extraFirstName.trim()) &&
+    (!needsLastName  || extraLastName.trim()) &&
+    (!needsDob       || extraDob.trim()) &&
+    (!needsPhone     || extraPhone.trim());
 
   const createMutation = useMutation({
     mutationFn: async () => {
@@ -218,6 +253,56 @@ function ApplyCardSection() {
               </div>
             </div>
 
+            {/* Missing profile info — collected once, saved to profile */}
+            {hasMissingFields && (
+              <div className="grid gap-3 sm:grid-cols-2">
+                {needsFirstName && (
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">First Name</Label>
+                    <Input
+                      placeholder="e.g. Jean"
+                      value={extraFirstName}
+                      onChange={e => setExtraFirstName(e.target.value)}
+                      data-testid="input-first-name"
+                    />
+                  </div>
+                )}
+                {needsLastName && (
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Last Name</Label>
+                    <Input
+                      placeholder="e.g. Pierre"
+                      value={extraLastName}
+                      onChange={e => setExtraLastName(e.target.value)}
+                      data-testid="input-last-name"
+                    />
+                  </div>
+                )}
+                {needsDob && (
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Date of Birth</Label>
+                    <Input
+                      type="date"
+                      value={extraDob}
+                      onChange={e => setExtraDob(e.target.value)}
+                      data-testid="input-dob"
+                    />
+                  </div>
+                )}
+                {needsPhone && (
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Phone Number</Label>
+                    <Input
+                      placeholder="e.g. +50934567890"
+                      value={extraPhone}
+                      onChange={e => setExtraPhone(e.target.value)}
+                      data-testid="input-phone"
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <Label className="text-xs">ID Type</Label>
@@ -249,7 +334,7 @@ function ApplyCardSection() {
 
             <Button
               onClick={() => registerMutation.mutate()}
-              disabled={registerMutation.isPending || !idType || !idNumber.trim()}
+              disabled={registerMutation.isPending || !idType || !idNumber.trim() || !missingFieldsFilled}
               className="w-full sm:w-auto"
               data-testid="button-register-cardholder"
             >

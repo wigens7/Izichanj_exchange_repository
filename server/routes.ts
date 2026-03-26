@@ -3112,7 +3112,7 @@ export async function registerRoutes(
   // POST /api/cards/register-cardholder — submit KYC to Strowallet
   app.post("/api/cards/register-cardholder", isAuthenticated, async (req: any, res) => {
     try {
-      const profile = await getProfileFromReq(req);
+      let profile = await getProfileFromReq(req);
       if (!profile) return res.status(401).json({ message: "Unauthorized" });
       if (profile.kycStatus !== "verified") return res.status(403).json({ message: "Complete your Izichanj KYC verification first" });
 
@@ -3120,17 +3120,49 @@ export async function registerRoutes(
         return res.json({ success: true, customerId: profile.strowalletCustomerId, alreadyRegistered: true });
       }
 
-      const { idType, idNumber, addressLine1: bodyAddressLine1 } = req.body;
+      const {
+        idType,
+        idNumber,
+        addressLine1: bodyAddressLine1,
+        // Extra fields provided by the form when missing from profile
+        firstName: bodyFirstName,
+        lastName: bodyLastName,
+        dateOfBirth: bodyDob,
+        phone: bodyPhone,
+      } = req.body;
       if (!idType || !idNumber) return res.status(400).json({ message: "ID type and ID number are required" });
+
+      // Save any missing profile fields provided via the registration form
+      const profileUpdates: Record<string, any> = {};
+      if (bodyFirstName && !profile.firstName)   profileUpdates.firstName   = bodyFirstName.trim();
+      if (bodyLastName  && !profile.lastName)    profileUpdates.lastName    = bodyLastName.trim();
+      if (bodyDob       && !profile.dateOfBirth) profileUpdates.dateOfBirth = bodyDob.trim();
+      if (bodyPhone     && !profile.phone)       profileUpdates.phone       = bodyPhone.trim();
+      if (Object.keys(profileUpdates).length > 0) {
+        await storage.updateProfile(profile.id, profileUpdates);
+        profile = (await storage.getProfile(profile.id))!; // Reload with updated data
+        console.log(`[CARDHOLDER] Updated profile fields for ${profile.email}:`, Object.keys(profileUpdates));
+      }
 
       const kycDoc = await storage.getKyc(profile.id);
 
-      const firstName = profile.firstName || profile.fullName.split(" ")[0] || "";
-      const lastName = profile.lastName || profile.fullName.split(" ").slice(1).join(" ") || firstName;
+      // Derive name from profile — fall back to splitting fullName
+      const nameParts = (profile.fullName || "").trim().split(/\s+/);
+      const firstName = profile.firstName || nameParts[0] || "";
+      const lastName  = profile.lastName  || nameParts.slice(1).join(" ") || firstName;
       const dob = profile.dateOfBirth || "";
-      const country = profile.country || "Haiti";
       const phone = profile.phone || "";
       const addressLine1 = bodyAddressLine1 || kycDoc?.addressLine1 || profile.city || "";
+
+      if (!firstName || !lastName) {
+        return res.status(400).json({ message: "First name and last name are required. Please complete your profile." });
+      }
+      if (!dob) {
+        return res.status(400).json({ message: "Date of birth is required for card verification." });
+      }
+      if (!phone) {
+        return res.status(400).json({ message: "Phone number is required for card verification." });
+      }
 
       // Compress KYC images server-side — Strowallet rejects images > 2 MB
       const [compressedIdImage, compressedSelfie] = await Promise.all([
