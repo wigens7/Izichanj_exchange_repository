@@ -399,6 +399,23 @@ function UserRow({ user, onUpdateBalance, isPending }: { user: any; onUpdateBala
   });
 
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [showStrowalletModal, setShowStrowalletModal] = useState(false);
+  const [strowalletInput, setStrowalletInput] = useState(user.strowalletCustomerId || "");
+
+  const setStrowalletMutation = useMutation({
+    mutationFn: async (customerId: string) => {
+      const res = await apiRequest("PATCH", `/api/admin/users/${user.id}/strowallet-customer-id`, { strowalletCustomerId: customerId });
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Strowallet ID saved", description: `Customer ID set for ${user.fullName}.` });
+      setShowStrowalletModal(false);
+      qc.invalidateQueries({ queryKey: ["/api/admin/users"] });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
+  });
 
   return (
     <>
@@ -543,6 +560,16 @@ function UserRow({ user, onUpdateBalance, isPending }: { user: any; onUpdateBala
               {grantEditMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Pencil className="w-3 h-3 mr-1" />}
               {user.canEditProfile ? "Revoke Edit" : "Grant Edit"}
             </Button>
+            <Button
+              variant={user.strowalletCustomerId ? "default" : "outline"}
+              size="sm"
+              onClick={() => setShowStrowalletModal(true)}
+              data-testid={`button-set-strowallet-${user.id}`}
+              title="Set or update Strowallet Customer ID"
+            >
+              <CreditCard className="w-3 h-3 mr-1" />
+              {user.strowalletCustomerId ? "Update Strowallet" : "Set Strowallet"}
+            </Button>
             {!confirmDelete ? (
               <Button variant="destructive" size="sm" onClick={() => setConfirmDelete(true)} disabled={user.role === "admin"} data-testid={`button-delete-user-${user.id}`}>
                 <Trash2 className="w-3 h-3 mr-1" />
@@ -642,6 +669,62 @@ function UserRow({ user, onUpdateBalance, isPending }: { user: any; onUpdateBala
             </div>
           </TableCell>
         </TableRow>
+      )}
+      {/* Modal for setting Strowallet Customer ID */}
+      {showStrowalletModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <Card className="w-full max-w-sm mx-4">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <CreditCard className="w-5 h-5" />
+                Set Strowallet Customer ID
+              </CardTitle>
+              <p className="text-xs text-muted-foreground mt-1">{user.fullName} ({user.email})</p>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">Customer ID</label>
+                <Input
+                  placeholder="e.g. 12345678"
+                  value={strowalletInput}
+                  onChange={(e) => setStrowalletInput(e.target.value)}
+                  data-testid={`input-strowallet-id-${user.id}`}
+                />
+              </div>
+              {user.strowalletCustomerId && (
+                <p className="text-xs text-muted-foreground bg-muted/50 p-2 rounded">
+                  Current ID: <span className="font-mono font-medium">{user.strowalletCustomerId}</span>
+                </p>
+              )}
+              <div className="flex gap-2">
+                <Button
+                  onClick={() => {
+                    if (strowalletInput.trim()) {
+                      setStrowalletMutation.mutate(strowalletInput.trim());
+                    }
+                  }}
+                  disabled={setStrowalletMutation.isPending || !strowalletInput.trim()}
+                  className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white"
+                  data-testid={`button-save-strowallet-id-${user.id}`}
+                >
+                  {setStrowalletMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-2" /> : null}
+                  Save
+                </Button>
+                <Button
+                  onClick={() => {
+                    setShowStrowalletModal(false);
+                    setStrowalletInput(user.strowalletCustomerId || "");
+                  }}
+                  variant="outline"
+                  className="flex-1"
+                  data-testid={`button-cancel-strowallet-id-${user.id}`}
+                >
+                  Cancel
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
       )}
     </>
   );

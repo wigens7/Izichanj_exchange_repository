@@ -1295,6 +1295,39 @@ export async function registerRoutes(
     }
   });
 
+  app.patch("/api/admin/users/:id/strowallet-customer-id", isAuthenticated, isAdmin, async (req: any, res) => {
+    try {
+      const profileId = Number(req.params.id);
+      const profile = await storage.getProfile(profileId);
+      if (!profile) return res.status(404).json({ message: "User not found" });
+
+      const { strowalletCustomerId } = req.body;
+      if (!strowalletCustomerId || typeof strowalletCustomerId !== "string" || !strowalletCustomerId.trim()) {
+        return res.status(400).json({ message: "Strowallet Customer ID is required" });
+      }
+
+      const customerId = strowalletCustomerId.trim();
+      await storage.updateProfile(profileId, { strowalletCustomerId: customerId });
+
+      console.log(`[ADMIN] Set Strowallet ID for ${profile.email}:`, customerId);
+
+      // Telegram notification
+      sendTelegramMessage(
+        `✅ <b>Strowallet ID Set by Admin</b>\n\n` +
+        `👤 <b>Name:</b> ${profile.fullName}\n` +
+        `📧 <b>Email:</b> ${profile.email}\n` +
+        `🆔 <b>User ID:</b> ${profile.referenceId || profile.id}\n` +
+        `🏦 <b>Strowallet ID:</b> <code>${customerId}</code>\n\n` +
+        `💳 User can now create virtual Visa cards.`
+      ).catch(() => {});
+
+      res.json({ success: true, strowalletCustomerId: customerId });
+    } catch (e: any) {
+      console.error("Admin set Strowallet ID error:", e);
+      res.status(500).json({ message: e.message || "Internal Error" });
+    }
+  });
+
   app.patch(api.admin.approveDeposit.path, isAuthenticated, isAdmin, async (req: any, res) => {
     const deposit = await storage.updateDepositStatus(Number(req.params.id), "approved");
     const profile = await storage.getProfile(deposit.profileId);
