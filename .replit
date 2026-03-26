@@ -40,3 +40,9 @@ waitForPort = 5000
 
 [agent]
 integrations = ["javascript_object_storage:2.0.0", "javascript_log_in_with_replit:2.0.0"]
+
+[userenv]
+
+[userenv.shared]
+COMPANY_MONCASH_PHONE = "+50949397949"
+COMPANY_NATCASH_PHONE = "+50955602114"

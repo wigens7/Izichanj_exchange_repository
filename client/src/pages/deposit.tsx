@@ -319,11 +319,14 @@ export default function DepositPage() {
         <Button
           variant={depositMethod === "moncash" ? "default" : "outline"}
           onClick={() => setDepositMethod("moncash")}
-          className="flex-1"
+          className="flex-1 relative"
           data-testid="button-method-moncash"
         >
           <Smartphone className="w-4 h-4 mr-2" />
           {t.deposit.methodMoncash}
+          <Badge variant="secondary" className="absolute -top-2 -right-2 text-[10px] px-1.5 h-5 flex items-center" data-testid="badge-manual-deposit">
+            Manual
+          </Badge>
         </Button>
       </div>
 

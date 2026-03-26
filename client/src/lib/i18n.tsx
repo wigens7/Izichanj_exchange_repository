@@ -84,7 +84,7 @@ const translations = {
       manualSubmitting: "Submitting...",
       manualSuccess: "Deposit Submitted!",
       manualSuccessDesc: "Your deposit is under review. It will be credited within 24 hours after verification.",
-      manualWarning: "Warning: Submitting fraudulent proof is a serious violation and will result in permanent account suspension and legal action.",
+      manualWarning: "⚠️ Warning: Your account will be frozen after 3 failed or fraudulent deposit attempts. Submitting fake payment proof is a serious violation and may result in permanent account suspension and legal action.",
       manualUsdtEquiv: "USDT equivalent at current rate",
     },
     withdraw: {
@@ -440,7 +440,7 @@ const translations = {
       manualSubmitting: "Envoi en cours...",
       manualSuccess: "Dépôt soumis !",
       manualSuccessDesc: "Votre dépôt est en cours d'examen. Il sera crédité dans les 24 heures.",
-      manualWarning: "Avertissement : La soumission de preuves frauduleuses est une violation grave et entraînera la suspension permanente du compte.",
+      manualWarning: "⚠️ Avertissement : Votre compte sera gelé après 3 tentatives échouées ou frauduleuses. La soumission de fausses preuves de paiement est une violation grave et peut entraîner la suspension permanente du compte.",
       manualUsdtEquiv: "Équivalent USDT au taux actuel",
     },
     withdraw: {
@@ -796,7 +796,7 @@ const translations = {
       manualSubmitting: "Ap soumèt...",
       manualSuccess: "Depo Soumèt!",
       manualSuccessDesc: "Depo ou a anba revizyon. Li pral kreditye nan 24 èdtan.",
-      manualWarning: "Avètisman: Soumèt prèv fo se yon vyolasyon grav epi pral mennen nan sispansyon pèmanan kont ou.",
+      manualWarning: "⚠️ Avètisman: Kont ou a pral jele apre 3 tantativ echwe oswa fode. Soumèt prèv peman fo se yon vyolasyon grav epi pral mennen nan sispansyon pèmanan kont ou.",
       manualUsdtEquiv: "Ekivalan USDT nan to kouran",
     },
     withdraw: {
