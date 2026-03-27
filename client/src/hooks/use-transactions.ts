@@ -67,7 +67,16 @@ export function useCreateWithdrawal() {
   const { toast } = useToast();
 
   return useMutation({
-    mutationFn: async (data: { amount: string; trcAddress: string; pin: string }) => {
+    mutationFn: async (data: {
+      amount: string;
+      currency: string;
+      trcAddress?: string;
+      pin?: string;
+      withdrawMethod?: string;
+      phoneNumber?: string;
+      qrCodeUrl?: string;
+      otp?: string;
+    }) => {
       const res = await apiRequest(api.withdrawals.create.method, api.withdrawals.create.path, data);
       if (!res.ok) {
         const body = await res.json().catch(() => ({ message: "Failed to create withdrawal" }));
@@ -78,7 +87,7 @@ export function useCreateWithdrawal() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [api.withdrawals.list.path] });
       queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
-      toast({ title: "Withdrawal Submitted", description: "Your withdrawal is under review. Processing takes 15–60 minutes." });
+      toast({ title: "Withdrawal Submitted", description: "Your withdrawal is under review and will be processed shortly." });
     },
     onError: (err: Error) => {
       toast({ title: "Withdrawal Failed", description: err.message, variant: "destructive" });

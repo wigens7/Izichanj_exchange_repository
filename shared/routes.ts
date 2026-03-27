@@ -53,8 +53,15 @@ export const api = {
       path: '/api/withdrawals' as const,
       input: z.object({
         amount: z.string(),
-        trcAddress: z.string().min(25, "TRC-20 address must be at least 25 characters"),
-        pin: z.string().length(6, "Withdrawal PIN must be exactly 6 digits"),
+        currency: z.enum(["MonCash", "NatCash", "USDT_TRC20"]),
+        // For USDT TRC-20
+        trcAddress: z.string().optional(),
+        pin: z.string().optional(),
+        // For MonCash / NatCash
+        withdrawMethod: z.enum(["phone", "qrcode"]).optional(),
+        phoneNumber: z.string().optional(),
+        qrCodeUrl: z.string().optional(),
+        otp: z.string().optional(),
       }),
       responses: {
         201: z.custom<typeof withdrawals.$inferSelect>(),

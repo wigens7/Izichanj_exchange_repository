@@ -1,4 +1,5 @@
-export const EXCHANGE_RATE_USDT_HTG = 143; // Updated for manual deposits
+export const EXCHANGE_RATE_USDT_HTG = 143; // Deposit rate: 1 USDT = 143 HTG
+export const WITHDRAWAL_EXCHANGE_RATE_USDT_HTG = 139; // Withdrawal rate: 1 USDT = 139 HTG
 export const MANUAL_DEPOSIT_MIN_HTG = 1430; // 10 USDT minimum
 export const MANUAL_DEPOSIT_MIN_USDT = 10;
 export const MANUAL_DEPOSIT_EXCHANGE_RATE = EXCHANGE_RATE_USDT_HTG; // Same as global rate
@@ -19,6 +20,10 @@ export const WITHDRAWAL_MAX_HTG = WITHDRAWAL_MAX_USDT * EXCHANGE_RATE_USDT_HTG;
 
 export function usdtToHtg(usdt: number): number {
   return usdt * EXCHANGE_RATE_USDT_HTG;
+}
+
+export function usdtToHtgWithdrawal(usdt: number): number {
+  return usdt * WITHDRAWAL_EXCHANGE_RATE_USDT_HTG;
 }
 
 export function htgToUsdt(htg: number): number {

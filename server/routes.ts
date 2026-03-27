@@ -9,7 +9,7 @@ import { setupAuth, isAuthenticated } from "./auth";
 import { registerObjectStorageRoutes } from "./replit_integrations/object_storage";
 import crypto from "crypto";
 import bcrypt from "bcryptjs";
-import { WITHDRAWAL_MIN_USDT, WITHDRAWAL_MAX_USDT, WITHDRAWAL_FEE_USDT, usdtToHtg, htgToUsdt, formatHtg, WITHDRAWAL_MIN_HTG, WITHDRAWAL_MAX_HTG, EXCHANGE_RATE_USDT_HTG, NETWORK_FEE_CONFIG, MANUAL_DEPOSIT_MIN_HTG, MANUAL_DEPOSIT_MIN_USDT, MANUAL_DEPOSIT_EXCHANGE_RATE } from "@shared/constants";
+import { WITHDRAWAL_MIN_USDT, WITHDRAWAL_MAX_USDT, WITHDRAWAL_FEE_USDT, WITHDRAWAL_EXCHANGE_RATE_USDT_HTG, usdtToHtg, usdtToHtgWithdrawal, htgToUsdt, formatHtg, WITHDRAWAL_MIN_HTG, WITHDRAWAL_MAX_HTG, EXCHANGE_RATE_USDT_HTG, NETWORK_FEE_CONFIG, MANUAL_DEPOSIT_MIN_HTG, MANUAL_DEPOSIT_MIN_USDT, MANUAL_DEPOSIT_EXCHANGE_RATE } from "@shared/constants";
 import { generateReceiptPDF, generateAdjustmentReceiptPDF } from "./receipt";
 import { ensureKycImageSize } from "./image-compress";
 import { deposits, profiles, virtualCards } from "@shared/schema";
@@ -1018,81 +1018,84 @@ export async function registerRoutes(
       }
 
       const parsed = api.withdrawals.create.input.parse(req.body);
-
-      // Validate withdrawal PIN
-      const withdrawalPinHash = (profile as any).withdrawalPinHash;
-      if (!withdrawalPinHash) {
-        return res.status(403).json({ message: "You must set a 6-digit withdrawal PIN before making withdrawals. Go to Security settings to set it up." });
-      }
-      const validPin = await bcrypt.compare(parsed.pin, withdrawalPinHash);
-      if (!validPin) return res.status(401).json({ message: "Incorrect withdrawal PIN" });
-
-      // Validate TRC-20 address
-      if (!parsed.trcAddress || parsed.trcAddress.trim().length < 25) {
-        return res.status(400).json({ message: "Invalid TRC-20 wallet address" });
-      }
-
       const amountUsdt = parseFloat(parsed.amount);
       if (isNaN(amountUsdt) || amountUsdt <= 0) return res.status(400).json({ message: "Invalid amount" });
+      if (amountUsdt < WITHDRAWAL_MIN_USDT) return res.status(400).json({ message: `Minimum withdrawal is ${WITHDRAWAL_MIN_USDT} USDT` });
+      if (amountUsdt > WITHDRAWAL_MAX_USDT) return res.status(400).json({ message: `Maximum withdrawal per day is ${WITHDRAWAL_MAX_USDT.toLocaleString()} USDT` });
 
-      if (amountUsdt < WITHDRAWAL_MIN_USDT) {
-        return res.status(400).json({ message: `Minimum withdrawal is ${WITHDRAWAL_MIN_USDT} USDT` });
-      }
-      if (amountUsdt > WITHDRAWAL_MAX_USDT) {
-        return res.status(400).json({ message: `Limit retrè chak jou a se ${WITHDRAWAL_MAX_USDT.toLocaleString()} USDT.` });
-      }
-
-      const totalDeducted = amountUsdt + WITHDRAWAL_FEE_USDT;
       const currentBalance = parseFloat(profile.balance || "0");
-      if (currentBalance < totalDeducted) {
-        return res.status(400).json({ message: `Insufficient balance. You need ${totalDeducted.toFixed(2)} USDT (${amountUsdt.toFixed(2)} + ${WITHDRAWAL_FEE_USDT} fee) but have ${currentBalance.toFixed(2)} USDT.` });
+
+      // ── USDT TRC-20 Withdrawal ──
+      if (parsed.currency === "USDT_TRC20") {
+        const withdrawalPinHash = (profile as any).withdrawalPinHash;
+        if (!withdrawalPinHash) return res.status(403).json({ message: "You must set a 6-digit withdrawal PIN before making USDT withdrawals. Go to Security settings to set it up." });
+
+        if (!parsed.pin || !/^\d{6}$/.test(parsed.pin)) return res.status(400).json({ message: "6-digit withdrawal PIN is required" });
+        const validPin = await bcrypt.compare(parsed.pin, withdrawalPinHash);
+        if (!validPin) return res.status(401).json({ message: "Incorrect withdrawal PIN" });
+
+        if (!parsed.trcAddress || parsed.trcAddress.trim().length < 25) return res.status(400).json({ message: "Invalid TRC-20 wallet address" });
+
+        const totalDeducted = amountUsdt + WITHDRAWAL_FEE_USDT;
+        if (currentBalance < totalDeducted) return res.status(400).json({ message: `Insufficient balance. You need ${totalDeducted.toFixed(2)} USDT (${amountUsdt.toFixed(2)} + ${WITHDRAWAL_FEE_USDT} fee) but have ${currentBalance.toFixed(2)} USDT.` });
+
+        await storage.updateProfileBalance(profile.id, currentBalance - totalDeducted);
+
+        const withdrawal = await storage.createWithdrawal({
+          amount: parsed.amount,
+          currency: "USDT_TRC20" as any,
+          trcAddress: parsed.trcAddress.trim(),
+          fee: WITHDRAWAL_FEE_USDT.toString(),
+          profileId: profile.id,
+        } as any);
+
+        const admins = await storage.getAllProfiles();
+        for (const admin of admins.filter(a => a.role === "admin")) {
+          await storage.createNotification({ profileId: admin.id, type: "custom_message", title: "🔔 New USDT TRC-20 Withdrawal", message: `${profile.fullName} requested ${amountUsdt.toFixed(2)} USDT (+ ${WITHDRAWAL_FEE_USDT} fee) to TRC-20: ${parsed.trcAddress.trim()}` });
+        }
+        await storage.createNotification({ profileId: profile.id, type: "withdrawal_approved" as any, title: "Withdrawal Under Review", message: `Your withdrawal of ${amountUsdt.toFixed(2)} USDT (fee: ${WITHDRAWAL_FEE_USDT}) to ${parsed.trcAddress.trim()} is under review. Processing: 15–60 min.` });
+        sendTelegramMessage(`💸 <b>New USDT TRC-20 Withdrawal</b>\n\n👤 ${profile.fullName}\n📧 ${profile.email}\n💵 <b>Amount:</b> ${amountUsdt.toFixed(2)} USDT\n💰 <b>Fee:</b> ${WITHDRAWAL_FEE_USDT} USDT\n💳 <b>Total:</b> ${(amountUsdt + WITHDRAWAL_FEE_USDT).toFixed(2)} USDT\n🔑 <b>TRC-20:</b> <code>${parsed.trcAddress.trim()}</code>\n\n⏳ Awaiting admin approval.`).catch(() => {});
+
+        return res.status(201).json(withdrawal);
       }
 
-      // Deduct amount + fee from balance immediately
-      const newBalance = currentBalance - totalDeducted;
-      await storage.updateProfileBalance(profile.id, newBalance);
+      // ── MonCash / NatCash Withdrawal ──
+      if (parsed.currency === "MonCash" || parsed.currency === "NatCash") {
+        if (!parsed.withdrawMethod) return res.status(400).json({ message: "Withdrawal method is required (phone or qrcode)" });
+        if (parsed.withdrawMethod === "phone" && (!parsed.phoneNumber || parsed.phoneNumber.length < 8)) return res.status(400).json({ message: "Phone number is required (min 8 digits)" });
+        if (parsed.withdrawMethod === "qrcode" && !parsed.qrCodeUrl) return res.status(400).json({ message: "QR code image is required for QR code withdrawal" });
+        if (!parsed.otp) return res.status(400).json({ message: "OTP is required" });
 
-      const withdrawal = await storage.createWithdrawal({
-        amount: parsed.amount,
-        currency: "MonCash" as any, // placeholder; trcAddress marks this as USDT TRC-20
-        trcAddress: parsed.trcAddress.trim(),
-        fee: WITHDRAWAL_FEE_USDT.toString(),
-        profileId: profile.id,
-      } as any);
+        const validOtp = await storage.getValidOtp(profile.id, parsed.otp);
+        if (!validOtp) return res.status(401).json({ message: "Invalid or expired OTP" });
+        await storage.markOtpVerified(validOtp.id);
 
-      // Notify admin in-app
-      const wAdmins = await storage.getAllProfiles();
-      for (const admin of wAdmins.filter(a => a.role === "admin")) {
-        await storage.createNotification({
-          profileId: admin.id,
-          type: "custom_message",
-          title: "🔔 New USDT Withdrawal Request",
-          message: `${profile.fullName} requested a withdrawal of ${amountUsdt.toFixed(2)} USDT (+ ${WITHDRAWAL_FEE_USDT} fee) to TRC-20 address: ${parsed.trcAddress.trim()}`,
-        });
+        if (currentBalance < amountUsdt) return res.status(400).json({ message: `Insufficient balance. Your balance is ${currentBalance.toFixed(2)} USDT.` });
+
+        await storage.updateProfileBalance(profile.id, currentBalance - amountUsdt);
+
+        const htgAmount = usdtToHtgWithdrawal(amountUsdt);
+
+        const withdrawal = await storage.createWithdrawal({
+          amount: parsed.amount,
+          currency: parsed.currency as any,
+          withdrawMethod: parsed.withdrawMethod as any,
+          phoneNumber: parsed.withdrawMethod === "phone" ? parsed.phoneNumber : undefined,
+          qrCodeUrl: parsed.withdrawMethod === "qrcode" ? parsed.qrCodeUrl : undefined,
+          profileId: profile.id,
+        } as any);
+
+        const admins = await storage.getAllProfiles();
+        for (const admin of admins.filter(a => a.role === "admin")) {
+          await storage.createNotification({ profileId: admin.id, type: "custom_message", title: `🔔 New ${parsed.currency} Withdrawal`, message: `${profile.fullName} requested ${amountUsdt.toFixed(2)} USDT → ${formatHtg(htgAmount)} HTG via ${parsed.currency} (${parsed.withdrawMethod === "phone" ? parsed.phoneNumber : "QR Code"})` });
+        }
+        await storage.createNotification({ profileId: profile.id, type: "withdrawal_approved" as any, title: "Withdrawal Under Review", message: `Your ${parsed.currency} withdrawal of ${amountUsdt.toFixed(2)} USDT (${formatHtg(htgAmount)} HTG at 1 USDT = ${WITHDRAWAL_EXCHANGE_RATE_USDT_HTG} HTG) is under review. Processing: 15–20 min.` });
+        sendTelegramMessage(`💸 <b>New ${parsed.currency} Withdrawal</b>\n\n👤 ${profile.fullName}\n📧 ${profile.email}\n💵 <b>Amount:</b> ${amountUsdt.toFixed(2)} USDT → ${formatHtg(htgAmount)} HTG\n📱 <b>Method:</b> ${parsed.withdrawMethod === "phone" ? `Phone (${parsed.phoneNumber})` : "QR Code"}\n📲 <b>Wallet:</b> ${parsed.currency}\n\n⏳ Rate: 1 USDT = ${WITHDRAWAL_EXCHANGE_RATE_USDT_HTG} HTG. Awaiting admin approval.`).catch(() => {});
+
+        return res.status(201).json(withdrawal);
       }
 
-      // In-app notification to user
-      await storage.createNotification({
-        profileId: profile.id,
-        type: "withdrawal_approved" as any,
-        title: "Withdrawal Under Review",
-        message: `Your withdrawal of ${amountUsdt.toFixed(2)} USDT (fee: ${WITHDRAWAL_FEE_USDT} USDT) to ${parsed.trcAddress.trim()} is under review. Processing takes 15–60 minutes.`,
-      });
-
-      // Telegram alert to admin
-      sendTelegramMessage(
-        `💸 <b>New USDT Withdrawal Request</b>\n\n` +
-        `👤 <b>Name:</b> ${profile.fullName}\n` +
-        `📧 <b>Email:</b> ${profile.email}\n` +
-        `🆔 <b>User ID:</b> ${profile.referenceId || profile.id}\n` +
-        `💵 <b>Amount:</b> ${amountUsdt.toFixed(2)} USDT\n` +
-        `💰 <b>Fee:</b> ${WITHDRAWAL_FEE_USDT} USDT\n` +
-        `💳 <b>Total Deducted:</b> ${totalDeducted.toFixed(2)} USDT\n` +
-        `🔑 <b>TRC-20 Address:</b> <code>${parsed.trcAddress.trim()}</code>\n\n` +
-        `⏳ Awaiting admin approval.`
-      ).catch(() => {});
-
-      res.status(201).json(withdrawal);
+      return res.status(400).json({ message: "Invalid withdrawal type" });
     } catch (e) {
       if (e instanceof z.ZodError) return res.status(400).json({ message: e.errors[0].message });
       console.error("[withdrawal create]", e);
