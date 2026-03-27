@@ -1204,10 +1204,14 @@ function WithdrawalsTab() {
                     <Badge variant="outline">{w.currency}</Badge>
                   </TableCell>
                   <TableCell>
-                    <Badge variant="outline">{w.withdrawMethod === "qrcode" ? "QR Code" : "Phone"}</Badge>
+                    <Badge variant="outline">{(w as any).trcAddress ? "USDT TRC-20" : w.withdrawMethod === "qrcode" ? "QR Code" : "Phone"}</Badge>
                   </TableCell>
-                  <TableCell className="font-mono text-sm">
-                    {w.withdrawMethod === "qrcode" ? (
+                  <TableCell className="font-mono text-xs max-w-[180px]">
+                    {(w as any).trcAddress ? (
+                      <span className="text-orange-600 dark:text-orange-400 break-all" data-testid={`text-trc-address-${w.id}`} title={(w as any).trcAddress}>
+                        {(w as any).trcAddress.slice(0, 10)}...{(w as any).trcAddress.slice(-6)}
+                      </span>
+                    ) : w.withdrawMethod === "qrcode" ? (
                       w.qrCodeUrl ? (
                         <a href={w.qrCodeUrl} target="_blank" rel="noopener noreferrer" className="text-primary underline" data-testid={`link-qr-${w.id}`}>View QR</a>
                       ) : "—"

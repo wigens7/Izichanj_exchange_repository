@@ -21,7 +21,7 @@ The application features a modern, secure architecture. The UI/UX is built with 
     - Automated crypto deposits via NOWPayments API for USDT (TRC20/BEP20), with IPN callback for auto-approval.
     - Manual USDT deposit option requiring transaction hash submission.
     - Manual MonCash/NatCash deposit system: User selects wallet, uploads payment screenshot + transaction ID. Reviewed by admin. Duplicate TX ID detection (anti-fraud). Admin sees proof screenshot, rejects with reason (user notified via WhatsApp + in-app). Company phone numbers via `COMPANY_MONCASH_PHONE` and `COMPANY_NATCASH_PHONE` env vars. DB: `proof_image_url` + `rejection_reason` columns on deposits (startup migration).
-- **Withdrawals**: Users can withdraw to local mobile money accounts, with options for phone number or QR code.
+- **Withdrawals**: USDT TRC-20 (Tron network) withdrawals only. Users enter a TRC-20 wallet address and authorize with a separate 6-digit withdrawal PIN. Min 10 USDT, Max 10,000 USDT/day, fixed 2.50 USDT fee (deducted immediately from balance along with the withdrawal amount). Status shown as "Under Review" pending admin approval. Haitian Creole Terms of Service included in the form.
 - **KYC Verification**: Mandatory KYC process involving ID document uploads, selfie, and personal information collection, integrated with Strowallet API. KYC status is managed with admin approval/rejection flows and options for re-submission requests.
 - **P2P Transfers**: Allows users to send USDT to other users via reference ID, email, or phone.
 - **Virtual Cards**: Integration with Strowallet API for virtual Visa cards, enabling users to apply, fund, view details, freeze/unfreeze, and track transactions.

@@ -10,10 +10,12 @@ export const NETWORK_FEE_CONFIG = {
 
 export type NetworkCurrency = keyof typeof NETWORK_FEE_CONFIG;
 
-export const WITHDRAWAL_MIN_HTG = 1000;
-export const WITHDRAWAL_MAX_HTG = 100000;
-export const WITHDRAWAL_MIN_USDT = WITHDRAWAL_MIN_HTG / EXCHANGE_RATE_USDT_HTG;
-export const WITHDRAWAL_MAX_USDT = WITHDRAWAL_MAX_HTG / EXCHANGE_RATE_USDT_HTG;
+export const WITHDRAWAL_MIN_USDT = 10;
+export const WITHDRAWAL_MAX_USDT = 10000;
+export const WITHDRAWAL_FEE_USDT = 2.50;
+// HTG equivalents (kept for backward compat)
+export const WITHDRAWAL_MIN_HTG = WITHDRAWAL_MIN_USDT * EXCHANGE_RATE_USDT_HTG;
+export const WITHDRAWAL_MAX_HTG = WITHDRAWAL_MAX_USDT * EXCHANGE_RATE_USDT_HTG;
 
 export function usdtToHtg(usdt: number): number {
   return usdt * EXCHANGE_RATE_USDT_HTG;

@@ -118,6 +118,25 @@ app.use((req, res, next) => {
     console.warn("[startup migration] frozen_until column skipped:", (e as Error).message);
   }
 
+  // Add withdrawal_pin_hash for 6-digit withdrawal authorization PIN
+  try {
+    await db.execute(sql`ALTER TABLE profiles ADD COLUMN IF NOT EXISTS withdrawal_pin_hash TEXT`);
+    console.log("[startup migration] withdrawal_pin_hash column ensured");
+  } catch (e) {
+    console.warn("[startup migration] withdrawal_pin_hash skipped:", (e as Error).message);
+  }
+
+  // Add trc_address and fee columns to withdrawals for USDT TRC-20 withdrawals
+  try {
+    await db.execute(sql`ALTER TABLE withdrawals ADD COLUMN IF NOT EXISTS trc_address TEXT`);
+    await db.execute(sql`ALTER TABLE withdrawals ADD COLUMN IF NOT EXISTS fee DECIMAL(10,2) DEFAULT 2.50`);
+    // Add USDT_TRC20 to the currency enum
+    await db.execute(sql`ALTER TYPE currency ADD VALUE IF NOT EXISTS 'USDT_TRC20'`);
+    console.log("[startup migration] USDT TRC-20 withdrawal columns ensured");
+  } catch (e) {
+    console.warn("[startup migration] withdrawal TRC-20 columns skipped:", (e as Error).message);
+  }
+
   // Create fraud_rejections table for tracking admin fraud flags
   try {
     await db.execute(sql`

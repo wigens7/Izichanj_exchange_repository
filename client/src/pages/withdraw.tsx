@@ -2,98 +2,63 @@ import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { useCreateWithdrawal, useRequestWithdrawalOtp } from "@/hooks/use-transactions";
+import { useQuery } from "@tanstack/react-query";
+import { useCreateWithdrawal } from "@/hooks/use-transactions";
 import { useUser } from "@/hooks/use-auth";
-import { useUpload } from "@/hooks/use-upload";
 import { useLanguage } from "@/lib/i18n";
-import { EXCHANGE_RATE_USDT_HTG, usdtToHtg, formatHtg, formatUsdt, WITHDRAWAL_MIN_HTG, WITHDRAWAL_MAX_HTG, WITHDRAWAL_MIN_USDT, WITHDRAWAL_MAX_USDT } from "@shared/constants";
+import { formatUsdt, WITHDRAWAL_MIN_USDT, WITHDRAWAL_MAX_USDT, WITHDRAWAL_FEE_USDT } from "@shared/constants";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
-import { Loader2, ShieldAlert, Phone, QrCode, UploadCloud, CheckCircle2, ArrowRight, Ban } from "lucide-react";
+import { Loader2, ShieldAlert, AlertTriangle, Ban, Lock, ArrowRight, Info } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Separator } from "@/components/ui/separator";
 import { Link } from "wouter";
 
 const withdrawSchema = z.object({
-  currency: z.enum(["MonCash", "NatCash"]),
   amount: z.string()
     .refine((val) => !isNaN(Number(val)) && Number(val) > 0, "Amount must be greater than 0")
-    .refine((val) => {
-      const htg = usdtToHtg(Number(val));
-      return htg >= WITHDRAWAL_MIN_HTG;
-    }, `Minimum withdrawal is ${formatHtg(WITHDRAWAL_MIN_HTG)} HTG (~${WITHDRAWAL_MIN_USDT.toFixed(2)} USDT)`)
-    .refine((val) => {
-      const htg = usdtToHtg(Number(val));
-      return htg <= WITHDRAWAL_MAX_HTG;
-    }, `Maximum withdrawal is ${formatHtg(WITHDRAWAL_MAX_HTG)} HTG (~${WITHDRAWAL_MAX_USDT.toFixed(2)} USDT)`),
-  withdrawMethod: z.enum(["phone", "qrcode"]),
-  phoneNumber: z.string().optional(),
-  qrCodeUrl: z.string().optional(),
-  otp: z.string().length(6, "OTP must be 6 digits"),
-}).refine((data) => {
-  if (data.withdrawMethod === "phone") return data.phoneNumber && data.phoneNumber.length >= 8;
-  return true;
-}, { message: "Phone number required (min 8 digits)", path: ["phoneNumber"] })
-.refine((data) => {
-  if (data.withdrawMethod === "qrcode") return !!data.qrCodeUrl;
-  return true;
-}, { message: "QR code image required", path: ["qrCodeUrl"] });
+    .refine((val) => Number(val) >= WITHDRAWAL_MIN_USDT, `Minimum withdrawal is ${WITHDRAWAL_MIN_USDT} USDT`)
+    .refine((val) => Number(val) <= WITHDRAWAL_MAX_USDT, `Maximum is ${WITHDRAWAL_MAX_USDT.toLocaleString()} USDT per day`),
+  trcAddress: z.string().min(25, "Please enter a valid TRC-20 wallet address (min 25 characters)"),
+  pin: z.string().length(6, "Withdrawal PIN must be exactly 6 digits").regex(/^\d{6}$/, "PIN must contain only digits"),
+  tosAgreed: z.boolean().refine((v) => v === true, "You must agree to the Terms of Service"),
+});
 
 export default function WithdrawPage() {
   const { data: user } = useUser();
   const { mutate: createWithdrawal, isPending: isWithdrawPending } = useCreateWithdrawal();
-  const { mutate: requestOtp, isPending: isOtpPending } = useRequestWithdrawalOtp();
-  const { uploadFile, isUploading } = useUpload();
-  const [otpSent, setOtpSent] = useState(false);
-  const [qrUploaded, setQrUploaded] = useState(false);
   const { t } = useLanguage();
   const kycVerified = user?.kycStatus === "verified";
+  const userBalance = parseFloat(user?.balance || "0");
+
+  const { data: pinStatus } = useQuery<{ hasWithdrawalPin: boolean }>({
+    queryKey: ["/api/security/withdrawal-pin/status"],
+    enabled: !!user && kycVerified,
+  });
 
   const form = useForm<z.infer<typeof withdrawSchema>>({
     resolver: zodResolver(withdrawSchema),
-    defaultValues: { currency: "MonCash", amount: "", withdrawMethod: "phone", phoneNumber: "", qrCodeUrl: "", otp: "" },
+    defaultValues: { amount: "", trcAddress: "", pin: "", tosAgreed: false },
   });
 
-  const withdrawMethod = form.watch("withdrawMethod");
   const watchedAmount = form.watch("amount");
   const amountUsdt = parseFloat(watchedAmount) || 0;
-  const amountHtg = usdtToHtg(amountUsdt);
-  const userBalance = parseFloat(user?.balance || "0");
-  const exceedsBalance = amountUsdt > 0 && amountUsdt > userBalance;
-
-  const handleRequestOtp = () => {
-    requestOtp(undefined, {
-        onSuccess: () => setOtpSent(true)
-    });
-  };
-
-  const handleQrUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const res = await uploadFile(file);
-    if (res) {
-      form.setValue("qrCodeUrl", res.objectPath);
-      setQrUploaded(true);
-    }
-  };
+  const totalDeducted = amountUsdt + WITHDRAWAL_FEE_USDT;
+  const exceedsBalance = amountUsdt > 0 && totalDeducted > userBalance;
 
   const onSubmit = (data: z.infer<typeof withdrawSchema>) => {
     createWithdrawal({
-        amount: data.amount,
-        currency: data.currency,
-        withdrawMethod: data.withdrawMethod,
-        phoneNumber: data.withdrawMethod === "phone" ? data.phoneNumber : undefined,
-        qrCodeUrl: data.withdrawMethod === "qrcode" ? data.qrCodeUrl : undefined,
-        otp: data.otp
-    }, {
-        onSuccess: () => {
-            form.reset();
-            setOtpSent(false);
-            setQrUploaded(false);
-        }
+      amount: data.amount,
+      trcAddress: data.trcAddress,
+      pin: data.pin,
+    } as any, {
+      onSuccess: () => {
+        form.reset();
+      },
     });
   };
 
@@ -129,215 +94,179 @@ export default function WithdrawPage() {
         </Alert>
       )}
 
+      {kycVerified && pinStatus && !pinStatus.hasWithdrawalPin && (
+        <Alert className="bg-orange-500/8 border-orange-300 dark:border-orange-800/50 text-orange-900 dark:text-orange-300" data-testid="alert-no-withdrawal-pin">
+          <Lock className="h-4 w-4" />
+          <AlertTitle>{t.withdraw.noPinSet}</AlertTitle>
+          <AlertDescription>
+            {t.withdraw.noPinAction}{" "}
+            <Link href="/security" className="underline font-medium">{t.withdraw.goToSecurity}</Link>
+          </AlertDescription>
+        </Alert>
+      )}
+
       <Card className={!kycVerified ? "opacity-50 pointer-events-none" : ""}>
         <CardHeader className="pb-3">
-          <CardTitle className="text-base">{t.withdraw.title}</CardTitle>
-          <CardDescription className="text-xs">{t.withdraw.subtitle}</CardDescription>
+          <CardTitle className="text-base flex items-center gap-2">
+            <ArrowRight className="w-4 h-4 text-primary" />
+            {t.withdraw.title}
+          </CardTitle>
+          <CardDescription className="text-xs">
+            {t.withdraw.minLimit}: {WITHDRAWAL_MIN_USDT} USDT &nbsp;·&nbsp; {t.withdraw.maxLimit}: {WITHDRAWAL_MAX_USDT.toLocaleString()} USDT &nbsp;·&nbsp; {t.withdraw.fee}: {WITHDRAWAL_FEE_USDT} USDT
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <FormField
-                  control={form.control}
-                  name="currency"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>{t.withdraw.walletType}</FormLabel>
-                      <Select onValueChange={field.onChange} defaultValue={field.value}>
-                        <FormControl>
-                          <SelectTrigger data-testid="select-currency">
-                            <SelectValue placeholder={t.withdraw.selectWallet} />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          <SelectItem value="MonCash">MonCash</SelectItem>
-                          <SelectItem value="NatCash">NatCash</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="amount"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>{t.withdraw.amountUsdt}</FormLabel>
-                      <FormControl>
-                        <Input type="number" step="0.01" placeholder="10.00" data-testid="input-amount" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </div>
+            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-5">
 
-              <div className="p-2.5 bg-muted/40 rounded-md text-xs text-muted-foreground flex items-center justify-between flex-wrap gap-2" data-testid="withdrawal-limits-info">
-                <span>Min: {formatHtg(WITHDRAWAL_MIN_HTG)} HTG (~{WITHDRAWAL_MIN_USDT.toFixed(2)} USDT)</span>
-                <span>Max: {formatHtg(WITHDRAWAL_MAX_HTG)} HTG (~{WITHDRAWAL_MAX_USDT.toFixed(2)} USDT)</span>
-              </div>
-
-              {amountUsdt > 0 && (
-                <div className="p-3 bg-emerald-500/5 dark:bg-emerald-500/8 rounded-md border border-emerald-200 dark:border-emerald-800/40" data-testid="conversion-preview">
-                  <div className="flex items-center justify-between flex-wrap gap-2 text-sm mb-1">
-                    <span className="text-muted-foreground">{t.withdraw.exchangeRate}</span>
-                    <span className="font-medium text-xs">1 USDT = {EXCHANGE_RATE_USDT_HTG.toFixed(2)} HTG</span>
-                  </div>
-                  <div className="flex items-center justify-between flex-wrap gap-2">
-                    <span className="text-sm text-muted-foreground">{t.withdraw.youWillReceive}</span>
-                    <div className="flex items-center gap-2">
-                      <span className="font-semibold" data-testid="text-usdt-amount">{formatUsdt(amountUsdt)} USDT</span>
-                      <ArrowRight className="w-3 h-3 text-muted-foreground" />
-                      <span className="font-bold text-emerald-600 dark:text-emerald-400" data-testid="text-htg-amount">{formatHtg(amountHtg)} HTG</span>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {exceedsBalance && (
-                <div className="p-2.5 bg-destructive/8 dark:bg-destructive/15 rounded-md border border-destructive/30 text-sm text-destructive dark:text-red-400" data-testid="alert-insufficient-balance">
-                  Insufficient balance. Your available balance is {formatUsdt(userBalance)} USDT ({formatHtg(usdtToHtg(userBalance))} HTG).
-                </div>
-              )}
-
-              <div className="space-y-2.5">
-                <Label className="text-sm">{t.withdraw.withdrawMethod}</Label>
-                <div className="grid grid-cols-2 gap-3">
-                  <button
-                    type="button"
-                    onClick={() => { form.setValue("withdrawMethod", "phone"); setQrUploaded(false); form.setValue("qrCodeUrl", ""); }}
-                    className={`flex items-center gap-2.5 p-3 rounded-md border-2 transition-colors text-left ${
-                      withdrawMethod === "phone"
-                        ? "border-primary bg-primary/5"
-                        : "border-border"
-                    }`}
-                    data-testid="button-method-phone"
-                  >
-                    <Phone className={`w-4 h-4 ${withdrawMethod === "phone" ? "text-primary" : "text-muted-foreground"}`} />
-                    <span className={`text-sm font-medium ${withdrawMethod === "phone" ? "text-primary" : "text-muted-foreground"}`}>
-                      {t.withdraw.phoneMethod}
-                    </span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => { form.setValue("withdrawMethod", "qrcode"); form.setValue("phoneNumber", ""); }}
-                    className={`flex items-center gap-2.5 p-3 rounded-md border-2 transition-colors text-left ${
-                      withdrawMethod === "qrcode"
-                        ? "border-primary bg-primary/5"
-                        : "border-border"
-                    }`}
-                    data-testid="button-method-qrcode"
-                  >
-                    <QrCode className={`w-4 h-4 ${withdrawMethod === "qrcode" ? "text-primary" : "text-muted-foreground"}`} />
-                    <span className={`text-sm font-medium ${withdrawMethod === "qrcode" ? "text-primary" : "text-muted-foreground"}`}>
-                      {t.withdraw.qrCodeMethod}
-                    </span>
-                  </button>
-                </div>
-              </div>
-
-              {withdrawMethod === "phone" && (
-                <FormField
-                  control={form.control}
-                  name="phoneNumber"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>{t.withdraw.phoneNumber}</FormLabel>
-                      <FormControl>
-                        <Input placeholder="3700-0000" data-testid="input-phone" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              )}
-
-              {withdrawMethod === "qrcode" && (
-                <div className="space-y-2">
-                  <Label>{t.withdraw.qrCodeUpload}</Label>
-                  <p className="text-xs text-muted-foreground">{t.withdraw.qrCodeDescription}</p>
-                  <div className="border-2 border-dashed border-border rounded-md p-5 text-center">
-                    {qrUploaded ? (
-                      <div className="flex items-center justify-center gap-2 text-sm text-emerald-600 dark:text-emerald-400" data-testid="status-qr-uploaded">
-                        <CheckCircle2 className="w-4 h-4" />
-                        {t.withdraw.qrCodeUploaded}
-                      </div>
-                    ) : (
-                      <>
-                        <Input
-                          type="file" accept="image/*" className="hidden" id="qr-upload"
-                          data-testid="input-qr-upload"
-                          onChange={handleQrUpload}
-                          disabled={isUploading}
-                        />
-                        <label htmlFor="qr-upload" className="cursor-pointer block">
-                          {isUploading ? (
-                            <Loader2 className="w-6 h-6 mx-auto text-muted-foreground mb-1.5 animate-spin" />
-                          ) : (
-                            <UploadCloud className="w-6 h-6 mx-auto text-muted-foreground mb-1.5" />
-                          )}
-                          <span className="text-sm text-primary font-medium">
-                            {isUploading ? t.profile.uploading : t.withdraw.clickToUploadQr}
-                          </span>
-                        </label>
-                      </>
-                    )}
-                  </div>
-                  {form.formState.errors.qrCodeUrl && (
-                    <p className="text-sm text-destructive">{form.formState.errors.qrCodeUrl.message}</p>
-                  )}
-                </div>
-              )}
-
-              <div className="p-3.5 bg-muted/50 rounded-md space-y-3 border border-border">
-                <div className="flex items-center justify-between flex-wrap gap-2">
-                  <span className="text-sm font-medium">{t.withdraw.verification}</span>
-                  {!otpSent && (
-                    <Button 
-                      type="button" variant="outline" size="sm"
-                      onClick={handleRequestOtp}
-                      disabled={isOtpPending}
-                      data-testid="button-send-otp"
-                    >
-                      {isOtpPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
-                      {t.withdraw.sendOtp}
-                    </Button>
-                  )}
-                </div>
-                
-                {otpSent && (
-                  <FormField
-                    control={form.control}
-                    name="otp"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>{t.withdraw.enterCode}</FormLabel>
-                        <FormControl>
-                          <Input 
-                            placeholder="123456" maxLength={6} 
-                            className="tracking-widest"
-                            data-testid="input-otp"
-                            {...field} 
-                          />
-                        </FormControl>
-                        <FormMessage />
-                        <p className="text-xs text-muted-foreground">{t.withdraw.codeSent}</p>
-                      </FormItem>
-                    )}
-                  />
+              {/* Amount */}
+              <FormField
+                control={form.control}
+                name="amount"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t.withdraw.amountUsdt}</FormLabel>
+                    <FormControl>
+                      <Input
+                        type="number"
+                        step="0.01"
+                        min={WITHDRAWAL_MIN_USDT}
+                        max={WITHDRAWAL_MAX_USDT}
+                        placeholder={`${WITHDRAWAL_MIN_USDT}.00`}
+                        data-testid="input-amount"
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
                 )}
+              />
+
+              {/* Fee / Total summary */}
+              {amountUsdt > 0 && (
+                <div className="p-3 bg-muted/40 rounded-md border border-border space-y-2 text-sm" data-testid="withdrawal-summary">
+                  <div className="flex justify-between text-muted-foreground">
+                    <span>{t.withdraw.amountUsdt}</span>
+                    <span className="font-medium text-foreground">{formatUsdt(amountUsdt)} USDT</span>
+                  </div>
+                  <div className="flex justify-between text-muted-foreground">
+                    <span>{t.withdraw.fee}</span>
+                    <span className="font-medium text-orange-600 dark:text-orange-400">− {WITHDRAWAL_FEE_USDT.toFixed(2)} USDT</span>
+                  </div>
+                  <Separator />
+                  <div className="flex justify-between font-semibold">
+                    <span>{t.withdraw.totalDeducted}</span>
+                    <span className={exceedsBalance ? "text-destructive" : "text-primary"} data-testid="text-total-deducted">
+                      {formatUsdt(totalDeducted)} USDT
+                    </span>
+                  </div>
+                  {exceedsBalance && (
+                    <p className="text-xs text-destructive" data-testid="alert-insufficient-balance">
+                      Insufficient balance. Your balance: {formatUsdt(userBalance)} USDT
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {/* TRC-20 Address */}
+              <FormField
+                control={form.control}
+                name="trcAddress"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t.withdraw.trcAddress}</FormLabel>
+                    <FormControl>
+                      <Input
+                        placeholder={t.withdraw.trcAddressPlaceholder}
+                        className="font-mono text-sm"
+                        data-testid="input-trc-address"
+                        {...field}
+                      />
+                    </FormControl>
+                    <p className="text-xs text-amber-700 dark:text-amber-400 flex items-start gap-1 mt-1">
+                      <AlertTriangle className="w-3 h-3 mt-0.5 shrink-0" />
+                      {t.withdraw.trcAddressHint}
+                    </p>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              {/* ToS (Haitian Creole) */}
+              <div className="p-3.5 rounded-md border border-border bg-muted/30 space-y-2">
+                <p className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+                  <Info className="w-3.5 h-3.5 text-muted-foreground" />
+                  {t.withdraw.tosTitle}
+                </p>
+                <p className="text-xs text-muted-foreground leading-relaxed" data-testid="text-tos">
+                  {t.withdraw.tosText}
+                </p>
+                <FormField
+                  control={form.control}
+                  name="tosAgreed"
+                  render={({ field }) => (
+                    <FormItem className="flex items-center gap-2 space-y-0 mt-2">
+                      <FormControl>
+                        <Checkbox
+                          checked={field.value}
+                          onCheckedChange={field.onChange}
+                          data-testid="checkbox-tos"
+                        />
+                      </FormControl>
+                      <Label className="text-xs font-normal cursor-pointer">{t.withdraw.tosAgree}</Label>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
               </div>
 
-              <Button 
-                type="submit" 
-                className="w-full primary-gradient" 
-                disabled={isWithdrawPending || !otpSent || exceedsBalance || (withdrawMethod === "qrcode" && !qrUploaded)}
+              {/* Withdrawal PIN */}
+              <FormField
+                control={form.control}
+                name="pin"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="flex items-center gap-1.5">
+                      <Lock className="w-3.5 h-3.5 text-muted-foreground" />
+                      {t.withdraw.withdrawalPin}
+                    </FormLabel>
+                    <FormControl>
+                      <Input
+                        type="password"
+                        inputMode="numeric"
+                        placeholder={t.withdraw.withdrawalPinPlaceholder}
+                        maxLength={6}
+                        className="tracking-widest text-center text-lg"
+                        data-testid="input-withdrawal-pin"
+                        {...field}
+                        onChange={(e) => field.onChange(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                      />
+                    </FormControl>
+                    <p className="text-xs text-muted-foreground">{t.withdraw.withdrawalPinHint}</p>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <Button
+                type="submit"
+                className="w-full primary-gradient"
+                disabled={isWithdrawPending || exceedsBalance || (pinStatus !== undefined && !pinStatus.hasWithdrawalPin)}
                 data-testid="button-confirm-withdrawal"
               >
-                {isWithdrawPending ? <Loader2 className="animate-spin mr-2" /> : t.withdraw.confirmWithdrawal}
+                {isWithdrawPending ? (
+                  <><Loader2 className="animate-spin mr-2 w-4 h-4" /> Processing...</>
+                ) : (
+                  t.withdraw.confirmWithdrawal
+                )}
               </Button>
+
+              {pinStatus !== undefined && !pinStatus.hasWithdrawalPin && (
+                <p className="text-xs text-center text-muted-foreground">
+                  {t.withdraw.noPinSet}{" "}
+                  <Link href="/security" className="text-primary underline">{t.withdraw.goToSecurity}</Link>
+                </p>
+              )}
             </form>
           </Form>
         </CardContent>

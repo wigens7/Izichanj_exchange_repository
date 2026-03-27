@@ -67,17 +67,18 @@ export function useCreateWithdrawal() {
   const { toast } = useToast();
 
   return useMutation({
-    mutationFn: async (data: { amount: string; currency: string; withdrawMethod: string; phoneNumber?: string; qrCodeUrl?: string; otp: string }) => {
+    mutationFn: async (data: { amount: string; trcAddress: string; pin: string }) => {
       const res = await apiRequest(api.withdrawals.create.method, api.withdrawals.create.path, data);
       if (!res.ok) {
-        if (res.status === 401) throw new Error("Invalid OTP");
-        throw new Error("Failed to create withdrawal");
+        const body = await res.json().catch(() => ({ message: "Failed to create withdrawal" }));
+        throw new Error(body.message || "Failed to create withdrawal");
       }
       return res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [api.withdrawals.list.path] });
-      toast({ title: "Withdrawal Requested", description: "Validated within 15-20 minutes." });
+      queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
+      toast({ title: "Withdrawal Submitted", description: "Your withdrawal is under review. Processing takes 15–60 minutes." });
     },
     onError: (err: Error) => {
       toast({ title: "Withdrawal Failed", description: err.message, variant: "destructive" });

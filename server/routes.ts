@@ -9,7 +9,7 @@ import { setupAuth, isAuthenticated } from "./auth";
 import { registerObjectStorageRoutes } from "./replit_integrations/object_storage";
 import crypto from "crypto";
 import bcrypt from "bcryptjs";
-import { WITHDRAWAL_MIN_USDT, WITHDRAWAL_MAX_USDT, usdtToHtg, htgToUsdt, formatHtg, WITHDRAWAL_MIN_HTG, WITHDRAWAL_MAX_HTG, EXCHANGE_RATE_USDT_HTG, NETWORK_FEE_CONFIG, MANUAL_DEPOSIT_MIN_HTG, MANUAL_DEPOSIT_MIN_USDT, MANUAL_DEPOSIT_EXCHANGE_RATE } from "@shared/constants";
+import { WITHDRAWAL_MIN_USDT, WITHDRAWAL_MAX_USDT, WITHDRAWAL_FEE_USDT, usdtToHtg, htgToUsdt, formatHtg, WITHDRAWAL_MIN_HTG, WITHDRAWAL_MAX_HTG, EXCHANGE_RATE_USDT_HTG, NETWORK_FEE_CONFIG, MANUAL_DEPOSIT_MIN_HTG, MANUAL_DEPOSIT_MIN_USDT, MANUAL_DEPOSIT_EXCHANGE_RATE } from "@shared/constants";
 import { generateReceiptPDF, generateAdjustmentReceiptPDF } from "./receipt";
 import { ensureKycImageSize } from "./image-compress";
 import { deposits, profiles, virtualCards } from "@shared/schema";
@@ -1011,75 +1011,91 @@ export async function registerRoutes(
     try {
       const profile = await getProfileFromReq(req);
       if (!profile) return res.status(401).json({ message: "Unauthorized" });
-      if (profile.isBanned) {
-        return res.status(403).json({ message: "Your account is temporarily banned or disabled. Please contact customer support." });
-      }
+      if (profile.isBanned) return res.status(403).json({ message: "Your account is temporarily banned or disabled. Please contact customer support." });
       if (profile.kycStatus !== "verified") return res.status(403).json({ message: "KYC verification required before making withdrawals" });
+      if ((profile as any).frozenUntil && new Date((profile as any).frozenUntil) > new Date()) {
+        return res.status(403).json({ message: "Your account is temporarily frozen due to suspicious activity. Contact support." });
+      }
+
       const parsed = api.withdrawals.create.input.parse(req.body);
 
-      if (parsed.withdrawMethod === "phone" && (!parsed.phoneNumber || parsed.phoneNumber.length < 8)) {
-        return res.status(400).json({ message: "Phone number is required for phone withdrawal" });
+      // Validate withdrawal PIN
+      const withdrawalPinHash = (profile as any).withdrawalPinHash;
+      if (!withdrawalPinHash) {
+        return res.status(403).json({ message: "You must set a 6-digit withdrawal PIN before making withdrawals. Go to Security settings to set it up." });
       }
-      if (parsed.withdrawMethod === "qrcode" && !parsed.qrCodeUrl) {
-        return res.status(400).json({ message: "QR code image is required for QR code withdrawal" });
+      const validPin = await bcrypt.compare(parsed.pin, withdrawalPinHash);
+      if (!validPin) return res.status(401).json({ message: "Incorrect withdrawal PIN" });
+
+      // Validate TRC-20 address
+      if (!parsed.trcAddress || parsed.trcAddress.trim().length < 25) {
+        return res.status(400).json({ message: "Invalid TRC-20 wallet address" });
       }
 
       const amountUsdt = parseFloat(parsed.amount);
-      if (isNaN(amountUsdt) || amountUsdt <= 0) {
-        return res.status(400).json({ message: "Invalid amount" });
+      if (isNaN(amountUsdt) || amountUsdt <= 0) return res.status(400).json({ message: "Invalid amount" });
+
+      if (amountUsdt < WITHDRAWAL_MIN_USDT) {
+        return res.status(400).json({ message: `Minimum withdrawal is ${WITHDRAWAL_MIN_USDT} USDT` });
+      }
+      if (amountUsdt > WITHDRAWAL_MAX_USDT) {
+        return res.status(400).json({ message: `Limit retrè chak jou a se ${WITHDRAWAL_MAX_USDT.toLocaleString()} USDT.` });
       }
 
-      const amountHtg = usdtToHtg(amountUsdt);
-      if (amountHtg < WITHDRAWAL_MIN_HTG) {
-        return res.status(400).json({ message: `Minimum withdrawal is ${formatHtg(WITHDRAWAL_MIN_HTG)} HTG (${WITHDRAWAL_MIN_USDT.toFixed(2)} USDT)` });
-      }
-      if (amountHtg > WITHDRAWAL_MAX_HTG) {
-        return res.status(400).json({ message: `Maximum withdrawal is ${formatHtg(WITHDRAWAL_MAX_HTG)} HTG (${WITHDRAWAL_MAX_USDT.toFixed(2)} USDT)` });
-      }
-
+      const totalDeducted = amountUsdt + WITHDRAWAL_FEE_USDT;
       const currentBalance = parseFloat(profile.balance || "0");
-      if (amountUsdt > currentBalance) {
-        return res.status(400).json({ message: `Insufficient balance. Your current balance is ${currentBalance.toFixed(2)} USDT` });
+      if (currentBalance < totalDeducted) {
+        return res.status(400).json({ message: `Insufficient balance. You need ${totalDeducted.toFixed(2)} USDT (${amountUsdt.toFixed(2)} + ${WITHDRAWAL_FEE_USDT} fee) but have ${currentBalance.toFixed(2)} USDT.` });
       }
 
-      const validOtp = await storage.getValidOtp(profile.id, parsed.otp);
-      if (!validOtp) return res.status(401).json({ message: "Invalid OTP" });
-      await storage.markOtpVerified(validOtp.id);
-
-      const { otp, ...rest } = parsed;
-
-      const newBalance = currentBalance - amountUsdt;
+      // Deduct amount + fee from balance immediately
+      const newBalance = currentBalance - totalDeducted;
       await storage.updateProfileBalance(profile.id, newBalance);
 
-      const withdrawal = await storage.createWithdrawal({ ...rest, profileId: profile.id });
+      const withdrawal = await storage.createWithdrawal({
+        amount: parsed.amount,
+        currency: "MonCash" as any, // placeholder; trcAddress marks this as USDT TRC-20
+        trcAddress: parsed.trcAddress.trim(),
+        fee: WITHDRAWAL_FEE_USDT.toString(),
+        profileId: profile.id,
+      } as any);
 
       // Notify admin in-app
       const wAdmins = await storage.getAllProfiles();
-      const wAdminList = wAdmins.filter(a => a.role === "admin");
-      for (const admin of wAdminList) {
+      for (const admin of wAdmins.filter(a => a.role === "admin")) {
         await storage.createNotification({
           profileId: admin.id,
           type: "custom_message",
-          title: "New Withdrawal Request",
-          message: `User ${profile.fullName} has submitted a new withdrawal request of ${parsed.amount} USDT.`,
+          title: "🔔 New USDT Withdrawal Request",
+          message: `${profile.fullName} requested a withdrawal of ${amountUsdt.toFixed(2)} USDT (+ ${WITHDRAWAL_FEE_USDT} fee) to TRC-20 address: ${parsed.trcAddress.trim()}`,
         });
       }
 
-      // Telegram notification
-      const htgAmount = usdtToHtg(amountUsdt).toLocaleString("fr-HT", { minimumFractionDigits: 2 });
+      // In-app notification to user
+      await storage.createNotification({
+        profileId: profile.id,
+        type: "withdrawal_approved" as any,
+        title: "Withdrawal Under Review",
+        message: `Your withdrawal of ${amountUsdt.toFixed(2)} USDT (fee: ${WITHDRAWAL_FEE_USDT} USDT) to ${parsed.trcAddress.trim()} is under review. Processing takes 15–60 minutes.`,
+      });
+
+      // Telegram alert to admin
       sendTelegramMessage(
-        `💸 <b>New Withdrawal Request</b>\n\n` +
+        `💸 <b>New USDT Withdrawal Request</b>\n\n` +
         `👤 <b>Name:</b> ${profile.fullName}\n` +
         `📧 <b>Email:</b> ${profile.email}\n` +
         `🆔 <b>User ID:</b> ${profile.referenceId || profile.id}\n` +
-        `💵 <b>Amount:</b> ${amountUsdt.toFixed(2)} USDT → ${htgAmount} HTG\n` +
-        `📱 <b>Method:</b> ${parsed.withdrawMethod === "phone" ? `Phone (${parsed.phoneNumber})` : "QR Code"}\n\n` +
-        `⏳ Awaiting admin approval in the panel.`
+        `💵 <b>Amount:</b> ${amountUsdt.toFixed(2)} USDT\n` +
+        `💰 <b>Fee:</b> ${WITHDRAWAL_FEE_USDT} USDT\n` +
+        `💳 <b>Total Deducted:</b> ${totalDeducted.toFixed(2)} USDT\n` +
+        `🔑 <b>TRC-20 Address:</b> <code>${parsed.trcAddress.trim()}</code>\n\n` +
+        `⏳ Awaiting admin approval.`
       ).catch(() => {});
 
       res.status(201).json(withdrawal);
     } catch (e) {
       if (e instanceof z.ZodError) return res.status(400).json({ message: e.errors[0].message });
+      console.error("[withdrawal create]", e);
       res.status(500).json({ message: "Internal Error" });
     }
   });
@@ -2924,6 +2940,62 @@ export async function registerRoutes(
       res.json({ message: "PIN removed successfully" });
     } catch (e) {
       console.error("PIN remove error:", e);
+      res.status(500).json({ message: "Internal Error" });
+    }
+  });
+
+  // ======= Withdrawal PIN (6-digit authorization PIN) =======
+  app.get("/api/security/withdrawal-pin/status", isAuthenticated, async (req: any, res) => {
+    try {
+      const profile = await getProfileFromReq(req);
+      if (!profile) return res.status(401).json({ message: "Unauthorized" });
+      res.json({ hasWithdrawalPin: !!(profile as any).withdrawalPinHash });
+    } catch (e) {
+      res.status(500).json({ message: "Internal Error" });
+    }
+  });
+
+  app.post("/api/security/withdrawal-pin/set", isAuthenticated, async (req: any, res) => {
+    try {
+      const profile = await getProfileFromReq(req);
+      if (!profile) return res.status(401).json({ message: "Unauthorized" });
+
+      const { pin, password } = req.body;
+      if (!pin || !password) return res.status(400).json({ message: "PIN and password are required" });
+      if (!/^\d{6}$/.test(pin)) return res.status(400).json({ message: "Withdrawal PIN must be exactly 6 digits" });
+
+      const validPassword = await bcrypt.compare(password, profile.passwordHash);
+      if (!validPassword) return res.status(400).json({ message: "Incorrect password" });
+
+      const withdrawalPinHash = await bcrypt.hash(pin, 10);
+      await db.update(profiles).set({ withdrawalPinHash } as any).where(eq(profiles.id, profile.id));
+      res.json({ message: "Withdrawal PIN set successfully" });
+    } catch (e) {
+      console.error("Withdrawal PIN set error:", e);
+      res.status(500).json({ message: "Internal Error" });
+    }
+  });
+
+  app.post("/api/security/withdrawal-pin/change", isAuthenticated, async (req: any, res) => {
+    try {
+      const profile = await getProfileFromReq(req);
+      if (!profile) return res.status(401).json({ message: "Unauthorized" });
+
+      const { currentPin, newPin } = req.body;
+      if (!currentPin || !newPin) return res.status(400).json({ message: "Current and new PINs required" });
+      if (!/^\d{6}$/.test(newPin)) return res.status(400).json({ message: "New withdrawal PIN must be exactly 6 digits" });
+
+      const currentPinHash = (profile as any).withdrawalPinHash;
+      if (!currentPinHash) return res.status(400).json({ message: "No withdrawal PIN set. Please set one first." });
+
+      const validPin = await bcrypt.compare(currentPin, currentPinHash);
+      if (!validPin) return res.status(400).json({ message: "Incorrect current PIN" });
+
+      const withdrawalPinHash = await bcrypt.hash(newPin, 10);
+      await db.update(profiles).set({ withdrawalPinHash } as any).where(eq(profiles.id, profile.id));
+      res.json({ message: "Withdrawal PIN changed successfully" });
+    } catch (e) {
+      console.error("Withdrawal PIN change error:", e);
       res.status(500).json({ message: "Internal Error" });
     }
   });
