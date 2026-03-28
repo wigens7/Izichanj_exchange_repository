@@ -1016,6 +1016,7 @@ function CardItem({ card }: { card: VirtualCard }) {
               )}
             </div>
           ) : (
+          <>
           <div className="flex items-center gap-2 flex-wrap">
             <Button
               variant="outline"
@@ -1122,7 +1123,8 @@ function CardItem({ card }: { card: VirtualCard }) {
               </div>
             </div>
           )}
-          
+          </>
+          )}
         </div>
       </CardContent>
     </Card>
