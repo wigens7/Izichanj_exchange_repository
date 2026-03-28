@@ -1,4 +1,4 @@
-import { profiles, deposits, withdrawals, kycDocuments, otps, webauthnCredentials, notifications, supportConversations, supportMessages, virtualCards, blacklistedUsers, p2pTransfers, loginLogs, fraudRejections, type Profile, type Deposit, type InsertDeposit, type Withdrawal, type InsertWithdrawal, type KycDocument, type WebAuthnCredential, type Notification, type SupportConversation, type SupportMessage, type VirtualCard, type BlacklistedUser, type P2PTransfer, type LoginLog, type FraudRejection } from "@shared/schema";
+import { profiles, deposits, withdrawals, kycDocuments, otps, webauthnCredentials, notifications, supportConversations, supportMessages, virtualCards, blacklistedUsers, p2pTransfers, loginLogs, fraudRejections, cardTransactions, type Profile, type Deposit, type InsertDeposit, type Withdrawal, type InsertWithdrawal, type KycDocument, type WebAuthnCredential, type Notification, type SupportConversation, type SupportMessage, type VirtualCard, type BlacklistedUser, type P2PTransfer, type LoginLog, type FraudRejection, type CardTransaction } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, ne, lt, sql, or, ilike } from "drizzle-orm";
 import crypto from "crypto";
@@ -81,6 +81,8 @@ export interface IStorage {
   updateVirtualCard(id: number, data: Partial<VirtualCard>): Promise<VirtualCard>;
   deleteVirtualCard(id: number, profileId: number): Promise<VirtualCard | undefined>;
   getAllPendingVirtualCards(): Promise<any[]>;
+  createCardTransaction(data: { cardId: number; profileId: number; type: string; amount: string; currency?: string; description?: string }): Promise<CardTransaction>;
+  getCardTransactions(cardId: number, profileId: number): Promise<CardTransaction[]>;
 
   createP2PTransfer(data: { senderProfileId: number; receiverProfileId: number; amount: string; note?: string; transactionId?: string }): Promise<P2PTransfer>;
   getP2PTransfers(profileId: number): Promise<P2PTransfer[]>;
@@ -522,6 +524,24 @@ export class DatabaseStorage implements IStorage {
       .where(and(eq(virtualCards.id, id), eq(virtualCards.profileId, profileId)))
       .returning();
     return card;
+  }
+
+  async createCardTransaction(data: { cardId: number; profileId: number; type: string; amount: string; currency?: string; description?: string }): Promise<CardTransaction> {
+    const [tx] = await db.insert(cardTransactions).values({
+      cardId: data.cardId,
+      profileId: data.profileId,
+      type: data.type,
+      amount: data.amount,
+      currency: data.currency ?? "USD",
+      description: data.description ?? null,
+    }).returning();
+    return tx;
+  }
+
+  async getCardTransactions(cardId: number, profileId: number): Promise<CardTransaction[]> {
+    return db.select().from(cardTransactions)
+      .where(and(eq(cardTransactions.cardId, cardId), eq(cardTransactions.profileId, profileId)))
+      .orderBy(desc(cardTransactions.createdAt));
   }
 
   async getProfileByReferenceId(referenceId: string): Promise<Profile | undefined> {

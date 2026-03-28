@@ -266,6 +266,19 @@ export const fraudRejections = pgTable("fraud_rejections", {
 });
 export type FraudRejection = typeof fraudRejections.$inferSelect;
 
+// Local log for card funding events (Strowallet API only returns spending txns)
+export const cardTransactions = pgTable("card_transactions", {
+  id: serial("id").primaryKey(),
+  cardId: integer("card_id").references(() => virtualCards.id).notNull(),
+  profileId: integer("profile_id").references(() => profiles.id).notNull(),
+  type: text("type").notNull(), // "fund" | "creation"
+  amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
+  currency: text("currency").default("USD").notNull(),
+  description: text("description"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+export type CardTransaction = typeof cardTransactions.$inferSelect;
+
 export const profileInfoSchema = z.object({
   firstName: z.string().min(1, "First name is required"),
   lastName: z.string().min(1, "Last name is required"),

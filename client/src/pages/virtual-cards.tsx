@@ -869,23 +869,30 @@ function CardItem({ card }: { card: VirtualCard }) {
                   </div>
                 ) : transactionsQuery.data && transactionsQuery.data.length > 0 ? (
                   transactionsQuery.data.map((tx: any, idx: number) => {
-                    const merchant = tx.merchant_name || tx.merchant || tx.narration || tx.description || tx.reference || "Unknown Merchant";
+                    const isLocal = tx.source === "local";
+                    const isFunding = isLocal && (tx.type === "fund" || tx.type === "creation");
+
+                    const merchant = isFunding
+                      ? (tx.description || "Card Funding")
+                      : (tx.merchant_name || tx.merchant || tx.narration || tx.description || tx.reference || "Unknown Merchant");
                     const amount = Number(tx.amount || tx.transaction_amount || 0);
                     const currency = (tx.currency || tx.transaction_currency || "USD").toUpperCase();
                     const rawStatus = (tx.status || tx.transaction_status || "").toLowerCase();
-                    const isCredit = (tx.type || tx.transaction_type || "").toLowerCase() === "credit" || rawStatus === "reversal";
-                    const statusOk = rawStatus === "success" || rawStatus === "successful" || rawStatus === "completed" || rawStatus === "approved";
-                    const statusFail = rawStatus === "failed" || rawStatus === "declined" || rawStatus === "rejected" || rawStatus === "error";
-                    const rawDate = tx.created_at || tx.date || tx.transaction_date || tx.createdAt || null;
-                    const txDate = rawDate ? (() => { try { return format(new Date(rawDate), "MMM d, yyyy · h:mm a"); } catch { return rawDate; } })() : null;
+                    const isCredit = isFunding || (tx.type || tx.transaction_type || "").toLowerCase() === "credit" || rawStatus === "reversal";
+                    const statusOk = isLocal ? true : (rawStatus === "success" || rawStatus === "successful" || rawStatus === "completed" || rawStatus === "approved");
+                    const statusFail = !isLocal && (rawStatus === "failed" || rawStatus === "declined" || rawStatus === "rejected" || rawStatus === "error");
+                    const rawDate = tx.date || tx.created_at || tx.transaction_date || tx.createdAt || null;
+                    const txDate = rawDate ? (() => { try { return format(new Date(rawDate), "MMM d, yyyy · h:mm a"); } catch { return String(rawDate); } })() : null;
 
                     return (
-                      <div key={idx} className="flex items-start gap-3 p-3 rounded-lg hover:bg-muted/40 transition-colors border border-transparent hover:border-border/50">
+                      <div key={tx.id ?? idx} className="flex items-start gap-3 p-3 rounded-lg hover:bg-muted/40 transition-colors border border-transparent hover:border-border/50">
                         {/* Icon */}
                         <div className={`mt-0.5 flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center ${isCredit ? "bg-emerald-100 dark:bg-emerald-900/40" : "bg-slate-100 dark:bg-slate-800"}`}>
-                          {isCredit
-                            ? <ArrowDownLeft className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-                            : <Store className="w-4 h-4 text-slate-500 dark:text-slate-400" />}
+                          {isFunding
+                            ? <DollarSign className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                            : isCredit
+                              ? <ArrowDownLeft className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                              : <Store className="w-4 h-4 text-slate-500 dark:text-slate-400" />}
                         </div>
 
                         {/* Details */}

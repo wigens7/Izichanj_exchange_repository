@@ -4124,6 +4124,16 @@ export async function registerRoutes(
         balance: (currentCardBalance + fundAmount).toString(),
       });
 
+      // Log local funding transaction so it appears in card history
+      await storage.createCardTransaction({
+        cardId: card.id,
+        profileId: profile.id,
+        type: "fund",
+        amount: fundAmount.toFixed(2),
+        currency: "USD",
+        description: `Card funded — $${fundAmount.toFixed(2)} USD added`,
+      });
+
       res.json(updatedCard);
     } catch (e: any) {
       console.error("Fund card error:", e);
@@ -4229,7 +4239,17 @@ export async function registerRoutes(
 
       if (!response.ok) {
         console.log("[CARD TX] HTTP error:", response.status, JSON.stringify(data));
-        return res.json([]);
+        // Still return local transactions even if Strowallet fails
+        const localOnly = await storage.getCardTransactions(card.id, profile.id);
+        return res.json(localOnly.map((lt) => ({
+          id: `local_${lt.id}`,
+          type: lt.type,
+          amount: lt.amount,
+          currency: lt.currency,
+          description: lt.description,
+          date: lt.createdAt,
+          source: "local",
+        })));
       }
 
       // Log full structure for debugging (first time only)
@@ -4261,7 +4281,7 @@ export async function registerRoutes(
         Array.isArray(data.transactions) ? data.transactions :
         findArray(data) ?? [];
 
-      console.log("[CARD TX] Found", txList.length, "transactions");
+      console.log("[CARD TX] Found", txList.length, "Strowallet transactions");
 
       // Auto-sync balance from the transaction response if provided
       const latestBalance = data.response?.balance ?? data.balance ?? null;
@@ -4269,7 +4289,30 @@ export async function registerRoutes(
         await storage.updateVirtualCard(card.id, { balance: String(latestBalance) });
       }
 
-      res.json(txList);
+      // Merge local funding records (from our DB) with Strowallet spending records
+      const localTxns = await storage.getCardTransactions(card.id, profile.id);
+      const localFormatted = localTxns.map((lt) => ({
+        id: `local_${lt.id}`,
+        type: lt.type,
+        amount: lt.amount,
+        currency: lt.currency,
+        description: lt.description,
+        date: lt.createdAt,
+        source: "local",
+      }));
+
+      // Normalise Strowallet transactions so they have a consistent shape
+      const stroFormatted = txList.map((t: any) => ({ ...t, source: "strowallet" }));
+
+      // Merge and sort: newest first
+      const merged = [...localFormatted, ...stroFormatted].sort((a: any, b: any) => {
+        const da = new Date(a.date || a.created_at || a.transaction_date || 0).getTime();
+        const db2 = new Date(b.date || b.created_at || b.transaction_date || 0).getTime();
+        return db2 - da;
+      });
+
+      console.log("[CARD TX] Returning", merged.length, "total (local:", localFormatted.length, "+ strowallet:", stroFormatted.length, ")");
+      res.json(merged);
     } catch (e: any) {
       console.error("Card transactions error:", e);
       res.status(500).json({ message: e.message || "Internal Error" });

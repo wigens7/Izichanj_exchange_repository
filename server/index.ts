@@ -153,6 +153,25 @@ app.use((req, res, next) => {
     console.warn("[startup migration] fraud_rejections table skipped:", (e as Error).message);
   }
 
+  // Create card_transactions table for local funding records
+  try {
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS card_transactions (
+        id SERIAL PRIMARY KEY,
+        card_id INTEGER NOT NULL REFERENCES virtual_cards(id),
+        profile_id INTEGER NOT NULL REFERENCES profiles(id),
+        type TEXT NOT NULL,
+        amount DECIMAL(10,2) NOT NULL,
+        currency TEXT DEFAULT 'USD' NOT NULL,
+        description TEXT,
+        created_at TIMESTAMP DEFAULT NOW() NOT NULL
+      )
+    `);
+    console.log("[startup migration] card_transactions table ensured");
+  } catch (e) {
+    console.warn("[startup migration] card_transactions table skipped:", (e as Error).message);
+  }
+
   // Fix: reset any card marked "active" that still has a pending_ card_id (never really issued)
   try {
     const fixed = await db.execute(sql`
