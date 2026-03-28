@@ -38,6 +38,7 @@ import {
   CheckCircle2,
   XOctagon,
   AlertTriangle,
+  Trash2,
 } from "lucide-react";
 import { format } from "date-fns";
 import type { VirtualCard } from "@shared/schema";
@@ -509,7 +510,6 @@ function CardItem({ card }: { card: VirtualCard }) {
   const [showFund, setShowFund] = useState(false);
   const [fundAmount, setFundAmount] = useState("");
   const [copied, setCopied] = useState<string | null>(null);
-  const [confirmCancel, setConfirmCancel] = useState(false);
 
   const isPending = card.status === "pending";
   const isFrozen = card.status === "frozen";
@@ -527,15 +527,45 @@ function CardItem({ card }: { card: VirtualCard }) {
 
   const [showTxModal, setShowTxModal] = useState(false);
   const [localBalance, setLocalBalance] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   const transactionsQuery = useQuery<any[]>({
     queryKey: ["/api/cards", card.id, "transactions"],
     queryFn: async () => {
       const res = await fetch(`/api/cards/${card.id}/transactions`, { credentials: "include" });
       if (!res.ok) throw new Error("Failed to fetch transactions");
-      return res.json();
+      const data = await res.json();
+      return Array.isArray(data) ? data : [];
     },
     enabled: showTxModal,
+    staleTime: 0,
+    refetchOnMount: true,
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch(`/api/cards/${card.id}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.message || "Delete failed");
+      return data as { success: boolean; refunded: number };
+    },
+    onSuccess: (data) => {
+      if (data.refunded > 0) {
+        toast({ title: "Card deleted — refund issued", description: `$${data.refunded.toFixed(2)} USDT has been refunded to your balance.` });
+      } else {
+        toast({ title: "Card deleted", description: "The virtual card has been removed from your account." });
+      }
+      qc.invalidateQueries({ queryKey: ["/api/cards"] });
+      qc.invalidateQueries({ queryKey: ["/api/user"] });
+      setConfirmDelete(false);
+    },
+    onError: (err: Error) => {
+      toast({ title: "Delete failed", description: err.message, variant: "destructive" });
+      setConfirmDelete(false);
+    },
   });
 
   const refreshBalanceMutation = useMutation({
@@ -636,30 +666,6 @@ function CardItem({ card }: { card: VirtualCard }) {
     },
   });
 
-  const cancelMutation = useMutation({
-    mutationFn: async () => {
-      const res = await fetch(`/api/cards/${card.id}/cancel`, {
-        method: "POST",
-        credentials: "include",
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data?.message || "Cancel failed");
-      return data;
-    },
-    onSuccess: (data: any) => {
-      toast({
-        title: "Card cancelled — refund issued",
-        description: `$${Number(data.refunded || 20).toFixed(2)} USDT has been instantly returned to your balance.`,
-      });
-      qc.invalidateQueries({ queryKey: ["/api/cards"] });
-      qc.invalidateQueries({ queryKey: ["/api/user"] });
-      setConfirmCancel(false);
-    },
-    onError: (err: Error) => {
-      toast({ title: "Cancel failed", description: err.message, variant: "destructive" });
-      setConfirmCancel(false);
-    },
-  });
 
   const copyToClipboard = (text: string, label: string) => {
     navigator.clipboard.writeText(text);
@@ -942,7 +948,7 @@ function CardItem({ card }: { card: VirtualCard }) {
                   variant="outline"
                   size="sm"
                   onClick={() => checkStatusMutation.mutate()}
-                  disabled={checkStatusMutation.isPending || userRetryMutation.isPending || cancelMutation.isPending}
+                  disabled={checkStatusMutation.isPending || userRetryMutation.isPending || deleteMutation.isPending}
                   data-testid={`button-check-card-status-${card.id}`}
                 >
                   {checkStatusMutation.isPending ? (
@@ -956,7 +962,7 @@ function CardItem({ card }: { card: VirtualCard }) {
                   variant="outline"
                   size="sm"
                   onClick={() => userRetryMutation.mutate()}
-                  disabled={checkStatusMutation.isPending || userRetryMutation.isPending || cancelMutation.isPending}
+                  disabled={checkStatusMutation.isPending || userRetryMutation.isPending || deleteMutation.isPending}
                   data-testid={`button-user-retry-card-${card.id}`}
                 >
                   {userRetryMutation.isPending ? (
@@ -967,17 +973,17 @@ function CardItem({ card }: { card: VirtualCard }) {
                 </Button>
               </div>
 
-              {/* Cancel flow */}
-              {!confirmCancel ? (
+              {/* Delete / Cancel flow */}
+              {!confirmDelete ? (
                 <Button
                   variant="ghost"
                   size="sm"
                   className="w-full text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30"
-                  onClick={() => setConfirmCancel(true)}
-                  disabled={cancelMutation.isPending}
+                  onClick={() => setConfirmDelete(true)}
+                  disabled={deleteMutation.isPending}
                   data-testid={`button-cancel-card-${card.id}`}
                 >
-                  <XCircle className="w-3.5 h-3.5 mr-1.5" />
+                  <Trash2 className="w-3.5 h-3.5 mr-1.5" />
                   Cancel & get $30.00 refund
                 </Button>
               ) : (
@@ -988,18 +994,18 @@ function CardItem({ card }: { card: VirtualCard }) {
                     <Button
                       size="sm"
                       variant="destructive"
-                      onClick={() => cancelMutation.mutate()}
-                      disabled={cancelMutation.isPending}
+                      onClick={() => deleteMutation.mutate()}
+                      disabled={deleteMutation.isPending}
                       className="flex-1"
                       data-testid={`button-confirm-cancel-card-${card.id}`}
                     >
-                      {cancelMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "Yes, cancel & refund"}
+                      {deleteMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "Yes, cancel & refund"}
                     </Button>
                     <Button
                       size="sm"
                       variant="outline"
-                      onClick={() => setConfirmCancel(false)}
-                      disabled={cancelMutation.isPending}
+                      onClick={() => setConfirmDelete(false)}
+                      disabled={deleteMutation.isPending}
                       className="flex-1"
                       data-testid={`button-dismiss-cancel-${card.id}`}
                     >
@@ -1070,8 +1076,53 @@ function CardItem({ card }: { card: VirtualCard }) {
               )}
               {isFrozen ? vc.unfreezeCard : vc.freezeCard}
             </Button>
+
+            {/* Delete card button for active/frozen cards */}
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30"
+              onClick={() => setConfirmDelete(true)}
+              disabled={deleteMutation.isPending}
+              data-testid={`button-delete-card-${card.id}`}
+            >
+              <Trash2 className="w-3.5 h-3.5 mr-1.5" />
+              Delete card
+            </Button>
           </div>
+
+          {/* Delete confirmation panel for active/frozen cards */}
+          {confirmDelete && (
+            <div className="rounded-md border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-950/30 p-3 space-y-2 mt-2">
+              <p className="text-sm text-red-700 dark:text-red-400 font-medium">Delete this virtual card?</p>
+              <p className="text-xs text-muted-foreground">
+                This card will be permanently removed from your account. Since the card has already been issued, <strong>no refund will be provided</strong>. This cannot be undone.
+              </p>
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  variant="destructive"
+                  onClick={() => deleteMutation.mutate()}
+                  disabled={deleteMutation.isPending}
+                  className="flex-1"
+                  data-testid={`button-confirm-delete-card-${card.id}`}
+                >
+                  {deleteMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "Yes, delete permanently"}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setConfirmDelete(false)}
+                  disabled={deleteMutation.isPending}
+                  className="flex-1"
+                  data-testid={`button-dismiss-delete-${card.id}`}
+                >
+                  Keep card
+                </Button>
+              </div>
+            </div>
           )}
+          
         </div>
       </CardContent>
     </Card>

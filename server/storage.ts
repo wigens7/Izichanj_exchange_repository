@@ -1,6 +1,6 @@
 import { profiles, deposits, withdrawals, kycDocuments, otps, webauthnCredentials, notifications, supportConversations, supportMessages, virtualCards, blacklistedUsers, p2pTransfers, loginLogs, fraudRejections, type Profile, type Deposit, type InsertDeposit, type Withdrawal, type InsertWithdrawal, type KycDocument, type WebAuthnCredential, type Notification, type SupportConversation, type SupportMessage, type VirtualCard, type BlacklistedUser, type P2PTransfer, type LoginLog, type FraudRejection } from "@shared/schema";
 import { db } from "./db";
-import { eq, desc, and, lt, sql, or, ilike } from "drizzle-orm";
+import { eq, desc, and, ne, lt, sql, or, ilike } from "drizzle-orm";
 import crypto from "crypto";
 
 export interface IStorage {
@@ -79,6 +79,7 @@ export interface IStorage {
   getVirtualCardById(id: number): Promise<VirtualCard | undefined>;
   getVirtualCardByCardId(cardId: string): Promise<VirtualCard | undefined>;
   updateVirtualCard(id: number, data: Partial<VirtualCard>): Promise<VirtualCard>;
+  deleteVirtualCard(id: number, profileId: number): Promise<VirtualCard | undefined>;
   getAllPendingVirtualCards(): Promise<any[]>;
 
   createP2PTransfer(data: { senderProfileId: number; receiverProfileId: number; amount: string; note?: string; transactionId?: string }): Promise<P2PTransfer>;
@@ -466,7 +467,9 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getVirtualCards(profileId: number): Promise<VirtualCard[]> {
-    return db.select().from(virtualCards).where(eq(virtualCards.profileId, profileId)).orderBy(desc(virtualCards.createdAt));
+    return db.select().from(virtualCards)
+      .where(and(eq(virtualCards.profileId, profileId), ne(virtualCards.status, "cancelled")))
+      .orderBy(desc(virtualCards.createdAt));
   }
 
   async getVirtualCard(id: number, profileId: number): Promise<VirtualCard | undefined> {
@@ -511,6 +514,13 @@ export class DatabaseStorage implements IStorage {
 
   async updateVirtualCard(id: number, data: Partial<VirtualCard>): Promise<VirtualCard> {
     const [card] = await db.update(virtualCards).set(data).where(eq(virtualCards.id, id)).returning();
+    return card;
+  }
+
+  async deleteVirtualCard(id: number, profileId: number): Promise<VirtualCard | undefined> {
+    const [card] = await db.delete(virtualCards)
+      .where(and(eq(virtualCards.id, id), eq(virtualCards.profileId, profileId)))
+      .returning();
     return card;
   }
 

@@ -3847,6 +3847,58 @@ export async function registerRoutes(
     }
   });
 
+  // DELETE /api/cards/:id — user permanently deletes a card from their account
+  // - Pending cards: refund $30 (the card hasn't been issued yet)
+  // - Active/Frozen cards: no refund (card was already issued and used)
+  app.delete("/api/cards/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const profile = await getProfileFromReq(req);
+      if (!profile) return res.status(401).json({ message: "Unauthorized" });
+
+      const cardDbId = Number(req.params.id);
+      const card = await storage.getVirtualCard(cardDbId, profile.id);
+      if (!card) return res.status(404).json({ message: "Card not found" });
+
+      let refunded = 0;
+
+      // Refund for pending cards that haven't been issued yet
+      if (card.status === "pending") {
+        const refundAmount = parseFloat(card.balance || "20") || 20;
+        const currentBalance = parseFloat(profile.balance || "0");
+        await storage.updateProfileBalance(profile.id, currentBalance + refundAmount);
+        refunded = refundAmount;
+
+        await storage.createNotification({
+          profileId: profile.id,
+          type: "custom_message",
+          title: "Virtual Card Deleted — Refund Issued",
+          message: `Your pending virtual card has been deleted and $${refundAmount.toFixed(2)} USDT has been refunded to your balance.`,
+        }).catch(() => {});
+
+        sendTelegramMessage(
+          `🗑️ <b>Pending Card Deleted (User)</b>\n\n` +
+          `👤 ${profile.fullName}\n📧 ${profile.email}\n` +
+          `💵 <b>Refunded:</b> $${refundAmount.toFixed(2)} USDT\n` +
+          `🗂 Card DB ID: #${cardDbId}`
+        ).catch(() => {});
+      } else {
+        sendTelegramMessage(
+          `🗑️ <b>Card Deleted (User)</b>\n\n` +
+          `👤 ${profile.fullName}\n📧 ${profile.email}\n` +
+          `📋 <b>Status was:</b> ${card.status}\n` +
+          `🃏 <b>Last4:</b> ${card.last4 || "N/A"}\n` +
+          `🗂 Card DB ID: #${cardDbId}`
+        ).catch(() => {});
+      }
+
+      await storage.deleteVirtualCard(cardDbId, profile.id);
+      res.json({ success: true, refunded });
+    } catch (e: any) {
+      console.error("[delete card]", e);
+      res.status(500).json({ message: e.message || "Internal Error" });
+    }
+  });
+
   // POST /api/cards/:id/user-retry — user retries Strowallet card creation (no balance re-deduction)
   app.post("/api/cards/:id/user-retry", isAuthenticated, async (req: any, res) => {
     try {
@@ -4173,20 +4225,43 @@ export async function registerRoutes(
       });
 
       const data = await response.json();
-      console.log("[CARD TX] Strowallet response keys:", Object.keys(data || {}));
-      if (!response.ok || data.success === false || data.status === "error" || data.status === false) {
-        console.log("[CARD TX] Error response:", JSON.stringify(data));
+      console.log("[CARD TX] card_id:", card.cardId, "| response keys:", Object.keys(data || {}), "| success:", data?.success, "| status:", data?.status);
+
+      if (!response.ok) {
+        console.log("[CARD TX] HTTP error:", response.status, JSON.stringify(data));
         return res.json([]);
       }
 
-      // Strowallet may return transactions nested in various ways
+      // Log full structure for debugging (first time only)
+      if (data && typeof data === "object") {
+        console.log("[CARD TX] Full response (truncated):", JSON.stringify(data).slice(0, 800));
+      }
+
+      // Don't abort on success=false — Strowallet sometimes returns false even with data
+      // Strowallet may return transactions nested in many different ways
+      function findArray(obj: any, depth = 0): any[] | null {
+        if (depth > 4) return null;
+        if (Array.isArray(obj)) return obj;
+        if (obj && typeof obj === "object") {
+          for (const key of ["transactions", "data", "items", "records", "list", "response"]) {
+            const found = findArray(obj[key], depth + 1);
+            if (found) return found;
+          }
+        }
+        return null;
+      }
+
       const txList =
         Array.isArray(data.response) ? data.response :
         Array.isArray(data.response?.transactions) ? data.response.transactions :
         Array.isArray(data.response?.data) ? data.response.data :
+        Array.isArray(data.response?.data?.transactions) ? data.response.data.transactions :
         Array.isArray(data.data) ? data.data :
+        Array.isArray(data.data?.transactions) ? data.data.transactions :
         Array.isArray(data.transactions) ? data.transactions :
-        [];
+        findArray(data) ?? [];
+
+      console.log("[CARD TX] Found", txList.length, "transactions");
 
       // Auto-sync balance from the transaction response if provided
       const latestBalance = data.response?.balance ?? data.balance ?? null;
