@@ -4504,6 +4504,17 @@ export async function registerRoutes(
       // Deduct balance
       await storage.updateProfileBalance(profile.id, currentBalance - numAmount);
 
+      // Save top-up history to DB
+      await storage.createTopUpTransaction({
+        profileId: profile.id,
+        operatorId: String(operatorId),
+        operatorName: topupData.operatorName || "Unknown",
+        phone,
+        amountUsd: numAmount.toFixed(2),
+        transactionId: topupData.transactionId ? String(topupData.transactionId) : undefined,
+        status: "success",
+      });
+
       // Notify user via WhatsApp
       if (profile.phone) {
         sendWhatsAppNotification(
@@ -4524,6 +4535,18 @@ export async function registerRoutes(
     } catch (e: any) {
       console.error("[RELOADLY][TOPUP_ERROR] Unexpected error (hidden from user):", e.message);
       res.status(500).json({ message: "Une erreur technique est survenue. Veuillez réessayer dans quelques minutes." });
+    }
+  });
+
+  // GET /api/topup/history — user's past top-up transactions
+  app.get("/api/topup/history", isAuthenticated, async (req: any, res) => {
+    try {
+      const profile = await getProfileFromReq(req);
+      if (!profile) return res.status(401).json({ message: "Unauthorized" });
+      const history = await storage.getTopUpTransactions(profile.id);
+      res.json(history);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message || "Internal Error" });
     }
   });
 

@@ -153,6 +153,26 @@ app.use((req, res, next) => {
     console.warn("[startup migration] fraud_rejections table skipped:", (e as Error).message);
   }
 
+  // Create top_up_transactions table for mobile top-up history
+  try {
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS top_up_transactions (
+        id SERIAL PRIMARY KEY,
+        profile_id INTEGER NOT NULL REFERENCES profiles(id),
+        operator_id TEXT NOT NULL,
+        operator_name TEXT NOT NULL,
+        phone TEXT NOT NULL,
+        amount_usd DECIMAL(10,2) NOT NULL,
+        transaction_id TEXT,
+        status TEXT DEFAULT 'success' NOT NULL,
+        created_at TIMESTAMP DEFAULT NOW() NOT NULL
+      )
+    `);
+    console.log("[startup migration] top_up_transactions table ensured");
+  } catch (e) {
+    console.warn("[startup migration] top_up_transactions table skipped:", (e as Error).message);
+  }
+
   // Create card_transactions table for local funding records
   try {
     await db.execute(sql`

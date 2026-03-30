@@ -1,4 +1,4 @@
-import { profiles, deposits, withdrawals, kycDocuments, otps, webauthnCredentials, notifications, supportConversations, supportMessages, virtualCards, blacklistedUsers, p2pTransfers, loginLogs, fraudRejections, cardTransactions, type Profile, type Deposit, type InsertDeposit, type Withdrawal, type InsertWithdrawal, type KycDocument, type WebAuthnCredential, type Notification, type SupportConversation, type SupportMessage, type VirtualCard, type BlacklistedUser, type P2PTransfer, type LoginLog, type FraudRejection, type CardTransaction } from "@shared/schema";
+import { profiles, deposits, withdrawals, kycDocuments, otps, webauthnCredentials, notifications, supportConversations, supportMessages, virtualCards, blacklistedUsers, p2pTransfers, loginLogs, fraudRejections, cardTransactions, topUpTransactions, type Profile, type Deposit, type InsertDeposit, type Withdrawal, type InsertWithdrawal, type KycDocument, type WebAuthnCredential, type Notification, type SupportConversation, type SupportMessage, type VirtualCard, type BlacklistedUser, type P2PTransfer, type LoginLog, type FraudRejection, type CardTransaction, type TopUpTransaction } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, ne, lt, sql, or, ilike } from "drizzle-orm";
 import crypto from "crypto";
@@ -83,6 +83,8 @@ export interface IStorage {
   getAllPendingVirtualCards(): Promise<any[]>;
   createCardTransaction(data: { cardId: number; profileId: number; type: string; amount: string; currency?: string; description?: string }): Promise<CardTransaction>;
   getCardTransactions(cardId: number, profileId: number): Promise<CardTransaction[]>;
+  createTopUpTransaction(data: { profileId: number; operatorId: string; operatorName: string; phone: string; amountUsd: string; transactionId?: string; status?: string }): Promise<TopUpTransaction>;
+  getTopUpTransactions(profileId: number): Promise<TopUpTransaction[]>;
 
   createP2PTransfer(data: { senderProfileId: number; receiverProfileId: number; amount: string; note?: string; transactionId?: string }): Promise<P2PTransfer>;
   getP2PTransfers(profileId: number): Promise<P2PTransfer[]>;
@@ -542,6 +544,26 @@ export class DatabaseStorage implements IStorage {
     return db.select().from(cardTransactions)
       .where(and(eq(cardTransactions.cardId, cardId), eq(cardTransactions.profileId, profileId)))
       .orderBy(desc(cardTransactions.createdAt));
+  }
+
+  async createTopUpTransaction(data: { profileId: number; operatorId: string; operatorName: string; phone: string; amountUsd: string; transactionId?: string; status?: string }): Promise<TopUpTransaction> {
+    const [tx] = await db.insert(topUpTransactions).values({
+      profileId: data.profileId,
+      operatorId: data.operatorId,
+      operatorName: data.operatorName,
+      phone: data.phone,
+      amountUsd: data.amountUsd,
+      transactionId: data.transactionId ?? null,
+      status: data.status ?? "success",
+    }).returning();
+    return tx;
+  }
+
+  async getTopUpTransactions(profileId: number): Promise<TopUpTransaction[]> {
+    return db.select().from(topUpTransactions)
+      .where(eq(topUpTransactions.profileId, profileId))
+      .orderBy(desc(topUpTransactions.createdAt))
+      .limit(20);
   }
 
   async getProfileByReferenceId(referenceId: string): Promise<Profile | undefined> {

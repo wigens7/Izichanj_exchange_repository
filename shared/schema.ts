@@ -279,6 +279,19 @@ export const cardTransactions = pgTable("card_transactions", {
 });
 export type CardTransaction = typeof cardTransactions.$inferSelect;
 
+export const topUpTransactions = pgTable("top_up_transactions", {
+  id: serial("id").primaryKey(),
+  profileId: integer("profile_id").references(() => profiles.id).notNull(),
+  operatorId: text("operator_id").notNull(),
+  operatorName: text("operator_name").notNull(),
+  phone: text("phone").notNull(),
+  amountUsd: decimal("amount_usd", { precision: 10, scale: 2 }).notNull(),
+  transactionId: text("transaction_id"),
+  status: text("status").default("success").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+export type TopUpTransaction = typeof topUpTransactions.$inferSelect;
+
 export const profileInfoSchema = z.object({
   firstName: z.string().min(1, "First name is required"),
   lastName: z.string().min(1, "Last name is required"),
