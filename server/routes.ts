@@ -9,7 +9,7 @@ import { setupAuth, isAuthenticated } from "./auth";
 import { registerObjectStorageRoutes } from "./replit_integrations/object_storage";
 import crypto from "crypto";
 import bcrypt from "bcryptjs";
-import { WITHDRAWAL_MIN_USDT, WITHDRAWAL_MAX_USDT, WITHDRAWAL_FEE_USDT, WITHDRAWAL_EXCHANGE_RATE_USDT_HTG, usdtToHtg, usdtToHtgWithdrawal, htgToUsdt, formatHtg, WITHDRAWAL_MIN_HTG, WITHDRAWAL_MAX_HTG, EXCHANGE_RATE_USDT_HTG, NETWORK_FEE_CONFIG, MANUAL_DEPOSIT_MIN_HTG, MANUAL_DEPOSIT_MIN_USDT, MANUAL_DEPOSIT_EXCHANGE_RATE } from "@shared/constants";
+import { WITHDRAWAL_MIN_USDT, WITHDRAWAL_MAX_USDT, WITHDRAWAL_FEE_USDT, WITHDRAWAL_EXCHANGE_RATE_USDT_HTG, usdtToHtg, usdtToHtgWithdrawal, htgToUsdt, formatHtg, WITHDRAWAL_MIN_HTG, WITHDRAWAL_MAX_HTG, EXCHANGE_RATE_USDT_HTG, NETWORK_FEE_CONFIG, MANUAL_DEPOSIT_MIN_HTG, MANUAL_DEPOSIT_MIN_USDT, MANUAL_DEPOSIT_EXCHANGE_RATE, TOPUP_FEE_USD } from "@shared/constants";
 import { generateReceiptPDF, generateAdjustmentReceiptPDF } from "./receipt";
 import { ensureKycImageSize } from "./image-compress";
 import { deposits, profiles, virtualCards } from "@shared/schema";
@@ -4442,10 +4442,11 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Invalid amount" });
       }
 
-      // Deduct from balance (in USD)
+      // Deduct from balance (in USD) — amount + $1.86 service fee
       const currentBalance = Number(profile.balance);
-      if (currentBalance < numAmount) {
-        return res.status(400).json({ message: "Insufficient balance" });
+      const totalCharge = numAmount + TOPUP_FEE_USD;
+      if (currentBalance < totalCharge) {
+        return res.status(400).json({ message: `Solde insuffisant. Vous avez besoin de $${totalCharge.toFixed(2)} USD ($${numAmount.toFixed(2)} + $${TOPUP_FEE_USD.toFixed(2)} de frais) mais votre solde est de $${currentBalance.toFixed(2)} USD.` });
       }
 
       const token = await getReloadlyToken();
@@ -4515,8 +4516,8 @@ export async function registerRoutes(
         return res.status(400).json({ message: userMessage });
       }
 
-      // Deduct balance
-      await storage.updateProfileBalance(profile.id, currentBalance - numAmount);
+      // Deduct balance: top-up amount + $1.86 service fee
+      await storage.updateProfileBalance(profile.id, currentBalance - totalCharge);
 
       // Save top-up history to DB
       await storage.createTopUpTransaction({
@@ -4533,7 +4534,7 @@ export async function registerRoutes(
       if (profile.phone) {
         sendWhatsAppNotification(
           profile.phone,
-          `*Izichanj*\n\n📱 Top-Up Successful\n\nYou recharged ${phone} with $${numAmount} USD.\nTransaction ID: ${topupData.transactionId || "N/A"}\n\nhttps://izichanj.com`,
+          `*Izichanj*\n\n📱 Top-Up Successful\n\nYou recharged ${phone} with $${numAmount} USD.\nService fee: $${TOPUP_FEE_USD.toFixed(2)} USD\nTotal charged: $${totalCharge.toFixed(2)} USD\nTransaction ID: ${topupData.transactionId || "N/A"}\n\nhttps://izichanj.com`,
           profile.fullName
         );
       }

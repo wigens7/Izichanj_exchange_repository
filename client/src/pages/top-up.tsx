@@ -13,6 +13,7 @@ import { Smartphone, CheckCircle2, AlertCircle, Loader2, ShieldAlert, History, P
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Link } from "wouter";
 import { format } from "date-fns";
+import { TOPUP_FEE_USD } from "@shared/constants";
 
 export default function TopUpPage() {
   const { data: user } = useUser();
@@ -70,7 +71,7 @@ export default function TopUpPage() {
 
   const amountError = (() => {
     if (!amount || !selectedOperator) return null;
-    if (amount > balance) return "Insufficient balance.";
+    if (amount + TOPUP_FEE_USD > balance) return `Insufficient balance. You need $${(amount + TOPUP_FEE_USD).toFixed(2)} (amount + $${TOPUP_FEE_USD.toFixed(2)} fee).`;
     if (selectedOperator.denominationType === "FIXED" && validAmounts.length && !validAmounts.includes(amount)) {
       return `This operator only accepts: $${validAmounts.join(", $")}`;
     }
@@ -87,7 +88,7 @@ export default function TopUpPage() {
 
       const rawPhone = phone.replace(/\D/g, "");
       if (rawPhone.length < 7) throw new Error("Phone number is too short");
-      if (amount > balance) throw new Error("Insufficient balance. Please deposit first.");
+      if (amount + TOPUP_FEE_USD > balance) throw new Error(`Insufficient balance. You need $${(amount + TOPUP_FEE_USD).toFixed(2)} (amount + $${TOPUP_FEE_USD.toFixed(2)} fee).`);
       if (amountError) throw new Error(amountError);
 
       // Use raw fetch so we can parse and surface only the clean message, not the full HTTP payload
@@ -295,7 +296,13 @@ export default function TopUpPage() {
                   {amountError ? (
                     <span className="flex items-center gap-1.5"><AlertCircle className="w-3.5 h-3.5 shrink-0" />{amountError}</span>
                   ) : (
-                    <span>You will be charged <strong className="text-foreground">${amount.toFixed(2)} USD</strong> from your balance.</span>
+                    <span>
+                      Top-up: <strong className="text-foreground">${amount.toFixed(2)}</strong>
+                      {" + "}
+                      Fee: <strong className="text-foreground">${TOPUP_FEE_USD.toFixed(2)}</strong>
+                      {" = "}
+                      Total: <strong className="text-foreground">${(amount + TOPUP_FEE_USD).toFixed(2)} USD</strong>
+                    </span>
                   )}
                 </div>
               )}
@@ -348,7 +355,7 @@ export default function TopUpPage() {
           ) : (
             <>
               <Smartphone className="w-4 h-4 mr-2" />
-              Send Top-Up{amount ? ` · $${Number(amount).toFixed(2)}` : ""}
+              Send Top-Up{amount ? ` · $${(Number(amount) + TOPUP_FEE_USD).toFixed(2)}` : ""}
             </>
           )}
         </Button>

@@ -14,6 +14,7 @@ export type NetworkCurrency = keyof typeof NETWORK_FEE_CONFIG;
 export const WITHDRAWAL_MIN_USDT = 10;
 export const WITHDRAWAL_MAX_USDT = 10000;
 export const WITHDRAWAL_FEE_USDT = 2.50;
+export const TOPUP_FEE_USD = 1.86; // Fixed service fee per mobile top-up transaction
 // HTG equivalents (kept for backward compat)
 export const WITHDRAWAL_MIN_HTG = WITHDRAWAL_MIN_USDT * EXCHANGE_RATE_USDT_HTG;
 export const WITHDRAWAL_MAX_HTG = WITHDRAWAL_MAX_USDT * EXCHANGE_RATE_USDT_HTG;
