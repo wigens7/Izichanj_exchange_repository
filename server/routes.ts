@@ -4494,6 +4494,20 @@ export async function registerRoutes(
           timestamp: new Date().toISOString(),
         }));
 
+        // Alert admin via Telegram if it's a Reloadly balance/funds issue
+        if (isBalanceError) {
+          sendTelegramMessage(
+            `🚨 <b>Reloadly Fonds Insuffisants</b>\n\n` +
+            `Un rechargement a échoué car le compte Reloadly n'a pas assez de fonds.\n\n` +
+            `👤 <b>Utilisateur:</b> ${profile.fullName} (${profile.email})\n` +
+            `📱 <b>Numéro:</b> +509${phone}\n` +
+            `💵 <b>Montant:</b> $${numAmount} USD\n` +
+            `🏢 <b>Opérateur ID:</b> ${operatorId}\n` +
+            `❌ <b>Erreur Reloadly:</b> ${topupData.errorCode || "N/A"} — ${topupData.message || "N/A"}\n\n` +
+            `⚠️ Rechargez le compte Reloadly immédiatement pour éviter d'autres échecs.`
+          ).catch(() => {});
+        }
+
         const userMessage = isBalanceError
           ? "Une erreur technique est survenue. Veuillez réessayer dans quelques minutes."
           : "Top-up échoué. Veuillez réessayer.";

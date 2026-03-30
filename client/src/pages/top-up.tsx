@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { queryClient } from "@/lib/queryClient";
 import { useUser } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -90,16 +90,16 @@ export default function TopUpPage() {
       if (amount > balance) throw new Error("Insufficient balance. Please deposit first.");
       if (amountError) throw new Error(amountError);
 
-      const res = await apiRequest("POST", "/api/topup", {
-        phoneNumber: rawPhone,
-        operatorId: selectedOperator.id,
-        amount,
+      // Use raw fetch so we can parse and surface only the clean message, not the full HTTP payload
+      const res = await fetch("/api/topup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phoneNumber: rawPhone, operatorId: selectedOperator.id, amount }),
+        credentials: "include",
       });
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.message || "Top-up failed");
-      }
-      return res.json();
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || "Top-up failed. Please try again.");
+      return data;
     },
     onSuccess: (data) => {
       setResult({ success: true, message: data.message, transactionId: data.transactionId });
