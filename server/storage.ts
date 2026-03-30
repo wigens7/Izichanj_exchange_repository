@@ -26,6 +26,7 @@ export interface IStorage {
   getDepositByNowpaymentsPaymentId(paymentId: string): Promise<Deposit | undefined>;
   setDepositReceipt(id: number, receiptId: string): Promise<Deposit>;
   getDepositByReceiptId(receiptId: string): Promise<Deposit | undefined>;
+  updateDepositTxHash(id: number, txHash: string): Promise<Deposit>;
 
   createWithdrawal(withdrawal: InsertWithdrawal & { profileId: number }): Promise<Withdrawal>;
   getWithdrawals(profileId?: number): Promise<Withdrawal[]>;
@@ -187,6 +188,11 @@ export class DatabaseStorage implements IStorage {
 
   async rejectDepositWithReason(id: number, reason: string): Promise<Deposit> {
     const [deposit] = await db.update(deposits).set({ status: "rejected", rejectionReason: reason }).where(eq(deposits.id, id)).returning();
+    return deposit;
+  }
+
+  async updateDepositTxHash(id: number, txHash: string): Promise<Deposit> {
+    const [deposit] = await db.update(deposits).set({ txHash }).where(eq(deposits.id, id)).returning();
     return deposit;
   }
 

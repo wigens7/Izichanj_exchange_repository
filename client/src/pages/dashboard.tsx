@@ -4,7 +4,7 @@ import { useLanguage } from "@/lib/i18n";
 import { EXCHANGE_RATE_USDT_HTG, usdtToHtg, formatHtg, formatUsdt } from "@shared/constants";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { ArrowUpRight, ArrowDownLeft, Wallet, TrendingUp, TrendingDown, ArrowRightLeft, FileText, Eye, EyeOff } from "lucide-react";
+import { ArrowUpRight, ArrowDownLeft, Wallet, TrendingUp, TrendingDown, ArrowRightLeft, FileText, Eye, EyeOff, Copy, CheckCheck } from "lucide-react";
 import { useState } from "react";
 import { format } from "date-fns";
 import { StatusBadge } from "@/components/status-badge";
@@ -147,14 +147,23 @@ function TransactionRow({ txn }: { txn: any }) {
     const { t } = useLanguage();
     const amountUsdt = isDeposit ? Number(txn.amountUsdt) : Number(txn.amount);
     const amountHtg = usdtToHtg(amountUsdt);
+    const [copied, setCopied] = useState(false);
 
     const hasReceipt = txn.status === "approved" && !!txn.receiptId;
     const receiptUrl = isDeposit
         ? `/api/receipts/deposit/${txn.id}`
         : `/api/receipts/withdrawal/${txn.id}`;
 
+    const copyTxHash = () => {
+        navigator.clipboard.writeText(txn.txHash).then(() => {
+            setCopied(true);
+            setTimeout(() => setCopied(false), 2000);
+        });
+    };
+
     return (
-        <div className="flex items-center justify-between gap-4 p-3.5 rounded-md border border-border bg-card hover:bg-muted/30 transition-colors" data-testid={`txn-${txn.type}-${txn.id}`}>
+        <div className="rounded-md border border-border bg-card hover:bg-muted/30 transition-colors" data-testid={`txn-${txn.type}-${txn.id}`}>
+            <div className="flex items-center justify-between gap-4 p-3.5">
             <div className="flex items-center gap-3 min-w-0">
                 <div className={`w-9 h-9 rounded-md flex items-center justify-center flex-shrink-0 ${isDeposit ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' : 'bg-amber-500/10 text-amber-600 dark:text-amber-400'}`}>
                     {isDeposit ? <ArrowDownLeft className="w-4 h-4" /> : <ArrowUpRight className="w-4 h-4" />}
@@ -197,6 +206,31 @@ function TransactionRow({ txn }: { txn: any }) {
                     </a>
                 )}
             </div>
+            </div>
+            {isDeposit && txn.txHash && (
+                <div className="flex items-center gap-2 px-3.5 pb-2.5 pt-0 border-t border-border/40 mt-0">
+                    <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">TxtID</span>
+                    <span
+                        className="font-mono text-[10px] text-foreground flex-1 truncate"
+                        title={txn.txHash}
+                        data-testid={`text-txhash-${txn.id}`}
+                    >
+                        {txn.txHash}
+                    </span>
+                    <button
+                        type="button"
+                        onClick={copyTxHash}
+                        className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground flex-shrink-0"
+                        title="Copy Transaction ID"
+                        data-testid={`button-copy-txhash-user-${txn.id}`}
+                    >
+                        {copied
+                            ? <CheckCheck className="w-3 h-3 text-emerald-500" />
+                            : <Copy className="w-3 h-3" />
+                        }
+                    </button>
+                </div>
+            )}
         </div>
     )
 }

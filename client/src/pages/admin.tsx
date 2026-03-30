@@ -69,6 +69,8 @@ import {
   AlertTriangle,
   ExternalLink,
   ShieldOff,
+  Copy,
+  Link as LinkIcon,
 } from "lucide-react";
 import { format } from "date-fns";
 import { usdtToHtg, formatHtg, formatUsdt } from "@shared/constants";
@@ -78,6 +80,7 @@ import { z } from "zod";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Textarea } from "@/components/ui/textarea";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { api } from "@shared/routes";
 import { useToast } from "@/hooks/use-toast";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
@@ -772,8 +775,46 @@ function DepositsTab() {
   const [fraudModalDepositId, setFraudModalDepositId] = useState<number | null>(null);
   const [rejectReason, setRejectReason] = useState("");
   const [proofViewUrl, setProofViewUrl] = useState<string | null>(null);
+  const [txHashInputs, setTxHashInputs] = useState<Record<number, string>>({});
+  const [savingTxHashId, setSavingTxHashId] = useState<number | null>(null);
+  const [copiedTxId, setCopiedTxId] = useState<number | null>(null);
+  const { toast } = useToast();
 
   const isManualDeposit = (deposit: any) => deposit.depositMethod === "moncash" && deposit.moncashTransactionId;
+  const isCryptoDeposit = (deposit: any) => !isManualDeposit(deposit);
+
+  const saveTxHash = async (depositId: number) => {
+    const txHash = (txHashInputs[depositId] || "").trim();
+    if (!txHash || txHash.length < 5) {
+      toast({ title: "Invalid TxtID", description: "Please enter a valid Transaction ID (min 5 characters)", variant: "destructive" });
+      return;
+    }
+    setSavingTxHashId(depositId);
+    try {
+      const res = await fetch(`/api/admin/deposits/${depositId}/set-txhash`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ txHash }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || "Failed to save TxtID");
+      queryClient.invalidateQueries({ queryKey: [api.admin.allDeposits.path] });
+      setTxHashInputs(prev => ({ ...prev, [depositId]: "" }));
+      toast({ title: "TxtID Saved", description: "Transaction ID has been saved. You can now approve this deposit." });
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    } finally {
+      setSavingTxHashId(null);
+    }
+  };
+
+  const copyTxHash = (depositId: number, txHash: string) => {
+    navigator.clipboard.writeText(txHash).then(() => {
+      setCopiedTxId(depositId);
+      setTimeout(() => setCopiedTxId(null), 2000);
+    });
+  };
 
   if (isLoading) {
     return (
@@ -1015,9 +1056,68 @@ function DepositsTab() {
                             )}
                           </div>
                         ) : (
-                          <span className="font-mono text-xs break-all block truncate" title={deposit.txHash}>
-                            {deposit.txHash || "—"}
-                          </span>
+                          <div className="space-y-1.5">
+                            {deposit.txHash ? (
+                              <div className="space-y-1">
+                                <p className="text-[10px] text-muted-foreground uppercase font-medium flex items-center gap-1">
+                                  <LinkIcon className="w-2.5 h-2.5" /> TxtID
+                                </p>
+                                <div className="flex items-center gap-1">
+                                  <span className="font-mono text-[10px] break-all leading-tight text-foreground flex-1 bg-muted/50 rounded px-1.5 py-1 border" title={deposit.txHash}>
+                                    {deposit.txHash.length > 20 ? `${deposit.txHash.slice(0, 10)}…${deposit.txHash.slice(-8)}` : deposit.txHash}
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() => copyTxHash(deposit.id, deposit.txHash)}
+                                    className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground flex-shrink-0"
+                                    title="Copy full TxtID"
+                                    data-testid={`button-copy-txhash-${deposit.id}`}
+                                  >
+                                    {copiedTxId === deposit.id ? <CheckCircle className="w-3 h-3 text-emerald-500" /> : <Copy className="w-3 h-3" />}
+                                  </button>
+                                </div>
+                                {(deposit.status === "pending" || deposit.status === "expired") && (
+                                  <div className="flex gap-1 mt-1">
+                                    <Input
+                                      placeholder="Update TxtID…"
+                                      value={txHashInputs[deposit.id] ?? ""}
+                                      onChange={e => setTxHashInputs(prev => ({ ...prev, [deposit.id]: e.target.value }))}
+                                      className="h-6 text-[10px] font-mono px-1.5"
+                                      data-testid={`input-txhash-${deposit.id}`}
+                                    />
+                                    <Button size="sm" variant="outline" className="h-6 px-1.5 text-[10px]"
+                                      onClick={() => saveTxHash(deposit.id)}
+                                      disabled={savingTxHashId === deposit.id}
+                                    >
+                                      {savingTxHashId === deposit.id ? <Loader2 className="w-2.5 h-2.5 animate-spin" /> : <Save className="w-2.5 h-2.5" />}
+                                    </Button>
+                                  </div>
+                                )}
+                              </div>
+                            ) : (
+                              <div className="space-y-1">
+                                <p className="text-[10px] text-amber-600 dark:text-amber-400 font-medium flex items-center gap-1">
+                                  <Hash className="w-2.5 h-2.5" /> TxtID Required
+                                </p>
+                                <div className="flex gap-1">
+                                  <Input
+                                    placeholder="Paste TxtID…"
+                                    value={txHashInputs[deposit.id] ?? ""}
+                                    onChange={e => setTxHashInputs(prev => ({ ...prev, [deposit.id]: e.target.value }))}
+                                    className="h-7 text-[10px] font-mono px-1.5 border-amber-300 dark:border-amber-700"
+                                    data-testid={`input-txhash-${deposit.id}`}
+                                  />
+                                  <Button size="sm" className="h-7 px-2 text-[10px] bg-amber-600 hover:bg-amber-700 text-white flex-shrink-0"
+                                    onClick={() => saveTxHash(deposit.id)}
+                                    disabled={savingTxHashId === deposit.id}
+                                    data-testid={`button-save-txhash-${deposit.id}`}
+                                  >
+                                    {savingTxHashId === deposit.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
+                                  </Button>
+                                </div>
+                              </div>
+                            )}
+                          </div>
                         )}
                       </TableCell>
                       <TableCell>
@@ -1037,11 +1137,17 @@ function DepositsTab() {
                             {deposit.status === "expired" && !isManual && (
                               <p className="text-[10px] text-orange-600 dark:text-orange-400 font-medium">Auto-expired — manual override allowed</p>
                             )}
+                            {isCryptoDeposit(deposit) && !deposit.txHash && (
+                              <p className="text-[10px] text-amber-700 dark:text-amber-400 font-medium flex items-center gap-1 bg-amber-500/10 rounded px-1.5 py-1">
+                                <Hash className="w-2.5 h-2.5 shrink-0" /> Add TxtID first
+                              </p>
+                            )}
                             <Button
                               size="sm"
                               onClick={() => approveAndRelease("deposits", deposit.id, (v) => setReleaseLoadingId(v ? deposit.id : null))}
-                              disabled={releaseLoadingId === deposit.id}
-                              className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs"
+                              disabled={releaseLoadingId === deposit.id || (isCryptoDeposit(deposit) && !deposit.txHash)}
+                              className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs disabled:opacity-40"
+                              title={isCryptoDeposit(deposit) && !deposit.txHash ? "Set TxtID before approving" : undefined}
                               data-testid={`button-approve-release-deposit-${deposit.id}`}
                             >
                               {releaseLoadingId === deposit.id ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Download className="w-3 h-3 mr-1" />}
@@ -1051,8 +1157,9 @@ function DepositsTab() {
                               <Button
                                 size="sm"
                                 onClick={() => approve(deposit.id)}
-                                disabled={isApproving}
-                                className="bg-emerald-600 hover:bg-emerald-700 text-xs flex-1"
+                                disabled={isApproving || (isCryptoDeposit(deposit) && !deposit.txHash)}
+                                className="bg-emerald-600 hover:bg-emerald-700 text-xs flex-1 disabled:opacity-40"
+                                title={isCryptoDeposit(deposit) && !deposit.txHash ? "Set TxtID before approving" : undefined}
                                 data-testid={`button-approve-deposit-${deposit.id}`}
                               >
                                 {isApproving ? <Loader2 className="w-3 h-3 animate-spin" /> : <CheckCircle className="w-3 h-3 mr-1" />}

@@ -1347,7 +1347,28 @@ export async function registerRoutes(
     }
   });
 
+  // Admin: set TxtID on a deposit before approving
+  app.patch("/api/admin/deposits/:id/set-txhash", isAuthenticated, isAdmin, async (req: any, res) => {
+    try {
+      const id = Number(req.params.id);
+      const { txHash } = req.body;
+      if (!txHash || String(txHash).trim().length < 5) {
+        return res.status(400).json({ message: "A valid Transaction ID is required (min 5 characters)" });
+      }
+      const deposit = await storage.updateDepositTxHash(id, String(txHash).trim());
+      res.json(deposit);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
   app.patch(api.admin.approveDeposit.path, isAuthenticated, isAdmin, async (req: any, res) => {
+    const depositBefore = await storage.getDepositById(Number(req.params.id));
+    if (!depositBefore) return res.status(404).json({ message: "Deposit not found" });
+    const isCrypto = depositBefore.depositMethod !== "moncash";
+    if (isCrypto && !depositBefore.txHash) {
+      return res.status(400).json({ message: "Transaction ID (TxtID) is required before approving a crypto deposit. Please set it first." });
+    }
     const deposit = await storage.updateDepositStatus(Number(req.params.id), "approved");
     const profile = await storage.getProfile(deposit.profileId);
     if (profile) {
@@ -1682,6 +1703,11 @@ export async function registerRoutes(
       const id = Number(req.params.id);
       let deposit = await storage.getDepositById(id);
       if (!deposit) return res.status(404).json({ message: "Deposit not found" });
+
+      const isCrypto = deposit.depositMethod !== "moncash";
+      if (isCrypto && !deposit.txHash) {
+        return res.status(400).json({ message: "Transaction ID (TxtID) is required before approving a crypto deposit. Please set it first." });
+      }
 
       if (deposit.status !== "approved") {
         deposit = await storage.updateDepositStatus(id, "approved");
