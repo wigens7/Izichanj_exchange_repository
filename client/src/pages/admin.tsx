@@ -673,6 +673,29 @@ function UserRow({ user, onUpdateBalance, isPending }: { user: any; onUpdateBala
                     <p className="font-medium">{user.twoFactorEnabled ? "Yes" : "No"}</p>
                   </div>
                 </div>
+                <div className="flex items-center gap-2">
+                  <Monitor className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
+                  <div>
+                    <p className="text-muted-foreground text-xs">Last IP</p>
+                    <p className="font-mono font-medium text-xs" data-testid={`text-user-last-ip-${user.id}`}>{(user as any).lastIp || "—"}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Monitor className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
+                  <div>
+                    <p className="text-muted-foreground text-xs">Registration IP</p>
+                    <p className="font-mono font-medium text-xs" data-testid={`text-user-reg-ip-${user.id}`}>{(user as any).registrationIp || "—"}</p>
+                  </div>
+                </div>
+                {(user as any).lastLoginAt && (
+                  <div className="flex items-center gap-2">
+                    <Clock className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
+                    <div>
+                      <p className="text-muted-foreground text-xs">Last Login</p>
+                      <p className="font-medium text-xs">{format(new Date((user as any).lastLoginAt), "MMM d, yyyy h:mm a")}</p>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </TableCell>
@@ -1000,6 +1023,7 @@ function DepositsTab() {
                   <TableHead>Method</TableHead>
                   <TableHead>Amount</TableHead>
                   <TableHead>Tx / Proof</TableHead>
+                  <TableHead>IP</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Date</TableHead>
                   <TableHead>Actions</TableHead>
@@ -1119,6 +1143,11 @@ function DepositsTab() {
                             )}
                           </div>
                         )}
+                      </TableCell>
+                      <TableCell>
+                        {deposit.ipAddress ? (
+                          <span className="font-mono text-[10px] text-muted-foreground" data-testid={`text-deposit-ip-${deposit.id}`}>{deposit.ipAddress}</span>
+                        ) : <span className="text-muted-foreground/40 text-xs">—</span>}
                       </TableCell>
                       <TableCell>
                         <StatusBadge status={deposit.status} />
@@ -1295,6 +1324,7 @@ function WithdrawalsTab() {
                 <TableHead>Wallet</TableHead>
                 <TableHead>Method</TableHead>
                 <TableHead>Details</TableHead>
+                <TableHead>IP</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Date</TableHead>
                 <TableHead>Actions</TableHead>
@@ -1325,6 +1355,11 @@ function WithdrawalsTab() {
                     ) : (
                       w.phoneNumber || "—"
                     )}
+                  </TableCell>
+                  <TableCell>
+                    {w.ipAddress ? (
+                      <span className="font-mono text-[10px] text-muted-foreground" data-testid={`text-withdrawal-ip-${w.id}`}>{w.ipAddress}</span>
+                    ) : <span className="text-muted-foreground/40 text-xs">—</span>}
                   </TableCell>
                   <TableCell>
                     <StatusBadge status={w.status} />

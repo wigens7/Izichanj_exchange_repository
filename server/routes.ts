@@ -1,4 +1,4 @@
-import type { Express } from "express";
+import type { Express, Request } from "express";
 import type { Server } from "http";
 import { ProxyAgent } from "undici";
 import { storage } from "./storage";
@@ -31,6 +31,15 @@ if (process.env.SENDGRID_API_KEY) {
 }
 
 const rpName = "Izichanj";
+
+function getClientIp(req: Request): string {
+  const forwarded = req.headers["x-forwarded-for"];
+  if (forwarded) {
+    const ips = Array.isArray(forwarded) ? forwarded[0] : forwarded;
+    return ips.split(",")[0].trim();
+  }
+  return (req.headers["x-real-ip"] as string) || req.ip || "unknown";
+}
 
 function getWebAuthnConfig(req: any) {
   const host = req.get("host") || req.hostname || "localhost";
@@ -356,6 +365,7 @@ export async function registerRoutes(
         payAddress: paymentData.pay_address,
         payCurrency: currency,
         expiresAt: depositExpiresAt,
+        ipAddress: getClientIp(req),
       });
 
       // Telegram notification — address generated
@@ -761,6 +771,8 @@ export async function registerRoutes(
       }
       const passwordHash = await bcrypt.hash(input.password, 12);
       const profile = await storage.createProfile(input.fullName, input.email, passwordHash, input.phone);
+      const registrationIp = getClientIp(req);
+      db.update(profiles).set({ registrationIp, lastIp: registrationIp }).where(eq(profiles.id, profile.id)).catch(() => {});
       const code = crypto.randomInt(100000, 999999).toString();
       await storage.createOtp(profile.id, code);
       await sendWhatsAppOtp(input.phone, code, input.fullName);
@@ -849,7 +861,9 @@ export async function registerRoutes(
       }
 
       req.session.profileId = profile.id;
-      storage.createLoginLog(profile.id, "password", req.ip).catch(() => {});
+      const loginIp = getClientIp(req);
+      storage.createLoginLog(profile.id, "password", loginIp).catch(() => {});
+      storage.updateProfileIp(profile.id, loginIp, new Date()).catch(() => {});
       const { passwordHash: _, twoFactorSecret: _s, ...safeProfile } = profile;
       res.json(safeProfile);
     } catch (e) {
@@ -917,7 +931,9 @@ export async function registerRoutes(
 
       req.session.profileId = profileId;
       delete req.session.pending2faProfileId;
-      storage.createLoginLog(profileId, "2fa", req.ip).catch(() => {});
+      const twoFaIp = getClientIp(req);
+      storage.createLoginLog(profileId, "2fa", twoFaIp).catch(() => {});
+      storage.updateProfileIp(profileId, twoFaIp, new Date()).catch(() => {});
       const { passwordHash: _, twoFactorSecret: _s, ...safeProfile } = profile;
       res.json(safeProfile);
     } catch (e) {
@@ -958,7 +974,7 @@ export async function registerRoutes(
       const input = api.deposits.create.input.parse(req.body);
       if (!input.txHash || input.txHash.length < 10) return res.status(400).json({ message: "Transaction hash is required for USDT deposits" });
       const manualExpiresAt = new Date(Date.now() + 15 * 60 * 1000);
-      const deposit = await storage.createDeposit({ ...input, profileId: profile.id, depositMethod: "usdt", expiresAt: manualExpiresAt });
+      const deposit = await storage.createDeposit({ ...input, profileId: profile.id, depositMethod: "usdt", expiresAt: manualExpiresAt, ipAddress: getClientIp(req) });
 
       // Notify admin in-app
       const admins = await storage.getAllProfiles();
@@ -1047,6 +1063,7 @@ export async function registerRoutes(
           trcAddress: parsed.trcAddress.trim(),
           fee: WITHDRAWAL_FEE_USDT.toString(),
           profileId: profile.id,
+          ipAddress: getClientIp(req),
         } as any);
 
         const admins = await storage.getAllProfiles();
@@ -1083,6 +1100,7 @@ export async function registerRoutes(
           phoneNumber: parsed.withdrawMethod === "phone" ? parsed.phoneNumber : undefined,
           qrCodeUrl: parsed.withdrawMethod === "qrcode" ? parsed.qrCodeUrl : undefined,
           profileId: profile.id,
+          ipAddress: getClientIp(req),
         } as any);
 
         const admins = await storage.getAllProfiles();
@@ -1210,6 +1228,24 @@ export async function registerRoutes(
     }
     const allProfiles = await storage.getAllProfiles();
     res.json(allProfiles);
+  });
+
+  // GeoIP lookup for admin (server-side, avoids CORS issues)
+  app.get("/api/admin/geoip/:ip", isAuthenticated, isAdmin, async (req: any, res) => {
+    try {
+      const { ip } = req.params;
+      if (!ip || ip === "unknown" || ip === "127.0.0.1" || ip.startsWith("::")) {
+        return res.json({ country: "Local", city: "Local", isp: "" });
+      }
+      const response = await fetch(`http://ip-api.com/json/${ip}?fields=country,regionName,city,isp,status`, { signal: AbortSignal.timeout(4000) });
+      const data = await response.json() as any;
+      if (data.status === "success") {
+        return res.json({ country: data.country, city: data.city, region: data.regionName, isp: data.isp });
+      }
+      res.json({ country: "Unknown", city: "", isp: "" });
+    } catch {
+      res.json({ country: "Unknown", city: "", isp: "" });
+    }
   });
 
   app.delete("/api/admin/users/:id", isAuthenticated, isAdmin, async (req: any, res) => {
@@ -3052,7 +3088,9 @@ export async function registerRoutes(
       }
 
       req.session.profileId = profile.id;
-      storage.createLoginLog(profile.id, "pin", req.ip).catch(() => {});
+      const pinIp = getClientIp(req);
+      storage.createLoginLog(profile.id, "pin", pinIp).catch(() => {});
+      storage.updateProfileIp(profile.id, pinIp, new Date()).catch(() => {});
       const { passwordHash: _, twoFactorSecret: _s, pinHash: _p, ...safeProfile } = profile;
       res.json(safeProfile);
     } catch (e) {

@@ -38,6 +38,9 @@ export const profiles = pgTable("profiles", {
   canEditProfile: boolean("can_edit_profile").default(false).notNull(),
   frozenUntil: timestamp("frozen_until"),
   deletedAt: timestamp("deleted_at"),
+  lastIp: text("last_ip"),
+  registrationIp: text("registration_ip"),
+  lastLoginAt: timestamp("last_login_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -89,6 +92,7 @@ export const deposits = pgTable("deposits", {
   payCurrency: text("pay_currency"),
   proofImageUrl: text("proof_image_url"), // Manual MonCash/NatCash deposit proof screenshot
   rejectionReason: text("rejection_reason"), // Reason for rejecting a manual deposit
+  ipAddress: text("ip_address"), // IP of the user when deposit was created
   status: txnStatusEnum("status").default("pending").notNull(),
   receiptId: text("receipt_id").unique(),
   receiptUrl: text("receipt_url"),
@@ -106,6 +110,7 @@ export const withdrawals = pgTable("withdrawals", {
   withdrawMethod: withdrawMethodEnum("withdraw_method").default("phone").notNull(),
   phoneNumber: text("phone_number"),
   qrCodeUrl: text("qr_code_url"),
+  ipAddress: text("ip_address"), // IP of the user when withdrawal was created
   status: txnStatusEnum("status").default("pending").notNull(),
   receiptId: text("receipt_id").unique(),
   receiptUrl: text("receipt_url"),

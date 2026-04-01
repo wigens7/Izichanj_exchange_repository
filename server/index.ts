@@ -207,6 +207,18 @@ app.use((req, res, next) => {
     console.warn("[startup migration] pending card status fix skipped:", (e as Error).message);
   }
 
+  // IP tracking columns on profiles, deposits, withdrawals
+  try {
+    await db.execute(sql`ALTER TABLE profiles ADD COLUMN IF NOT EXISTS last_ip TEXT`);
+    await db.execute(sql`ALTER TABLE profiles ADD COLUMN IF NOT EXISTS registration_ip TEXT`);
+    await db.execute(sql`ALTER TABLE profiles ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMP`);
+    await db.execute(sql`ALTER TABLE deposits ADD COLUMN IF NOT EXISTS ip_address TEXT`);
+    await db.execute(sql`ALTER TABLE withdrawals ADD COLUMN IF NOT EXISTS ip_address TEXT`);
+    console.log("[startup migration] IP tracking columns ensured");
+  } catch (e) {
+    console.warn("[startup migration] IP tracking columns skipped:", (e as Error).message);
+  }
+
   // One-time fix: correct incomplete name for wigens7@gmail.com
   try {
     await db.execute(sql`

@@ -16,7 +16,7 @@ export interface IStorage {
   getValidOtp(profileId: number, code: string): Promise<typeof otps.$inferSelect | undefined>;
   markOtpVerified(id: number): Promise<void>;
 
-  createDeposit(deposit: InsertDeposit & { profileId: number; depositMethod?: "usdt" | "moncash" | "nowpayments"; amountHtg?: string; moncashTransactionId?: string | null; nowpaymentsPaymentId?: string | null; payAddress?: string | null; payCurrency?: string | null; expiresAt?: Date | null }): Promise<Deposit>;
+  createDeposit(deposit: InsertDeposit & { profileId: number; depositMethod?: "usdt" | "moncash" | "nowpayments"; amountHtg?: string; moncashTransactionId?: string | null; nowpaymentsPaymentId?: string | null; payAddress?: string | null; payCurrency?: string | null; expiresAt?: Date | null; ipAddress?: string | null }): Promise<Deposit>;
   getDeposits(profileId?: number): Promise<Deposit[]>;
   getDepositById(id: number): Promise<Deposit | undefined>;
   updateDepositStatus(id: number, status: "approved" | "rejected" | "expired"): Promise<Deposit>;
@@ -28,7 +28,7 @@ export interface IStorage {
   getDepositByReceiptId(receiptId: string): Promise<Deposit | undefined>;
   updateDepositTxHash(id: number, txHash: string): Promise<Deposit>;
 
-  createWithdrawal(withdrawal: InsertWithdrawal & { profileId: number }): Promise<Withdrawal>;
+  createWithdrawal(withdrawal: InsertWithdrawal & { profileId: number; ipAddress?: string | null }): Promise<Withdrawal>;
   getWithdrawals(profileId?: number): Promise<Withdrawal[]>;
   getWithdrawalById(id: number): Promise<Withdrawal | undefined>;
   updateWithdrawalStatus(id: number, status: "approved" | "rejected"): Promise<Withdrawal>;
@@ -99,6 +99,7 @@ export interface IStorage {
   createLoginLog(profileId: number, method: string, ipAddress?: string): Promise<void>;
   getLoginActivity(limit?: number): Promise<(LoginLog & { profile: Pick<Profile, "id" | "fullName" | "email"> })[]>;
   getLoginCount(profileId: number): Promise<number>;
+  updateProfileIp(id: number, ip: string, loginAt?: Date): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -661,6 +662,12 @@ export class DatabaseStorage implements IStorage {
   async getLoginCount(profileId: number): Promise<number> {
     const [row] = await db.select({ count: sql<number>`count(*)` }).from(loginLogs).where(eq(loginLogs.profileId, profileId));
     return Number(row?.count ?? 0);
+  }
+
+  async updateProfileIp(id: number, ip: string, loginAt?: Date): Promise<void> {
+    const updates: Record<string, any> = { lastIp: ip };
+    if (loginAt) updates.lastLoginAt = loginAt;
+    await db.update(profiles).set(updates).where(eq(profiles.id, id));
   }
 }
 
