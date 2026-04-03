@@ -147,8 +147,9 @@ export default function DashboardPage() {
 function TransactionRow({ txn }: { txn: any }) {
     const isDeposit = txn.type === 'deposit';
     const { t } = useLanguage();
+    const { depositRate } = useRates();
     const amountUsdt = isDeposit ? Number(txn.amountUsdt) : Number(txn.amount);
-    const amountHtg = usdtToHtg(amountUsdt);
+    const amountHtg = amountUsdt * depositRate;
     const [copied, setCopied] = useState(false);
 
     const hasReceipt = txn.status === "approved" && !!txn.receiptId;
