@@ -14,7 +14,9 @@ declare module "express-session" {
 export function setupAuth(app: Express) {
   app.set("trust proxy", 1);
 
-  const sessionTtl = 5 * 60;
+  // Session lasts 8 hours on the server; frontend InactivityGuard handles
+  // the 5-minute user-facing inactivity logout independently.
+  const sessionTtl = 8 * 60 * 60; // 8 hours in seconds
   const pgStore = connectPg(session);
   const sessionStore = new pgStore({
     conString: process.env.DATABASE_URL,
@@ -27,12 +29,12 @@ export function setupAuth(app: Express) {
     session({
       secret: process.env.SESSION_SECRET!,
       store: sessionStore,
-      resave: true,
+      resave: false,
       saveUninitialized: false,
       rolling: true,
       cookie: {
         httpOnly: true,
-        secure: true,
+        secure: process.env.NODE_ENV === "production",
         sameSite: "lax",
         maxAge: sessionTtl * 1000,
       },
