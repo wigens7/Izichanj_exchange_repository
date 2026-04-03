@@ -73,7 +73,8 @@ import {
   Link as LinkIcon,
 } from "lucide-react";
 import { format } from "date-fns";
-import { usdtToHtg, formatHtg, formatUsdt } from "@shared/constants";
+import { formatHtg, formatUsdt } from "@shared/constants";
+import { useRates } from "@/hooks/use-rates";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -103,7 +104,7 @@ export default function AdminPage() {
       </div>
 
       <Tabs defaultValue="users" className="w-full">
-        <TabsList className="mb-4 grid w-full grid-cols-8 gap-1">
+        <TabsList className="mb-4 grid w-full grid-cols-9 gap-1">
           <TabsTrigger value="users" className="gap-2" data-testid="tab-admin-users">
             <Users className="w-4 h-4" />
             <span className="hidden sm:inline">Users</span>
@@ -136,6 +137,10 @@ export default function AdminPage() {
             <Activity className="w-4 h-4" />
             <span className="hidden sm:inline">Activity</span>
           </TabsTrigger>
+          <TabsTrigger value="settings" className="gap-2" data-testid="tab-admin-settings">
+            <TrendingUp className="w-4 h-4" />
+            <span className="hidden sm:inline">Rates</span>
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="users">
@@ -161,6 +166,9 @@ export default function AdminPage() {
         </TabsContent>
         <TabsContent value="activity">
           <ActivityTab />
+        </TabsContent>
+        <TabsContent value="settings">
+          <SettingsTab />
         </TabsContent>
       </Tabs>
     </div>
@@ -789,6 +797,7 @@ function previewReceipt(type: "deposits" | "withdrawals", id: number) {
 
 function DepositsTab() {
   const { data: deposits, isLoading } = useAdminDeposits();
+  const { depositRate } = useRates();
   const { mutate: approve, isPending: isApproving } = useAdminApproveDeposit();
   const { mutate: reject, isPending: isRejecting } = useAdminRejectDeposit();
   const { mutate: rejectWithReason, isPending: isRejectingWithReason } = useAdminRejectDepositWithReason();
@@ -1051,7 +1060,7 @@ function DepositsTab() {
                       </TableCell>
                       <TableCell>
                         <div className="text-sm font-medium">${Number(deposit.amountUsdt).toFixed(2)}</div>
-                        <div className="text-xs text-muted-foreground">{formatHtg(usdtToHtg(Number(deposit.amountUsdt)))} HTG</div>
+                        <div className="text-xs text-muted-foreground">{formatHtg(Number(deposit.amountUsdt) * depositRate)} HTG</div>
                       </TableCell>
                       <TableCell className="max-w-[180px]">
                         {isManual ? (
@@ -1281,6 +1290,7 @@ function DepositsTab() {
 
 function WithdrawalsTab() {
   const { data: withdrawals, isLoading } = useAdminWithdrawals();
+  const { depositRate } = useRates();
   const { mutate: approve, isPending: isApproving } = useAdminApproveWithdrawal();
   const { mutate: reject, isPending: isRejecting } = useAdminRejectWithdrawal();
   const [releaseLoadingId, setReleaseLoadingId] = useState<number | null>(null);
@@ -1336,7 +1346,7 @@ function WithdrawalsTab() {
                   <TableCell className="font-mono text-xs">{w.id}</TableCell>
                   <TableCell>{w.profileId}</TableCell>
                   <TableCell className="font-medium">{formatUsdt(Number(w.amount))} USDT</TableCell>
-                  <TableCell className="text-muted-foreground">{formatHtg(usdtToHtg(Number(w.amount)))} HTG</TableCell>
+                  <TableCell className="text-muted-foreground">{formatHtg(Number(w.amount) * depositRate)} HTG</TableCell>
                   <TableCell>
                     <Badge variant="outline">{w.currency}</Badge>
                   </TableCell>
@@ -2994,6 +3004,126 @@ function ActivityTab() {
             </div>
           )}
           <p className="text-xs text-muted-foreground text-right">Showing last {filtered.length} of {(logs || []).length} logins</p>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function SettingsTab() {
+  const { depositRate, withdrawalRate } = useRates();
+  const qc = useQueryClient();
+  const { toast } = useToast();
+
+  const [depInput, setDepInput] = useState<string>("");
+  const [witInput, setWitInput] = useState<string>("");
+  const [initialized, setInitialized] = useState(false);
+
+  useEffect(() => {
+    if (!initialized && depositRate && withdrawalRate) {
+      setDepInput(String(depositRate));
+      setWitInput(String(withdrawalRate));
+      setInitialized(true);
+    }
+  }, [depositRate, withdrawalRate, initialized]);
+
+  const updateRates = useMutation({
+    mutationFn: async () => {
+      const res = await fetch("/api/admin/settings/rates", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ depositRate: parseFloat(depInput), withdrawalRate: parseFloat(witInput) }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.message || "Failed to update rates");
+      }
+      return res.json();
+    },
+    onSuccess: (data: { depositRate: number; withdrawalRate: number }) => {
+      qc.invalidateQueries({ queryKey: ["/api/settings/rates"] });
+      setDepInput(String(data.depositRate));
+      setWitInput(String(data.withdrawalRate));
+      toast({ title: "Rates updated", description: `Deposit: 1 USDT = ${data.depositRate} HTG | Withdrawal: 1 USDT = ${data.withdrawalRate} HTG` });
+    },
+    onError: (err: Error) => {
+      toast({ variant: "destructive", title: "Error", description: err.message });
+    },
+  });
+
+  const previewDep = parseFloat(depInput) || depositRate;
+  const previewWit = parseFloat(witInput) || withdrawalRate;
+
+  return (
+    <div className="max-w-md space-y-6">
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <TrendingUp className="w-5 h-5 text-primary" />
+            Exchange Rate Settings
+          </CardTitle>
+          <p className="text-sm text-muted-foreground">
+            Set the HTG value of 1 USDT for deposits and withdrawals. Changes take effect immediately platform-wide.
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-5">
+          <div className="space-y-2">
+            <label className="text-sm font-medium flex items-center gap-1.5">
+              <ArrowDownCircle className="w-3.5 h-3.5 text-emerald-500" />
+              Deposit Rate — 1 USDT = ? HTG
+            </label>
+            <div className="flex gap-2 items-center">
+              <Input
+                type="number"
+                step="0.5"
+                min="1"
+                value={depInput}
+                onChange={e => setDepInput(e.target.value)}
+                placeholder="e.g. 143"
+                className="font-mono"
+                data-testid="input-deposit-rate"
+              />
+              <span className="text-sm text-muted-foreground whitespace-nowrap">HTG</span>
+            </div>
+            <p className="text-xs text-muted-foreground">Live rate: <strong>{depositRate} HTG / USDT</strong></p>
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-sm font-medium flex items-center gap-1.5">
+              <ArrowUpCircle className="w-3.5 h-3.5 text-rose-500" />
+              Withdrawal Rate — 1 USDT = ? HTG
+            </label>
+            <div className="flex gap-2 items-center">
+              <Input
+                type="number"
+                step="0.5"
+                min="1"
+                value={witInput}
+                onChange={e => setWitInput(e.target.value)}
+                placeholder="e.g. 139"
+                className="font-mono"
+                data-testid="input-withdrawal-rate"
+              />
+              <span className="text-sm text-muted-foreground whitespace-nowrap">HTG</span>
+            </div>
+            <p className="text-xs text-muted-foreground">Live rate: <strong>{withdrawalRate} HTG / USDT</strong></p>
+          </div>
+
+          <Button
+            onClick={() => updateRates.mutate()}
+            disabled={updateRates.isPending || !depInput || !witInput}
+            className="w-full"
+            data-testid="button-save-rates"
+          >
+            {updateRates.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Save className="w-4 h-4 mr-2" />}
+            Save Exchange Rates
+          </Button>
+
+          <div className="p-3 rounded-md bg-muted/50 border text-xs text-muted-foreground space-y-1">
+            <p className="font-medium text-foreground text-sm">Preview</p>
+            <p>Deposit: 100 USDT → <strong>{(100 * previewDep).toLocaleString()} HTG</strong></p>
+            <p>Withdrawal: 100 USDT → <strong>{(100 * previewWit).toLocaleString()} HTG</strong></p>
+          </div>
         </CardContent>
       </Card>
     </div>

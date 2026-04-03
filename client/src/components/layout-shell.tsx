@@ -2,7 +2,8 @@ import { ReactNode, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { useUser, useLogout } from "@/hooks/use-auth";
 import { useLanguage } from "@/lib/i18n";
-import { usdtToHtg, formatHtg } from "@shared/constants";
+import { formatHtg } from "@shared/constants";
+import { useRates } from "@/hooks/use-rates";
 import { 
   LayoutDashboard, 
   ArrowDownCircle, 
@@ -52,7 +53,8 @@ export function LayoutShell({ children }: LayoutShellProps) {
     navItems.push({ href: "/admin", label: t.nav.adminPanel, icon: ShieldCheck });
   }
 
-  const balanceHtg = usdtToHtg(Number(user?.balance || 0));
+  const { depositRate } = useRates();
+  const balanceHtg = Number(user?.balance || 0) * depositRate;
 
   const NavContent = () => (
     <div className="flex flex-col h-full bg-sidebar text-sidebar-foreground">

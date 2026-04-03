@@ -2,7 +2,8 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useUser } from "@/hooks/use-auth";
 import { useLanguage } from "@/lib/i18n";
 import { useQuery } from "@tanstack/react-query";
-import { EXCHANGE_RATE_USDT_HTG, usdtToHtg, formatHtg, formatUsdt, NETWORK_FEE_CONFIG, MANUAL_DEPOSIT_MIN_HTG, MANUAL_DEPOSIT_EXCHANGE_RATE, type NetworkCurrency } from "@shared/constants";
+import { formatHtg, formatUsdt, NETWORK_FEE_CONFIG, MANUAL_DEPOSIT_MIN_HTG, type NetworkCurrency } from "@shared/constants";
+import { useRates } from "@/hooks/use-rates";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -43,6 +44,7 @@ export default function DepositPage() {
   const { data: user } = useUser();
   const { toast } = useToast();
   const { t } = useLanguage();
+  const { depositRate } = useRates();
   const kycVerified = user?.kycStatus === "verified";
   const [depositMethod, setDepositMethod] = useState<"crypto" | "moncash">("crypto");
   const [selectedNetwork, setSelectedNetwork] = useState<NetworkKey>("trc20");
@@ -79,12 +81,12 @@ export default function DepositPage() {
   const cryptoUsdt = parseFloat(cryptoAmount) || 0;
   const networkFee = networkConfig.fee;
   const creditedUsdt = Math.max(0, cryptoUsdt - networkFee);
-  const creditedHtg = usdtToHtg(creditedUsdt);
+  const creditedHtg = creditedUsdt * depositRate;
   const belowMinimum = cryptoUsdt > 0 && cryptoUsdt < networkConfig.minAmount;
   const canSubmit = cryptoUsdt >= networkConfig.minAmount && kycVerified;
 
   const htgAmount = parseFloat(amountHtg) || 0;
-  const usdtEquiv = htgAmount > 0 ? (htgAmount / MANUAL_DEPOSIT_EXCHANGE_RATE) : 0;
+  const usdtEquiv = htgAmount > 0 ? (htgAmount / depositRate) : 0;
   const belowManualMin = htgAmount > 0 && htgAmount < MANUAL_DEPOSIT_MIN_HTG;
   const companyPhone = mobileWallet === "moncash"
     ? (paymentInfoData?.moncash || "...")

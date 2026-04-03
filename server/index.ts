@@ -207,6 +207,39 @@ app.use((req, res, next) => {
     console.warn("[startup migration] pending card status fix skipped:", (e as Error).message);
   }
 
+  // App settings table for dynamic exchange rates
+  try {
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS app_settings (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL,
+        updated_at TIMESTAMP DEFAULT NOW()
+      )
+    `);
+    await db.execute(sql`
+      INSERT INTO app_settings (key, value) VALUES ('deposit_rate', '143'), ('withdrawal_rate', '139')
+      ON CONFLICT (key) DO NOTHING
+    `);
+    console.log("[startup migration] app_settings table ensured");
+  } catch (e) {
+    console.warn("[startup migration] app_settings skipped:", (e as Error).message);
+  }
+
+  // Load dynamic rates from DB into memory
+  try {
+    const { setRates } = await import("./rates");
+    const rows = await db.execute(sql`SELECT key, value FROM app_settings WHERE key IN ('deposit_rate', 'withdrawal_rate')`);
+    let dep = 143, wit = 139;
+    for (const row of rows.rows as any[]) {
+      if (row.key === "deposit_rate") dep = Number(row.value);
+      if (row.key === "withdrawal_rate") wit = Number(row.value);
+    }
+    setRates(dep, wit);
+    console.log(`[rates] Loaded: deposit=${dep}, withdrawal=${wit}`);
+  } catch (e) {
+    console.warn("[rates] Could not load from DB, using defaults:", (e as Error).message);
+  }
+
   // IP tracking columns on profiles, deposits, withdrawals
   try {
     await db.execute(sql`ALTER TABLE profiles ADD COLUMN IF NOT EXISTS last_ip TEXT`);

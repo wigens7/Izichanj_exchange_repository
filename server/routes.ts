@@ -9,7 +9,8 @@ import { setupAuth, isAuthenticated } from "./auth";
 import { registerObjectStorageRoutes } from "./replit_integrations/object_storage";
 import crypto from "crypto";
 import bcrypt from "bcryptjs";
-import { WITHDRAWAL_MIN_USDT, WITHDRAWAL_MAX_USDT, WITHDRAWAL_FEE_USDT, WITHDRAWAL_EXCHANGE_RATE_USDT_HTG, usdtToHtg, usdtToHtgWithdrawal, htgToUsdt, formatHtg, WITHDRAWAL_MIN_HTG, WITHDRAWAL_MAX_HTG, EXCHANGE_RATE_USDT_HTG, NETWORK_FEE_CONFIG, MANUAL_DEPOSIT_MIN_HTG, MANUAL_DEPOSIT_MIN_USDT, MANUAL_DEPOSIT_EXCHANGE_RATE, TOPUP_FEE_USD } from "@shared/constants";
+import { WITHDRAWAL_MIN_USDT, WITHDRAWAL_MAX_USDT, WITHDRAWAL_FEE_USDT, formatHtg, NETWORK_FEE_CONFIG, MANUAL_DEPOSIT_MIN_HTG, MANUAL_DEPOSIT_MIN_USDT, TOPUP_FEE_USD } from "@shared/constants";
+import { getDepositRate, getWithdrawalRate, setRates, rateUsdtToHtg, rateHtgToUsdt, rateUsdtToHtgWithdrawal } from "./rates";
 import { generateReceiptPDF, generateAdjustmentReceiptPDF } from "./receipt";
 import { ensureKycImageSize } from "./image-compress";
 import { deposits, profiles, virtualCards } from "@shared/schema";
@@ -217,7 +218,7 @@ export async function registerRoutes(
       }
 
       const htgAmount = Number(amountHtg);
-      const usdtAmount = htgToUsdt(htgAmount);
+      const usdtAmount = rateHtgToUsdt(htgAmount);
       const orderId = `MCH-${profile.id}-${Date.now()}`;
 
       const { redirectUrl } = await createMoncashPayment(htgAmount, orderId);
@@ -267,7 +268,7 @@ export async function registerRoutes(
       const newBalance = currentBalance + depositAmount;
       await storage.updateProfileBalance(deposit.profileId, newBalance);
 
-      const htgAmount = formatHtg(usdtToHtg(depositAmount));
+      const htgAmount = formatHtg(rateUsdtToHtg(depositAmount));
       await storage.createNotification({
         profileId: deposit.profileId,
         type: "deposit_approved",
@@ -325,7 +326,7 @@ export async function registerRoutes(
       }
       const creditAmount = amount - networkConfig.fee;
       const orderId = `NP-${profile.id}-${Date.now()}`;
-      const htgAmount = usdtToHtg(creditAmount);
+      const htgAmount = rateUsdtToHtg(creditAmount);
 
       const response = await fetch(`${NOWPAYMENTS_BASE_URL}/payment`, {
         method: "POST",
@@ -716,7 +717,7 @@ export async function registerRoutes(
           const newBalance = currentBalance + creditAmount;
           await storage.updateProfileBalance(deposit.profileId, newBalance);
 
-          const htgAmount = formatHtg(usdtToHtg(creditAmount));
+          const htgAmount = formatHtg(rateUsdtToHtg(creditAmount));
           await storage.createNotification({
             profileId: deposit.profileId,
             type: "deposit_approved",
@@ -1091,7 +1092,7 @@ export async function registerRoutes(
 
         await storage.updateProfileBalance(profile.id, currentBalance - amountUsdt);
 
-        const htgAmount = usdtToHtgWithdrawal(amountUsdt);
+        const htgAmount = rateUsdtToHtgWithdrawal(amountUsdt);
 
         const withdrawal = await storage.createWithdrawal({
           amount: parsed.amount,
@@ -1107,8 +1108,8 @@ export async function registerRoutes(
         for (const admin of admins.filter(a => a.role === "admin")) {
           await storage.createNotification({ profileId: admin.id, type: "custom_message", title: `🔔 New ${parsed.currency} Withdrawal`, message: `${profile.fullName} requested ${amountUsdt.toFixed(2)} USDT → ${formatHtg(htgAmount)} HTG via ${parsed.currency} (${parsed.withdrawMethod === "phone" ? parsed.phoneNumber : "QR Code"})` });
         }
-        await storage.createNotification({ profileId: profile.id, type: "withdrawal_approved" as any, title: "Withdrawal Under Review", message: `Your ${parsed.currency} withdrawal of ${amountUsdt.toFixed(2)} USDT (${formatHtg(htgAmount)} HTG at 1 USDT = ${WITHDRAWAL_EXCHANGE_RATE_USDT_HTG} HTG) is under review. Processing: 15–20 min.` });
-        sendTelegramMessage(`💸 <b>New ${parsed.currency} Withdrawal</b>\n\n👤 ${profile.fullName}\n📧 ${profile.email}\n💵 <b>Amount:</b> ${amountUsdt.toFixed(2)} USDT → ${formatHtg(htgAmount)} HTG\n📱 <b>Method:</b> ${parsed.withdrawMethod === "phone" ? `Phone (${parsed.phoneNumber})` : "QR Code"}\n📲 <b>Wallet:</b> ${parsed.currency}\n\n⏳ Rate: 1 USDT = ${WITHDRAWAL_EXCHANGE_RATE_USDT_HTG} HTG. Awaiting admin approval.`).catch(() => {});
+        await storage.createNotification({ profileId: profile.id, type: "withdrawal_approved" as any, title: "Withdrawal Under Review", message: `Your ${parsed.currency} withdrawal of ${amountUsdt.toFixed(2)} USDT (${formatHtg(htgAmount)} HTG at 1 USDT = ${getWithdrawalRate()} HTG) is under review. Processing: 15–20 min.` });
+        sendTelegramMessage(`💸 <b>New ${parsed.currency} Withdrawal</b>\n\n👤 ${profile.fullName}\n📧 ${profile.email}\n💵 <b>Amount:</b> ${amountUsdt.toFixed(2)} USDT → ${formatHtg(htgAmount)} HTG\n📱 <b>Method:</b> ${parsed.withdrawMethod === "phone" ? `Phone (${parsed.phoneNumber})` : "QR Code"}\n📲 <b>Wallet:</b> ${parsed.currency}\n\n⏳ Rate: 1 USDT = ${getWithdrawalRate()} HTG. Awaiting admin approval.`).catch(() => {});
 
         return res.status(201).json(withdrawal);
       }
@@ -1228,6 +1229,30 @@ export async function registerRoutes(
     }
     const allProfiles = await storage.getAllProfiles();
     res.json(allProfiles);
+  });
+
+  // ── Exchange Rates (public read, admin write) ──
+  app.get("/api/settings/rates", async (_req, res) => {
+    res.json({ depositRate: getDepositRate(), withdrawalRate: getWithdrawalRate() });
+  });
+
+  app.patch("/api/admin/settings/rates", isAuthenticated, isAdmin, async (req: any, res) => {
+    try {
+      const { depositRate, withdrawalRate } = req.body;
+      const dep = Number(depositRate);
+      const wit = Number(withdrawalRate);
+      if (!dep || dep < 1 || !wit || wit < 1) {
+        return res.status(400).json({ message: "Both rates must be positive numbers" });
+      }
+      const { appSettings } = await import("@shared/schema");
+      await db.insert(appSettings).values({ key: "deposit_rate", value: String(dep) }).onConflictDoUpdate({ target: appSettings.key, set: { value: String(dep), updatedAt: new Date() } });
+      await db.insert(appSettings).values({ key: "withdrawal_rate", value: String(wit) }).onConflictDoUpdate({ target: appSettings.key, set: { value: String(wit), updatedAt: new Date() } });
+      setRates(dep, wit);
+      res.json({ depositRate: dep, withdrawalRate: wit });
+    } catch (e) {
+      console.error("Update rates error:", e);
+      res.status(500).json({ message: "Failed to update rates" });
+    }
   });
 
   // GeoIP lookup for admin (server-side, avoids CORS issues)
@@ -1413,7 +1438,7 @@ export async function registerRoutes(
       const newBalance = currentBalance + depositAmount;
       await storage.updateProfileBalance(deposit.profileId, newBalance);
     }
-    const htgAmount = formatHtg(usdtToHtg(Number(deposit.amountUsdt)));
+    const htgAmount = formatHtg(rateUsdtToHtg(Number(deposit.amountUsdt)));
     const depositMsg = `Your deposit of ${Number(deposit.amountUsdt).toFixed(2)} USDT (${htgAmount} HTG) has been approved and added to your balance.`;
     await storage.createNotification({
       profileId: deposit.profileId,
@@ -1445,7 +1470,7 @@ export async function registerRoutes(
 
   app.patch(api.admin.approveWithdrawal.path, isAuthenticated, isAdmin, async (req: any, res) => {
     const withdrawal = await storage.updateWithdrawalStatus(Number(req.params.id), "approved");
-    const htgAmount = formatHtg(usdtToHtg(Number(withdrawal.amount)));
+    const htgAmount = formatHtg(rateUsdtToHtg(Number(withdrawal.amount)));
     const wApproveMsg = `Your withdrawal of ${Number(withdrawal.amount).toFixed(2)} USDT (${htgAmount} HTG) to ${withdrawal.currency} has been approved and is being processed.`;
     await storage.createNotification({
       profileId: withdrawal.profileId,
@@ -1468,7 +1493,7 @@ export async function registerRoutes(
       const refundAmount = parseFloat(withdrawal.amount);
       await storage.updateProfileBalance(withdrawal.profileId, currentBalance + refundAmount);
     }
-    const htgAmount = formatHtg(usdtToHtg(Number(withdrawal.amount)));
+    const htgAmount = formatHtg(rateUsdtToHtg(Number(withdrawal.amount)));
     const wRejectMsg = `Your withdrawal of ${Number(withdrawal.amount).toFixed(2)} USDT (${htgAmount} HTG) to ${withdrawal.currency} has been rejected. Your balance has been refunded. Please contact support.`;
     await storage.createNotification({
       profileId: withdrawal.profileId,
@@ -1495,7 +1520,7 @@ export async function registerRoutes(
       else { fee = 1.50; network = "TRC20"; }
     }
     const netUsdt = amountUsdt - fee;
-    const finalAmountHtg = usdtToHtg(netUsdt);
+    const finalAmountHtg = rateUsdtToHtg(netUsdt);
     const now = new Date();
     const pad = (n: number) => String(n).padStart(2, "0");
     const txRef = `IZ${pad(now.getDate())}${pad(now.getMonth() + 1)}${String(now.getFullYear()).slice(2)}${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
@@ -1505,7 +1530,7 @@ export async function registerRoutes(
       createdAt: record.createdAt || now,
       amountUsdt,
       fee,
-      exchangeRate: EXCHANGE_RATE_USDT_HTG,
+      exchangeRate: getDepositRate(),
       finalAmountHtg,
       destination: type === "withdrawal" ? record.phoneNumber : null,
       walletAddress: type === "deposit" ? record.payAddress : null,
@@ -1524,7 +1549,7 @@ export async function registerRoutes(
     res.json({
       moncash: process.env.COMPANY_MONCASH_PHONE || "509-XXXX-XXXX",
       natcash: process.env.COMPANY_NATCASH_PHONE || "509-XXXX-XXXX",
-      exchangeRate: MANUAL_DEPOSIT_EXCHANGE_RATE,
+      exchangeRate: getDepositRate(),
       minHtg: MANUAL_DEPOSIT_MIN_HTG,
       minUsdt: MANUAL_DEPOSIT_MIN_USDT,
     });
@@ -1582,7 +1607,7 @@ export async function registerRoutes(
         return res.status(409).json({ message: "This transaction ID has already been submitted. If this is an error, please contact support." });
       }
 
-      const amountUsdt = (htgAmount / MANUAL_DEPOSIT_EXCHANGE_RATE).toFixed(2);
+      const amountUsdt = (htgAmount / getDepositRate()).toFixed(2);
 
       const deposit = await storage.createDeposit({
         profileId,
@@ -1630,7 +1655,7 @@ export async function registerRoutes(
       await storage.rejectDepositWithReason(id, reason.trim());
       const profile = await storage.getProfile(deposit.profileId);
 
-      const htgEquiv = formatHtg(usdtToHtg(Number(deposit.amountUsdt)));
+      const htgEquiv = formatHtg(rateUsdtToHtg(Number(deposit.amountUsdt)));
       const rejectMsg = `Your deposit of ${Number(deposit.amountUsdt).toFixed(2)} USDT (${htgEquiv} HTG) was rejected. Reason: ${reason.trim()}. Please contact support if you believe this is an error.`;
       await storage.createNotification({
         profileId: deposit.profileId,
@@ -1761,7 +1786,7 @@ export async function registerRoutes(
       const receiptData = await buildReceiptData("deposit", deposit, prof);
       const pdfBuffer = await generateReceiptPDF({ ...receiptData, receiptId });
 
-      const htgAmount = formatHtg(usdtToHtg(Number(deposit.amountUsdt)));
+      const htgAmount = formatHtg(rateUsdtToHtg(Number(deposit.amountUsdt)));
       const receiptMsg = `Your deposit of ${Number(deposit.amountUsdt).toFixed(2)} USDT (${htgAmount} HTG) has been approved. Your receipt is now available for download in your transaction history.`;
       await storage.createNotification({ profileId: deposit.profileId, type: "deposit_approved", title: "Deposit Approved — Receipt Ready", message: receiptMsg });
       if (prof?.phone) {
@@ -1793,7 +1818,7 @@ export async function registerRoutes(
       const receiptData = await buildReceiptData("withdrawal", withdrawal, prof);
       const pdfBuffer = await generateReceiptPDF({ ...receiptData, receiptId });
 
-      const htgAmount = formatHtg(usdtToHtg(Number(withdrawal.amount)));
+      const htgAmount = formatHtg(rateUsdtToHtg(Number(withdrawal.amount)));
       const receiptMsg = `Your withdrawal of ${Number(withdrawal.amount).toFixed(2)} USDT (${htgAmount} HTG) has been approved. Your receipt is now available for download.`;
       await storage.createNotification({ profileId: withdrawal.profileId, type: "withdrawal_approved", title: "Withdrawal Approved — Receipt Ready", message: receiptMsg });
       if (prof?.phone) {

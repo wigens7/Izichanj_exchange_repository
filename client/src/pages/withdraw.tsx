@@ -10,9 +10,9 @@ import { useLanguage } from "@/lib/i18n";
 import {
   formatUsdt, formatHtg,
   WITHDRAWAL_MIN_USDT, WITHDRAWAL_MAX_USDT,
-  WITHDRAWAL_FEE_USDT, WITHDRAWAL_EXCHANGE_RATE_USDT_HTG,
-  usdtToHtgWithdrawal,
+  WITHDRAWAL_FEE_USDT,
 } from "@shared/constants";
+import { useRates } from "@/hooks/use-rates";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
@@ -67,6 +67,7 @@ export default function WithdrawPage() {
   const { mutate: requestOtp, isPending: isOtpPending } = useRequestWithdrawalOtp();
   const { uploadFile, isUploading } = useUpload();
   const { t } = useLanguage();
+  const { withdrawalRate } = useRates();
   const kycVerified = user?.kycStatus === "verified";
   const userBalance = parseFloat(user?.balance || "0");
 
@@ -87,7 +88,7 @@ export default function WithdrawPage() {
   const mCurrency = mobileForm.watch("currency");
   const mMethod = mobileForm.watch("withdrawMethod");
   const mAmount = parseFloat(mobileForm.watch("amount") || "0");
-  const mHtg = usdtToHtgWithdrawal(mAmount);
+  const mHtg = mAmount * withdrawalRate;
   const mExceedsBalance = mAmount > 0 && mAmount > userBalance;
 
   // ── TRC-20 form ──
@@ -232,7 +233,7 @@ export default function WithdrawPage() {
               {t.withdraw.tabMobileMoney}
             </CardTitle>
             <CardDescription className="text-xs">
-              {t.withdraw.exchangeRate}: 1 USDT = {WITHDRAWAL_EXCHANGE_RATE_USDT_HTG} HTG &nbsp;·&nbsp;
+              {t.withdraw.exchangeRate}: 1 USDT = {withdrawalRate} HTG &nbsp;·&nbsp;
               {t.withdraw.minLimit}: {WITHDRAWAL_MIN_USDT} USDT &nbsp;·&nbsp;
               {t.withdraw.maxLimit}: {WITHDRAWAL_MAX_USDT.toLocaleString()} USDT
             </CardDescription>
@@ -296,7 +297,7 @@ export default function WithdrawPage() {
                   <div className="p-3 bg-emerald-500/5 dark:bg-emerald-500/8 rounded-md border border-emerald-200 dark:border-emerald-800/40" data-testid="htg-preview">
                     <div className="flex justify-between text-xs text-muted-foreground mb-1">
                       <span>{t.withdraw.exchangeRate}</span>
-                      <span className="font-medium">1 USDT = {WITHDRAWAL_EXCHANGE_RATE_USDT_HTG} HTG</span>
+                      <span className="font-medium">1 USDT = {withdrawalRate} HTG</span>
                     </div>
                     <div className="flex items-center justify-between">
                       <span className="text-sm text-muted-foreground">{t.withdraw.youWillReceive}</span>

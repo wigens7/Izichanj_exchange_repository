@@ -4,7 +4,8 @@ import { useLanguage } from "@/lib/i18n";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { formatUsdt, usdtToHtg, formatHtg } from "@shared/constants";
+import { formatUsdt, formatHtg } from "@shared/constants";
+import { useRates } from "@/hooks/use-rates";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -35,6 +36,7 @@ export default function SendFundsPage() {
   const { data: user } = useUser();
   const { t } = useLanguage();
   const { toast } = useToast();
+  const { depositRate } = useRates();
 
   const [identifier, setIdentifier] = useState("");
   const [recipient, setRecipient] = useState<RecipientInfo | null>(null);
@@ -195,7 +197,7 @@ export default function SendFundsPage() {
                       <p className="text-xs text-muted-foreground">{t.transfer.minAmount}</p>
                       {parsedAmount > 0 && (
                         <p className="text-xs text-muted-foreground">
-                          ~ {formatHtg(usdtToHtg(parsedAmount))} HTG
+                          ~ {formatHtg(parsedAmount * depositRate)} HTG
                         </p>
                       )}
                     </div>
@@ -242,7 +244,7 @@ export default function SendFundsPage() {
               <div className="text-center">
                 <p className="text-[11px] uppercase tracking-wider text-muted-foreground mb-1">{t.transfer.yourBalance}</p>
                 <p className="text-2xl font-display font-bold" data-testid="text-transfer-balance">{formatUsdt(balance)} <span className="text-sm font-normal text-muted-foreground">USDT</span></p>
-                <p className="text-sm text-muted-foreground mt-0.5">{formatHtg(usdtToHtg(balance))} HTG</p>
+                <p className="text-sm text-muted-foreground mt-0.5">{formatHtg(balance * depositRate)} HTG</p>
               </div>
             </CardContent>
           </Card>

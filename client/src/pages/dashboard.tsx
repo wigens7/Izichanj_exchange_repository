@@ -1,7 +1,8 @@
 import { useUser } from "@/hooks/use-auth";
 import { useDeposits, useWithdrawals } from "@/hooks/use-transactions";
 import { useLanguage } from "@/lib/i18n";
-import { EXCHANGE_RATE_USDT_HTG, usdtToHtg, formatHtg, formatUsdt } from "@shared/constants";
+import { formatHtg, formatUsdt } from "@shared/constants";
+import { useRates } from "@/hooks/use-rates";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ArrowUpRight, ArrowDownLeft, Wallet, TrendingUp, TrendingDown, ArrowRightLeft, FileText, Eye, EyeOff, Copy, CheckCheck } from "lucide-react";
@@ -16,6 +17,7 @@ export default function DashboardPage() {
   const { data: deposits, isLoading: isDepositsLoading } = useDeposits();
   const { data: withdrawals, isLoading: isWithdrawalsLoading } = useWithdrawals();
   const { t } = useLanguage();
+  const { depositRate } = useRates();
 
   const totalDepositedUsdt = deposits 
     ?.filter(d => d.status === 'approved')
@@ -27,9 +29,9 @@ export default function DashboardPage() {
 
   const [balanceVisible, setBalanceVisible] = useState(true);
 
-  const balanceHtg = usdtToHtg(Number(user?.balance || 0));
-  const totalDepositedHtg = usdtToHtg(totalDepositedUsdt);
-  const totalWithdrawnHtg = usdtToHtg(totalWithdrawnUsdt);
+  const balanceHtg = Number(user?.balance || 0) * depositRate;
+  const totalDepositedHtg = totalDepositedUsdt * depositRate;
+  const totalWithdrawnHtg = totalWithdrawnUsdt * depositRate;
 
   const allTransactions = [
     ...(deposits?.map(d => ({ ...d, type: 'deposit' as const })) || []),
@@ -48,7 +50,7 @@ export default function DashboardPage() {
       <div className="p-3.5 rounded-md bg-muted/60 border border-border flex items-center gap-2 text-sm" data-testid="banner-exchange-rate">
         <ArrowRightLeft className="w-4 h-4 text-primary flex-shrink-0" />
         <span className="text-muted-foreground">{t.withdraw.exchangeRate}:</span>
-        <span className="font-semibold">1 USDT = {EXCHANGE_RATE_USDT_HTG.toFixed(2)} HTG</span>
+        <span className="font-semibold">1 USDT = {depositRate.toFixed(2)} HTG</span>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
