@@ -1,6 +1,6 @@
-import { profiles, deposits, withdrawals, kycDocuments, otps, webauthnCredentials, notifications, supportConversations, supportMessages, virtualCards, blacklistedUsers, p2pTransfers, loginLogs, fraudRejections, cardTransactions, topUpTransactions, type Profile, type Deposit, type InsertDeposit, type Withdrawal, type InsertWithdrawal, type KycDocument, type WebAuthnCredential, type Notification, type SupportConversation, type SupportMessage, type VirtualCard, type BlacklistedUser, type P2PTransfer, type LoginLog, type FraudRejection, type CardTransaction, type TopUpTransaction } from "@shared/schema";
+import { profiles, deposits, withdrawals, kycDocuments, otps, webauthnCredentials, notifications, supportConversations, supportMessages, virtualCards, blacklistedUsers, p2pTransfers, loginLogs, fraudRejections, cardTransactions, topUpTransactions, securityEvents, balanceLogs, type Profile, type Deposit, type InsertDeposit, type Withdrawal, type InsertWithdrawal, type KycDocument, type WebAuthnCredential, type Notification, type SupportConversation, type SupportMessage, type VirtualCard, type BlacklistedUser, type P2PTransfer, type LoginLog, type FraudRejection, type CardTransaction, type TopUpTransaction, type SecurityEvent, type BalanceLog } from "@shared/schema";
 import { db } from "./db";
-import { eq, desc, and, ne, lt, sql, or, ilike } from "drizzle-orm";
+import { eq, desc, and, ne, lt, sql, or, ilike, inArray } from "drizzle-orm";
 import crypto from "crypto";
 
 export interface IStorage {
@@ -96,10 +96,30 @@ export interface IStorage {
   addToBlacklist(data: { email?: string; phone?: string; firstName?: string; lastName?: string; dateOfBirth?: string; idDocumentUrl?: string; idDocumentBackUrl?: string; selfieUrl?: string; reason?: string; originalProfileId?: number; referenceId?: string }): Promise<BlacklistedUser>;
   isBlacklisted(email: string, phone?: string, firstName?: string, lastName?: string, dateOfBirth?: string): Promise<boolean>;
 
-  createLoginLog(profileId: number, method: string, ipAddress?: string): Promise<void>;
+  createLoginLog(profileId: number, method: string, ipAddress?: string, deviceInfo?: string): Promise<void>;
   getLoginActivity(limit?: number): Promise<(LoginLog & { profile: Pick<Profile, "id" | "fullName" | "email"> })[]>;
   getLoginCount(profileId: number): Promise<number>;
   updateProfileIp(id: number, ip: string, loginAt?: Date): Promise<void>;
+
+  // Security events (failed logins, password resets, etc.)
+  createSecurityEvent(data: { profileId?: number; eventType: string; ipAddress?: string; deviceInfo?: string; details?: string; status?: string }): Promise<void>;
+  getSecurityEvents(profileId?: number, limit?: number): Promise<SecurityEvent[]>;
+
+  // Balance logs (financial integrity)
+  createBalanceLog(data: { profileId: number; previousBalance: number; newBalance: number; change: number; action: string; referenceId?: string; adminId?: number }): Promise<void>;
+  getBalanceLogs(profileId?: number, limit?: number): Promise<BalanceLog[]>;
+
+  // User 360 activity
+  getUserActivity(profileId: number): Promise<any>;
+
+  // Global audit log
+  getGlobalAuditLog(limit?: number, filterType?: string): Promise<any[]>;
+
+  // Multi-account detection (users sharing same IP)
+  getMultiAccountAlerts(): Promise<any[]>;
+
+  // Risk check for a specific withdrawal
+  getWithdrawalRiskInfo(withdrawalId: number): Promise<any>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -634,8 +654,8 @@ export class DatabaseStorage implements IStorage {
     return false;
   }
 
-  async createLoginLog(profileId: number, method: string, ipAddress?: string): Promise<void> {
-    await db.insert(loginLogs).values({ profileId, method, ipAddress });
+  async createLoginLog(profileId: number, method: string, ipAddress?: string, deviceInfo?: string): Promise<void> {
+    await db.insert(loginLogs).values({ profileId, method, ipAddress, deviceInfo } as any);
   }
 
   async getLoginActivity(limit = 200): Promise<(LoginLog & { profile: Pick<Profile, "id" | "fullName" | "email"> })[]> {
@@ -668,6 +688,197 @@ export class DatabaseStorage implements IStorage {
     const updates: Record<string, any> = { lastIp: ip };
     if (loginAt) updates.lastLoginAt = loginAt;
     await db.update(profiles).set(updates).where(eq(profiles.id, id));
+  }
+
+  async createSecurityEvent(data: { profileId?: number; eventType: string; ipAddress?: string; deviceInfo?: string; details?: string; status?: string }): Promise<void> {
+    await db.execute(sql`
+      INSERT INTO security_events (profile_id, event_type, ip_address, device_info, details, status)
+      VALUES (${data.profileId ?? null}, ${data.eventType}, ${data.ipAddress ?? null}, ${data.deviceInfo ?? null}, ${data.details ?? null}, ${data.status ?? 'info'})
+    `);
+  }
+
+  async getSecurityEvents(profileId?: number, limit = 200): Promise<SecurityEvent[]> {
+    if (profileId) {
+      const rows = await db.execute(sql`SELECT * FROM security_events WHERE profile_id = ${profileId} ORDER BY created_at DESC LIMIT ${limit}`);
+      return rows.rows as SecurityEvent[];
+    }
+    const rows = await db.execute(sql`SELECT * FROM security_events ORDER BY created_at DESC LIMIT ${limit}`);
+    return rows.rows as SecurityEvent[];
+  }
+
+  async createBalanceLog(data: { profileId: number; previousBalance: number; newBalance: number; change: number; action: string; referenceId?: string; adminId?: number }): Promise<void> {
+    await db.execute(sql`
+      INSERT INTO balance_logs (profile_id, previous_balance, new_balance, change, action, reference_id, admin_id)
+      VALUES (${data.profileId}, ${data.previousBalance}, ${data.newBalance}, ${data.change}, ${data.action}, ${data.referenceId ?? null}, ${data.adminId ?? null})
+    `);
+  }
+
+  async getBalanceLogs(profileId?: number, limit = 200): Promise<BalanceLog[]> {
+    if (profileId) {
+      const rows = await db.execute(sql`SELECT * FROM balance_logs WHERE profile_id = ${profileId} ORDER BY created_at DESC LIMIT ${limit}`);
+      return rows.rows as BalanceLog[];
+    }
+    const rows = await db.execute(sql`SELECT * FROM balance_logs ORDER BY created_at DESC LIMIT ${limit}`);
+    return rows.rows as BalanceLog[];
+  }
+
+  async getUserActivity(profileId: number): Promise<any> {
+    const [user] = await db.select().from(profiles).where(eq(profiles.id, profileId));
+    if (!user) return null;
+
+    const [deps, withs, p2pSent, p2pRec, loginActivity, secEvts, balLogs, cards, topups] = await Promise.all([
+      db.execute(sql`SELECT id, amount_usdt, amount_htg, deposit_method, status, created_at, ip_address, moncash_transaction_id, nowpayments_payment_id, rejection_reason FROM deposits WHERE profile_id = ${profileId} ORDER BY created_at DESC LIMIT 50`),
+      db.execute(sql`SELECT id, amount, currency, status, created_at, ip_address, trc_address, fee, transaction_hash FROM withdrawals WHERE profile_id = ${profileId} ORDER BY created_at DESC LIMIT 50`),
+      db.execute(sql`SELECT pt.*, p.full_name as receiver_name, p.email as receiver_email FROM p2p_transfers pt LEFT JOIN profiles p ON p.id = pt.receiver_profile_id WHERE pt.sender_profile_id = ${profileId} ORDER BY pt.created_at DESC LIMIT 30`),
+      db.execute(sql`SELECT pt.*, p.full_name as sender_name, p.email as sender_email FROM p2p_transfers pt LEFT JOIN profiles p ON p.id = pt.sender_profile_id WHERE pt.receiver_profile_id = ${profileId} ORDER BY pt.created_at DESC LIMIT 30`),
+      db.execute(sql`SELECT * FROM login_logs WHERE profile_id = ${profileId} ORDER BY login_at DESC LIMIT 50`),
+      db.execute(sql`SELECT * FROM security_events WHERE profile_id = ${profileId} ORDER BY created_at DESC LIMIT 50`),
+      db.execute(sql`SELECT * FROM balance_logs WHERE profile_id = ${profileId} ORDER BY created_at DESC LIMIT 50`),
+      db.execute(sql`SELECT * FROM virtual_cards WHERE profile_id = ${profileId} ORDER BY created_at DESC`),
+      db.execute(sql`SELECT * FROM top_up_transactions WHERE profile_id = ${profileId} ORDER BY created_at DESC LIMIT 30`),
+    ]);
+
+    return {
+      profile: user,
+      deposits: deps.rows,
+      withdrawals: withs.rows,
+      p2pSent: p2pSent.rows,
+      p2pReceived: p2pRec.rows,
+      loginLogs: loginActivity.rows,
+      securityEvents: secEvts.rows,
+      balanceLogs: balLogs.rows,
+      cards: cards.rows,
+      topUps: topups.rows,
+    };
+  }
+
+  async getGlobalAuditLog(limit = 200, filterType?: string): Promise<any[]> {
+    const entries: any[] = [];
+
+    if (!filterType || filterType === "all" || filterType === "deposit") {
+      const deps = await db.execute(sql`
+        SELECT d.id, d.profile_id, p.full_name, p.email, d.amount_usdt, d.deposit_method, d.status, d.ip_address, d.created_at, 'deposit' as entry_type
+        FROM deposits d LEFT JOIN profiles p ON p.id = d.profile_id
+        ORDER BY d.created_at DESC LIMIT 100
+      `);
+      entries.push(...(deps.rows as any[]).map(r => ({ ...r, entryType: "deposit" })));
+    }
+
+    if (!filterType || filterType === "all" || filterType === "withdrawal") {
+      const withs = await db.execute(sql`
+        SELECT w.id, w.profile_id, p.full_name, p.email, w.amount, w.currency, w.status, w.ip_address, w.created_at, 'withdrawal' as entry_type
+        FROM withdrawals w LEFT JOIN profiles p ON p.id = w.profile_id
+        ORDER BY w.created_at DESC LIMIT 100
+      `);
+      entries.push(...(withs.rows as any[]).map(r => ({ ...r, entryType: "withdrawal" })));
+    }
+
+    if (!filterType || filterType === "all" || filterType === "security") {
+      const sec = await db.execute(sql`
+        SELECT se.*, p.full_name, p.email
+        FROM security_events se LEFT JOIN profiles p ON p.id = se.profile_id
+        ORDER BY se.created_at DESC LIMIT 100
+      `);
+      entries.push(...(sec.rows as any[]).map(r => ({ ...r, entryType: "security" })));
+    }
+
+    if (!filterType || filterType === "all" || filterType === "login") {
+      const logins = await db.execute(sql`
+        SELECT ll.*, p.full_name, p.email
+        FROM login_logs ll LEFT JOIN profiles p ON p.id = ll.profile_id
+        ORDER BY ll.login_at DESC LIMIT 100
+      `);
+      entries.push(...(logins.rows as any[]).map(r => ({ ...r, entryType: "login", created_at: r.login_at })));
+    }
+
+    if (!filterType || filterType === "all" || filterType === "p2p") {
+      const p2p = await db.execute(sql`
+        SELECT pt.*, s.full_name as sender_name, s.email as sender_email, r.full_name as receiver_name, r.email as receiver_email
+        FROM p2p_transfers pt
+        LEFT JOIN profiles s ON s.id = pt.sender_profile_id
+        LEFT JOIN profiles r ON r.id = pt.receiver_profile_id
+        ORDER BY pt.created_at DESC LIMIT 50
+      `);
+      entries.push(...(p2p.rows as any[]).map(r => ({ ...r, entryType: "p2p" })));
+    }
+
+    if (!filterType || filterType === "all" || filterType === "balance") {
+      const bals = await db.execute(sql`
+        SELECT bl.*, p.full_name, p.email
+        FROM balance_logs bl LEFT JOIN profiles p ON p.id = bl.profile_id
+        ORDER BY bl.created_at DESC LIMIT 100
+      `);
+      entries.push(...(bals.rows as any[]).map(r => ({ ...r, entryType: "balance" })));
+    }
+
+    entries.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    return entries.slice(0, limit);
+  }
+
+  async getMultiAccountAlerts(): Promise<any[]> {
+    const rows = await db.execute(sql`
+      SELECT
+        ip_address,
+        array_agg(DISTINCT profile_id ORDER BY profile_id) as profile_ids,
+        array_agg(DISTINCT full_name ORDER BY full_name) as user_names,
+        array_agg(DISTINCT email ORDER BY email) as emails,
+        COUNT(DISTINCT profile_id) as user_count,
+        MAX(login_at) as last_seen
+      FROM login_logs ll
+      LEFT JOIN profiles p ON p.id = ll.profile_id
+      WHERE ip_address IS NOT NULL AND ip_address != '::1' AND ip_address != '127.0.0.1'
+      GROUP BY ip_address
+      HAVING COUNT(DISTINCT profile_id) > 1
+      ORDER BY user_count DESC, last_seen DESC
+      LIMIT 50
+    `);
+    return rows.rows as any[];
+  }
+
+  async getWithdrawalRiskInfo(withdrawalId: number): Promise<any> {
+    const [w] = await db.execute(sql`
+      SELECT w.*, p.full_name, p.email, p.last_ip, p.id as uid
+      FROM withdrawals w LEFT JOIN profiles p ON p.id = w.profile_id
+      WHERE w.id = ${withdrawalId}
+    `);
+    if (!w) return null;
+    const withdrawal = (w as any);
+    const profileId = withdrawal.profile_id;
+    const withdrawalIp = withdrawal.ip_address;
+
+    const recentLogins = await db.execute(sql`
+      SELECT DISTINCT ip_address FROM login_logs
+      WHERE profile_id = ${profileId}
+      ORDER BY login_at DESC LIMIT 5
+    `);
+    const loginIps = (recentLogins.rows as any[]).map(r => r.ip_address).filter(Boolean);
+
+    const ipChanged = withdrawalIp && loginIps.length > 0 && !loginIps.includes(withdrawalIp);
+
+    const sharedIpUsers = withdrawalIp ? await db.execute(sql`
+      SELECT DISTINCT ll.profile_id, p.full_name, p.email
+      FROM login_logs ll LEFT JOIN profiles p ON p.id = ll.profile_id
+      WHERE ll.ip_address = ${withdrawalIp} AND ll.profile_id != ${profileId}
+      LIMIT 10
+    `) : { rows: [] };
+
+    const failedLogins = await db.execute(sql`
+      SELECT COUNT(*) as count FROM security_events
+      WHERE profile_id = ${profileId} AND event_type = 'failed_login'
+        AND created_at > NOW() - INTERVAL '24 hours'
+    `);
+
+    return {
+      withdrawal,
+      riskFlags: {
+        ipChanged: ipChanged,
+        withdrawalIp,
+        recentLoginIps: loginIps,
+        sharedIpUsers: sharedIpUsers.rows,
+        failedLoginsLast24h: Number((failedLogins.rows[0] as any)?.count ?? 0),
+        multiAccountAlert: (sharedIpUsers.rows as any[]).length > 0,
+      },
+    };
   }
 }
 

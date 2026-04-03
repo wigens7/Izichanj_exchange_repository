@@ -265,6 +265,60 @@ app.use((req, res, next) => {
     console.warn("[startup migration] wigens7 name fix skipped:", (e as Error).message);
   }
 
+  // Security events table for audit trail
+  try {
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS security_events (
+        id SERIAL PRIMARY KEY,
+        profile_id INTEGER REFERENCES profiles(id),
+        event_type TEXT NOT NULL,
+        ip_address TEXT,
+        device_info TEXT,
+        details TEXT,
+        created_at TIMESTAMP DEFAULT NOW() NOT NULL
+      )
+    `);
+    console.log("[startup migration] security_events table ensured");
+  } catch (e) {
+    console.warn("[startup migration] security_events skipped:", (e as Error).message);
+  }
+
+  // Balance logs table for financial integrity
+  try {
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS balance_logs (
+        id SERIAL PRIMARY KEY,
+        profile_id INTEGER NOT NULL REFERENCES profiles(id),
+        previous_balance DECIMAL(10,2) NOT NULL,
+        new_balance DECIMAL(10,2) NOT NULL,
+        change DECIMAL(10,2) NOT NULL,
+        action TEXT NOT NULL,
+        reference_id TEXT,
+        admin_id INTEGER,
+        created_at TIMESTAMP DEFAULT NOW() NOT NULL
+      )
+    `);
+    console.log("[startup migration] balance_logs table ensured");
+  } catch (e) {
+    console.warn("[startup migration] balance_logs skipped:", (e as Error).message);
+  }
+
+  // Add device_info column to login_logs
+  try {
+    await db.execute(sql`ALTER TABLE login_logs ADD COLUMN IF NOT EXISTS device_info TEXT`);
+    console.log("[startup migration] login_logs.device_info ensured");
+  } catch (e) {
+    console.warn("[startup migration] login_logs.device_info skipped:", (e as Error).message);
+  }
+
+  // Add status column to security_events (for failed/success distinction)
+  try {
+    await db.execute(sql`ALTER TABLE security_events ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'info'`);
+    console.log("[startup migration] security_events.status ensured");
+  } catch (e) {
+    console.warn("[startup migration] security_events.status skipped:", (e as Error).message);
+  }
+
   await registerRoutes(httpServer, app);
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {

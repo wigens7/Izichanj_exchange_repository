@@ -141,6 +141,10 @@ export default function AdminPage() {
             <TrendingUp className="w-4 h-4" />
             <span className="hidden sm:inline">Rates</span>
           </TabsTrigger>
+          <TabsTrigger value="audit" className="gap-2" data-testid="tab-admin-audit">
+            <ShieldCheck className="w-4 h-4" />
+            <span className="hidden sm:inline">Audit</span>
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="users">
@@ -169,6 +173,9 @@ export default function AdminPage() {
         </TabsContent>
         <TabsContent value="settings">
           <SettingsTab />
+        </TabsContent>
+        <TabsContent value="audit">
+          <AuditTab />
         </TabsContent>
       </Tabs>
     </div>

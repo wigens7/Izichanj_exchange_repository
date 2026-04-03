@@ -305,6 +305,30 @@ export const appSettings = pgTable("app_settings", {
 
 export type AppSetting = typeof appSettings.$inferSelect;
 
+export const securityEvents = pgTable("security_events", {
+  id: serial("id").primaryKey(),
+  profileId: integer("profile_id").references(() => profiles.id),
+  eventType: text("event_type").notNull(),
+  ipAddress: text("ip_address"),
+  deviceInfo: text("device_info"),
+  details: text("details"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+export type SecurityEvent = typeof securityEvents.$inferSelect;
+
+export const balanceLogs = pgTable("balance_logs", {
+  id: serial("id").primaryKey(),
+  profileId: integer("profile_id").references(() => profiles.id).notNull(),
+  previousBalance: decimal("previous_balance", { precision: 10, scale: 2 }).notNull(),
+  newBalance: decimal("new_balance", { precision: 10, scale: 2 }).notNull(),
+  change: decimal("change", { precision: 10, scale: 2 }).notNull(),
+  action: text("action").notNull(),
+  referenceId: text("reference_id"),
+  adminId: integer("admin_id"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+export type BalanceLog = typeof balanceLogs.$inferSelect;
+
 export const profileInfoSchema = z.object({
   firstName: z.string().min(1, "First name is required"),
   lastName: z.string().min(1, "Last name is required"),

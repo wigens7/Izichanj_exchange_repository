@@ -42,6 +42,31 @@ function getClientIp(req: Request): string {
   return (req.headers["x-real-ip"] as string) || req.ip || "unknown";
 }
 
+function getDeviceInfo(req: Request): string {
+  const ua = req.headers["user-agent"] || "";
+  let device = "Unknown";
+  let os = "Unknown";
+  let browser = "Unknown";
+  if (/iPhone/i.test(ua)) device = "iPhone";
+  else if (/iPad/i.test(ua)) device = "iPad";
+  else if (/Android/i.test(ua) && /Mobile/i.test(ua)) device = "Android Phone";
+  else if (/Android/i.test(ua)) device = "Android Tablet";
+  else if (/Windows/i.test(ua)) device = "Windows PC";
+  else if (/Macintosh/i.test(ua)) device = "Mac";
+  else if (/Linux/i.test(ua)) device = "Linux PC";
+  if (/Windows NT 10/i.test(ua)) os = "Windows 10/11";
+  else if (/Windows NT 6\.3/i.test(ua)) os = "Windows 8.1";
+  else if (/Mac OS X/i.test(ua)) os = "macOS";
+  else if (/Android/i.test(ua)) { const m = ua.match(/Android ([0-9.]+)/); os = m ? `Android ${m[1]}` : "Android"; }
+  else if (/iPhone OS/i.test(ua)) { const m = ua.match(/iPhone OS ([0-9_]+)/); os = m ? `iOS ${m[1].replace(/_/g, ".")}` : "iOS"; }
+  if (/Chrome\/([0-9]+)/i.test(ua) && !/Chromium|Edge|OPR/i.test(ua)) { const m = ua.match(/Chrome\/([0-9]+)/); browser = m ? `Chrome ${m[1]}` : "Chrome"; }
+  else if (/Firefox\/([0-9]+)/i.test(ua)) { const m = ua.match(/Firefox\/([0-9]+)/); browser = m ? `Firefox ${m[1]}` : "Firefox"; }
+  else if (/Safari\/([0-9]+)/i.test(ua) && !/Chrome/i.test(ua)) browser = "Safari";
+  else if (/Edg\/([0-9]+)/i.test(ua)) { const m = ua.match(/Edg\/([0-9]+)/); browser = m ? `Edge ${m[1]}` : "Edge"; }
+  else if (/OPR\/([0-9]+)/i.test(ua)) browser = "Opera";
+  return `${device} · ${os} · ${browser}`;
+}
+
 function getWebAuthnConfig(req: any) {
   const host = req.get("host") || req.hostname || "localhost";
   const rpID = host.split(":")[0];
@@ -837,13 +862,17 @@ export async function registerRoutes(
         profile = await storage.getProfileByPhone(input.identifier);
       }
 
+      const loginAttemptIp = getClientIp(req);
+      const loginAttemptDevice = getDeviceInfo(req);
       console.log(`[LOGIN] Attempt for ${input.identifier}, found: ${!!profile}, hash starts: ${profile?.passwordHash?.substring(0, 10) || 'N/A'}`);
       if (!profile || profile.isDeleted) {
+        storage.createSecurityEvent({ profileId: undefined, eventType: "failed_login", ipAddress: loginAttemptIp, deviceInfo: loginAttemptDevice, details: `Unknown identifier: ${input.identifier}`, status: "warning" }).catch(() => {});
         return res.status(401).json({ message: "Invalid email/phone or password" });
       }
       const valid = await bcrypt.compare(input.password, profile.passwordHash);
       console.log(`[LOGIN] Password compare result for ${input.identifier}: ${valid}`);
       if (!valid) {
+        storage.createSecurityEvent({ profileId: profile.id, eventType: "failed_login", ipAddress: loginAttemptIp, deviceInfo: loginAttemptDevice, details: `Failed password attempt for ${input.identifier}`, status: "warning" }).catch(() => {});
         return res.status(401).json({ message: "Invalid email/phone or password" });
       }
 
@@ -862,8 +891,9 @@ export async function registerRoutes(
       }
 
       req.session.profileId = profile.id;
-      const loginIp = getClientIp(req);
-      storage.createLoginLog(profile.id, "password", loginIp).catch(() => {});
+      const loginIp = loginAttemptIp;
+      const loginDevice = loginAttemptDevice;
+      storage.createLoginLog(profile.id, "password", loginIp, loginDevice).catch(() => {});
       storage.updateProfileIp(profile.id, loginIp, new Date()).catch(() => {});
       const { passwordHash: _, twoFactorSecret: _s, ...safeProfile } = profile;
       res.json(safeProfile);
@@ -906,6 +936,7 @@ export async function registerRoutes(
       await storage.markOtpVerified(validOtp.id);
       const passwordHash = await bcrypt.hash(input.newPassword, 12);
       await storage.updateProfilePassword(profile.id, passwordHash);
+      storage.createSecurityEvent({ profileId: profile.id, eventType: "password_reset", ipAddress: getClientIp(req), deviceInfo: getDeviceInfo(req), details: "Password reset via OTP", status: "info" }).catch(() => {});
       res.json({ message: "Password reset successfully" });
     } catch (e) {
       if (e instanceof z.ZodError) return res.status(400).json({ message: e.errors[0].message });
@@ -933,7 +964,8 @@ export async function registerRoutes(
       req.session.profileId = profileId;
       delete req.session.pending2faProfileId;
       const twoFaIp = getClientIp(req);
-      storage.createLoginLog(profileId, "2fa", twoFaIp).catch(() => {});
+      const twoFaDevice = getDeviceInfo(req);
+      storage.createLoginLog(profileId, "2fa", twoFaIp, twoFaDevice).catch(() => {});
       storage.updateProfileIp(profileId, twoFaIp, new Date()).catch(() => {});
       const { passwordHash: _, twoFactorSecret: _s, ...safeProfile } = profile;
       res.json(safeProfile);
@@ -1066,6 +1098,7 @@ export async function registerRoutes(
           profileId: profile.id,
           ipAddress: getClientIp(req),
         } as any);
+        storage.createBalanceLog({ profileId: profile.id, previousBalance: currentBalance, newBalance: currentBalance - totalDeducted, change: -totalDeducted, action: "withdrawal_usdt", referenceId: String(withdrawal.id) }).catch(() => {});
 
         const admins = await storage.getAllProfiles();
         for (const admin of admins.filter(a => a.role === "admin")) {
@@ -1103,6 +1136,7 @@ export async function registerRoutes(
           profileId: profile.id,
           ipAddress: getClientIp(req),
         } as any);
+        storage.createBalanceLog({ profileId: profile.id, previousBalance: currentBalance, newBalance: currentBalance - amountUsdt, change: -amountUsdt, action: `withdrawal_${parsed.currency?.toLowerCase() || 'moncash'}`, referenceId: String(withdrawal.id) }).catch(() => {});
 
         const admins = await storage.getAllProfiles();
         for (const admin of admins.filter(a => a.role === "admin")) {
@@ -1437,6 +1471,7 @@ export async function registerRoutes(
       const depositAmount = parseFloat(deposit.amountUsdt);
       const newBalance = currentBalance + depositAmount;
       await storage.updateProfileBalance(deposit.profileId, newBalance);
+      storage.createBalanceLog({ profileId: profile.id, previousBalance: currentBalance, newBalance, change: depositAmount, action: "deposit", referenceId: String(deposit.id), adminId: req.session?.profileId }).catch(() => {});
     }
     const htgAmount = formatHtg(rateUsdtToHtg(Number(deposit.amountUsdt)));
     const depositMsg = `Your deposit of ${Number(deposit.amountUsdt).toFixed(2)} USDT (${htgAmount} HTG) has been approved and added to your balance.`;
@@ -1491,7 +1526,9 @@ export async function registerRoutes(
     if (profile) {
       const currentBalance = parseFloat(profile.balance || "0");
       const refundAmount = parseFloat(withdrawal.amount);
-      await storage.updateProfileBalance(withdrawal.profileId, currentBalance + refundAmount);
+      const newBalance = currentBalance + refundAmount;
+      await storage.updateProfileBalance(withdrawal.profileId, newBalance);
+      storage.createBalanceLog({ profileId: profile.id, previousBalance: currentBalance, newBalance, change: refundAmount, action: "withdrawal_refund", referenceId: String(withdrawal.id), adminId: req.session?.profileId }).catch(() => {});
     }
     const htgAmount = formatHtg(rateUsdtToHtg(Number(withdrawal.amount)));
     const wRejectMsg = `Your withdrawal of ${Number(withdrawal.amount).toFixed(2)} USDT (${htgAmount} HTG) to ${withdrawal.currency} has been rejected. Your balance has been refunded. Please contact support.`;
@@ -3251,6 +3288,7 @@ export async function registerRoutes(
       const newSenderBalance = senderBalance - sendAmount;
       const newReceiverBalance = parseFloat(recipient.balance) + sendAmount;
 
+      const senderBalanceBefore = senderBalance;
       await storage.updateProfileBalance(profile.id, newSenderBalance);
       await storage.updateProfileBalance(recipient.id, newReceiverBalance);
 
@@ -3270,6 +3308,9 @@ export async function registerRoutes(
         note: note || undefined,
         transactionId: txId,
       });
+      const receiverBalBefore = parseFloat(recipient.balance);
+      storage.createBalanceLog({ profileId: profile.id, previousBalance: senderBalanceBefore, newBalance: newSenderBalance, change: -sendAmount, action: "p2p_send", referenceId: String(transfer.id) }).catch(() => {});
+      storage.createBalanceLog({ profileId: recipient.id, previousBalance: receiverBalBefore, newBalance: newReceiverBalance, change: sendAmount, action: "p2p_receive", referenceId: String(transfer.id) }).catch(() => {});
 
       const receivedMsg = `You received ${sendAmount.toFixed(2)} USDT from ${profile.fullName}${note ? ` - "${note}"` : ""}\nTransaction ID: ${txId}`;
       await storage.createNotification({
@@ -4649,6 +4690,81 @@ export async function registerRoutes(
       if (!profile) return res.status(401).json({ message: "Unauthorized" });
       const history = await storage.getTopUpTransactions(profile.id);
       res.json(history);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message || "Internal Error" });
+    }
+  });
+
+  // ─── Admin Audit & Security Endpoints ──────────────────────────────────────
+
+  // GET /api/admin/users/:id/activity — 360 user activity view
+  app.get("/api/admin/users/:id/activity", isAuthenticated, isAdmin, async (req: any, res) => {
+    try {
+      const profileId = Number(req.params.id);
+      const activity = await storage.getUserActivity(profileId);
+      if (!activity) return res.status(404).json({ message: "User not found" });
+      res.json(activity);
+    } catch (e: any) {
+      console.error("[admin user activity]", e);
+      res.status(500).json({ message: e.message || "Internal Error" });
+    }
+  });
+
+  // GET /api/admin/audit-log — global audit log with optional type filter
+  app.get("/api/admin/audit-log", isAuthenticated, isAdmin, async (req: any, res) => {
+    try {
+      const filterType = (req.query.type as string) || "all";
+      const limit = Math.min(Number(req.query.limit) || 200, 500);
+      const entries = await storage.getGlobalAuditLog(limit, filterType);
+      res.json(entries);
+    } catch (e: any) {
+      console.error("[admin audit-log]", e);
+      res.status(500).json({ message: e.message || "Internal Error" });
+    }
+  });
+
+  // GET /api/admin/multi-account-alerts — users sharing same IP
+  app.get("/api/admin/multi-account-alerts", isAuthenticated, isAdmin, async (req: any, res) => {
+    try {
+      const alerts = await storage.getMultiAccountAlerts();
+      res.json(alerts);
+    } catch (e: any) {
+      console.error("[admin multi-account-alerts]", e);
+      res.status(500).json({ message: e.message || "Internal Error" });
+    }
+  });
+
+  // GET /api/admin/withdrawals/:id/risk-check — risk assessment for a withdrawal
+  app.get("/api/admin/withdrawals/:id/risk-check", isAuthenticated, isAdmin, async (req: any, res) => {
+    try {
+      const info = await storage.getWithdrawalRiskInfo(Number(req.params.id));
+      if (!info) return res.status(404).json({ message: "Withdrawal not found" });
+      res.json(info);
+    } catch (e: any) {
+      console.error("[admin withdrawal risk-check]", e);
+      res.status(500).json({ message: e.message || "Internal Error" });
+    }
+  });
+
+  // GET /api/admin/balance-logs — all balance change history
+  app.get("/api/admin/balance-logs", isAuthenticated, isAdmin, async (req: any, res) => {
+    try {
+      const profileId = req.query.profileId ? Number(req.query.profileId) : undefined;
+      const limit = Math.min(Number(req.query.limit) || 200, 500);
+      const logs = await storage.getBalanceLogs(profileId, limit);
+      res.json(logs);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message || "Internal Error" });
+    }
+  });
+
+  // GET /api/admin/security-events — security events log
+  app.get("/api/admin/security-events", isAuthenticated, isAdmin, async (req: any, res) => {
+    try {
+      const profileId = req.query.profileId ? Number(req.query.profileId) : undefined;
+      const limit = Math.min(Number(req.query.limit) || 200, 500);
+      const events = await storage.getSecurityEvents(profileId, limit);
+      res.json(events);
     } catch (e: any) {
       res.status(500).json({ message: e.message || "Internal Error" });
     }
