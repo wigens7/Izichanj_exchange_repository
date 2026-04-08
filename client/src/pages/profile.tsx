@@ -1,4 +1,4 @@
-import { useUser, useUpdateProfile } from "@/hooks/use-auth";
+import { useUser, useUpdateProfile, useLogout } from "@/hooks/use-auth";
 import { useKycStatus, useUploadKyc } from "@/hooks/use-kyc";
 import { useUpload } from "@/hooks/use-upload";
 import { compressImage } from "@/lib/image-compress";
@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { StatusBadge } from "@/components/status-badge";
-import { Loader2, UploadCloud, CheckCircle2, Globe, Clock, User, UserCheck, Copy, Check, FileText, MapPin } from "lucide-react";
+import { Loader2, UploadCloud, CheckCircle2, Globe, Clock, User, UserCheck, Copy, Check, FileText, MapPin, LogOut } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
@@ -22,6 +22,7 @@ export default function ProfilePage() {
   const { data: kycStatus } = useKycStatus();
   const { mutate: submitKyc, isPending: isSubmitting } = useUploadKyc();
   const { mutate: updateProfile, isPending: isUpdatingProfile } = useUpdateProfile();
+  const { mutate: logout } = useLogout();
   const { language, setLanguage, t } = useLanguage();
   
   const { toast } = useToast();
@@ -404,6 +405,18 @@ export default function ProfilePage() {
             </Card>
           )}
         </div>
+      </div>
+
+      <div className="flex justify-start pt-2">
+        <Button
+          variant="ghost"
+          className="text-muted-foreground hover:text-destructive hover:bg-destructive/10 gap-2"
+          onClick={() => logout()}
+          data-testid="button-logout-profile"
+        >
+          <LogOut className="w-4 h-4" />
+          Sign Out
+        </Button>
       </div>
     </div>
   );
