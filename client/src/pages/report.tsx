@@ -80,12 +80,19 @@ export default function ReportPage() {
 
   const submitMutation = useMutation({
     mutationFn: async (data: ReportForm) => {
-      const res = await apiRequest("POST", "/api/reports", { ...data, proofImageUrl: proofPath });
+      const res = await fetch("/api/reports", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ ...data, proofImageUrl: proofPath }),
+      });
+      const body = await res.json();
       if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.message);
+        const err: any = new Error(body.message || "Submission failed");
+        err.field = body.field ?? null;
+        throw err;
       }
-      return res.json();
+      return body;
     },
     onSuccess: () => {
       setSubmitted(true);
@@ -93,8 +100,12 @@ export default function ReportPage() {
       setProofPreview(null);
       setProofPath(null);
     },
-    onError: (e: Error) => {
-      toast({ title: "Submission failed", description: e.message, variant: "destructive" });
+    onError: (e: any) => {
+      if (e.field === "reportedIdentifier") {
+        form.setError("reportedIdentifier", { type: "server", message: e.message });
+      } else {
+        toast({ title: "Submission failed", description: e.message, variant: "destructive" });
+      }
     },
   });
 
@@ -155,10 +166,16 @@ export default function ReportPage() {
                         {...field}
                         placeholder="Email address or reference ID (e.g. REF-XXXXXX)"
                         data-testid="input-reported-identifier"
+                        onChange={(e) => {
+                          field.onChange(e);
+                          if (form.formState.errors.reportedIdentifier?.type === "server") {
+                            form.clearErrors("reportedIdentifier");
+                          }
+                        }}
                       />
                     </FormControl>
                     <FormMessage />
-                    <p className="text-xs text-muted-foreground">Enter the email or reference ID of the user you're reporting</p>
+                    <p className="text-xs text-muted-foreground">Must be a registered user with KYC verification approved</p>
                   </FormItem>
                 )}
               />

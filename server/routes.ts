@@ -4834,15 +4834,27 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Description must be at least 20 characters" });
       }
 
-      // Try to find the reported user
-      let reportedProfileId: number | null = null;
+      // Reported user must exist in DB with KYC approved
+      let reportedProfile: any = null;
       const byEmail = await storage.getProfileByEmail(reportedIdentifier.trim().toLowerCase());
       if (byEmail) {
-        reportedProfileId = byEmail.id;
+        reportedProfile = byEmail;
       } else {
         const byRef = await storage.getProfileByReferenceId(reportedIdentifier.trim());
-        if (byRef) reportedProfileId = byRef.id;
+        if (byRef) reportedProfile = byRef;
       }
+
+      if (!reportedProfile) {
+        return res.status(404).json({ message: "User not found. Only registered users can be reported.", field: "reportedIdentifier" });
+      }
+      if (reportedProfile.kycStatus !== "verified") {
+        return res.status(400).json({ message: "This user has not completed KYC verification and cannot be reported.", field: "reportedIdentifier" });
+      }
+      if (reportedProfile.id === profileId) {
+        return res.status(400).json({ message: "You cannot report yourself.", field: "reportedIdentifier" });
+      }
+
+      const reportedProfileId = reportedProfile.id;
 
       const report = await storage.createUserReport({
         reporterProfileId: profileId,
