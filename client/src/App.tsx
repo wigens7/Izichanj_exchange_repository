@@ -21,6 +21,7 @@ import FAQPage from "@/pages/faq";
 import VirtualCardsPage from "@/pages/virtual-cards";
 import SendFundsPage from "@/pages/send-funds";
 import TopUpPage from "@/pages/top-up";
+import ReportPage from "@/pages/report";
 import NotFound from "@/pages/not-found";
 import VerifyReceiptPage from "@/pages/verify-receipt";
 import { LayoutShell } from "@/components/layout-shell";
@@ -123,6 +124,9 @@ function Router() {
       </Route>
       <Route path="/top-up">
         <ProtectedRoute component={TopUpPage} />
+      </Route>
+      <Route path="/report">
+        <ProtectedRoute component={ReportPage} />
       </Route>
 
       <Route path="/verify/:receiptId" component={VerifyReceiptPage} />

@@ -29,6 +29,7 @@ The application features a modern, secure architecture. The UI/UX is built with 
 - **Support Chat**: A floating chat bubble providing bot-based FAQs and live agent support with file attachment capabilities, conversation rating, and auto-closure.
 - **Exchange Rates**: Dynamic exchange rate system (1 USDT = 139.50 HTG) integrated throughout the platform for conversions and display.
 - **Security**: Account deletion with blacklisting, user banning features for administrators.
+- **User Reports**: Any authenticated user can report another user (by email or reference ID) via the "Report a User" page. Reports include a reason (8 categories), a description, and an optional proof screenshot upload. On submission, the admin receives an instant Telegram notification. Admins can view all reports in a dedicated "Reports" tab in the admin panel, expand each report to see full details and proof image, add notes, and mark reports as Reviewed or Dismissed.
 
 **System Design Choices:**
 - **Database**: PostgreSQL is used as the primary database, managed with Drizzle ORM.

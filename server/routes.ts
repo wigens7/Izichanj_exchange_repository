@@ -4770,5 +4770,98 @@ export async function registerRoutes(
     }
   });
 
+  // ── User Reports ──────────────────────────────────────────────────────────
+
+  // Upload URL for report proof image
+  app.post("/api/reports/upload-url", isAuthenticated, async (req: any, res) => {
+    try {
+      const { ObjectStorageService } = await import("./replit_integrations/object_storage");
+      const objectStorage = new ObjectStorageService();
+      const uploadURL = await objectStorage.getObjectEntityUploadURL();
+      const objectPath = objectStorage.normalizeObjectEntityPath(uploadURL);
+      res.json({ uploadURL, objectPath });
+    } catch (e: any) {
+      res.status(500).json({ message: "Failed to generate upload URL" });
+    }
+  });
+
+  // Submit a user report
+  app.post("/api/reports", isAuthenticated, async (req: any, res) => {
+    try {
+      const profileId = req.session.profileId;
+      const profile = await storage.getProfile(profileId);
+      if (!profile) return res.status(401).json({ message: "Unauthorized" });
+
+      const { reportedIdentifier, reason, description, proofImageUrl } = req.body;
+      if (!reportedIdentifier?.trim() || !reason || !description?.trim()) {
+        return res.status(400).json({ message: "Reported user, reason, and description are required" });
+      }
+      if (description.trim().length < 20) {
+        return res.status(400).json({ message: "Description must be at least 20 characters" });
+      }
+
+      // Try to find the reported user
+      let reportedProfileId: number | null = null;
+      const byEmail = await storage.getProfileByEmail(reportedIdentifier.trim().toLowerCase());
+      if (byEmail) {
+        reportedProfileId = byEmail.id;
+      } else {
+        const byRef = await storage.getProfileByReferenceId(reportedIdentifier.trim());
+        if (byRef) reportedProfileId = byRef.id;
+      }
+
+      const report = await storage.createUserReport({
+        reporterProfileId: profileId,
+        reportedIdentifier: reportedIdentifier.trim(),
+        reportedProfileId,
+        reason,
+        description: description.trim(),
+        proofImageUrl: proofImageUrl || null,
+      });
+
+      // Telegram notification
+      sendTelegramMessage(
+        `🚨 <b>New User Report</b>\n\n` +
+        `👤 <b>Reporter:</b> ${profile.fullName} (${profile.email})\n` +
+        `🎯 <b>Reported:</b> ${reportedIdentifier.trim()}${reportedProfileId ? ` (ID: ${reportedProfileId})` : " (not found)"}\n` +
+        `📋 <b>Reason:</b> ${reason}\n` +
+        `📝 <b>Description:</b> ${description.trim().slice(0, 300)}\n` +
+        `🖼 <b>Proof:</b> ${proofImageUrl ? "Yes (attached)" : "None"}\n\n` +
+        `🔗 Review in Admin Panel → Reports tab`
+      ).catch(() => {});
+
+      res.json({ message: "Report submitted successfully", reportId: report.id });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message || "Internal Error" });
+    }
+  });
+
+  // Admin: list all reports
+  app.get("/api/admin/reports", isAuthenticated, isAdmin, async (req: any, res) => {
+    try {
+      const limit = Math.min(Number(req.query.limit) || 200, 500);
+      const reports = await storage.getUserReports(limit);
+      res.json(reports);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message || "Internal Error" });
+    }
+  });
+
+  // Admin: update report status
+  app.patch("/api/admin/reports/:id/status", isAuthenticated, isAdmin, async (req: any, res) => {
+    try {
+      const id = Number(req.params.id);
+      const { status, adminNote } = req.body;
+      if (!["pending", "reviewed", "dismissed"].includes(status)) {
+        return res.status(400).json({ message: "Invalid status" });
+      }
+      const updated = await storage.updateUserReportStatus(id, status, adminNote);
+      if (!updated) return res.status(404).json({ message: "Report not found" });
+      res.json(updated);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message || "Internal Error" });
+    }
+  });
+
   return httpServer;
 }

@@ -79,6 +79,7 @@ import {
   ShieldAlert,
   History,
   Info,
+  Flag,
 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -116,7 +117,7 @@ export default function AdminPage() {
       </div>
 
       <Tabs defaultValue="users" className="w-full">
-        <TabsList className="mb-4 grid w-full grid-cols-9 gap-1">
+        <TabsList className="mb-4 grid w-full grid-cols-10 gap-1">
           <TabsTrigger value="users" className="gap-2" data-testid="tab-admin-users">
             <Users className="w-4 h-4" />
             <span className="hidden sm:inline">Users</span>
@@ -157,6 +158,10 @@ export default function AdminPage() {
             <ShieldCheck className="w-4 h-4" />
             <span className="hidden sm:inline">Audit</span>
           </TabsTrigger>
+          <TabsTrigger value="reports" className="gap-2" data-testid="tab-admin-reports">
+            <Flag className="w-4 h-4" />
+            <span className="hidden sm:inline">Reports</span>
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="users">
@@ -188,6 +193,9 @@ export default function AdminPage() {
         </TabsContent>
         <TabsContent value="audit">
           <AuditTab />
+        </TabsContent>
+        <TabsContent value="reports">
+          <ReportsTab />
         </TabsContent>
       </Tabs>
     </div>
@@ -3653,6 +3661,203 @@ function AuditTab() {
           {filtered.length > 0 && (
             <div className="px-4 py-2 border-t text-xs text-muted-foreground">
               Showing {filtered.length} entries
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+// ── Reports Tab ──────────────────────────────────────────────────────────────
+const REPORT_REASON_LABELS: Record<string, string> = {
+  fraud: "Fraud / Scam",
+  impersonation: "Impersonation",
+  harassment: "Harassment or Threats",
+  fake_kyc: "Fake KYC Documents",
+  unauthorized_access: "Unauthorized Account Access",
+  money_laundering: "Suspected Money Laundering",
+  abusive_behavior: "Abusive Behavior",
+  other: "Other",
+};
+
+function ReportsTab() {
+  const { toast } = useToast();
+  const qc = useQueryClient();
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [noteInputs, setNoteInputs] = useState<Record<number, string>>({});
+  const [expandedId, setExpandedId] = useState<number | null>(null);
+
+  const { data: reports = [], isLoading } = useQuery<any[]>({
+    queryKey: ["/api/admin/reports"],
+    queryFn: async () => {
+      const res = await apiRequest("GET", "/api/admin/reports");
+      return res.json();
+    },
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: async ({ id, status, adminNote }: { id: number; status: string; adminNote?: string }) => {
+      const res = await apiRequest("PATCH", `/api/admin/reports/${id}/status`, { status, adminNote });
+      if (!res.ok) throw new Error((await res.json()).message);
+      return res.json();
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["/api/admin/reports"] });
+      toast({ title: "Report updated" });
+    },
+    onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const filtered = statusFilter === "all" ? reports : reports.filter((r: any) => r.status === statusFilter);
+
+  const statusBadge = (status: string) => {
+    if (status === "pending") return <Badge variant="outline" className="text-amber-600 border-amber-400 bg-amber-50 dark:bg-amber-900/20">Pending</Badge>;
+    if (status === "reviewed") return <Badge variant="outline" className="text-blue-600 border-blue-400 bg-blue-50 dark:bg-blue-900/20">Reviewed</Badge>;
+    return <Badge variant="outline" className="text-muted-foreground">Dismissed</Badge>;
+  };
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between pb-3">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Flag className="w-4 h-4 text-red-500" />
+            User Reports
+            <Badge variant="secondary" className="ml-1">{reports.length}</Badge>
+          </CardTitle>
+          <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <SelectTrigger className="w-36 h-8 text-xs" data-testid="select-reports-filter">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All</SelectItem>
+              <SelectItem value="pending">Pending</SelectItem>
+              <SelectItem value="reviewed">Reviewed</SelectItem>
+              <SelectItem value="dismissed">Dismissed</SelectItem>
+            </SelectContent>
+          </Select>
+        </CardHeader>
+        <CardContent className="p-0">
+          {isLoading ? (
+            <div className="p-6 space-y-2">
+              {[...Array(3)].map((_, i) => <Skeleton key={i} className="h-16 w-full" />)}
+            </div>
+          ) : filtered.length === 0 ? (
+            <div className="p-10 text-center text-muted-foreground text-sm">No reports found</div>
+          ) : (
+            <div className="divide-y">
+              {filtered.map((report: any) => (
+                <div key={report.id} className="p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 flex-wrap mb-1">
+                        {statusBadge(report.status)}
+                        <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
+                          {REPORT_REASON_LABELS[report.reason] ?? report.reason}
+                        </Badge>
+                        <span className="text-xs text-muted-foreground">
+                          {report.created_at ? format(new Date(report.created_at), "dd/MM/yyyy HH:mm") : "—"}
+                        </span>
+                      </div>
+                      <div className="text-xs space-y-0.5">
+                        <p><span className="text-muted-foreground">Reporter:</span> <span className="font-medium">{report.reporter_name ?? "—"}</span> <span className="text-muted-foreground">{report.reporter_email ? `(${report.reporter_email})` : ""}</span></p>
+                        <p><span className="text-muted-foreground">Reported:</span> <span className="font-medium">{report.reported_identifier}</span>{report.reported_name ? <span className="text-muted-foreground ml-1">({report.reported_name})</span> : <span className="text-amber-500 ml-1 text-[10px]">user not found</span>}</p>
+                      </div>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="flex-shrink-0"
+                      onClick={() => setExpandedId(expandedId === report.id ? null : report.id)}
+                      data-testid={`button-expand-report-${report.id}`}
+                    >
+                      {expandedId === report.id ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                    </Button>
+                  </div>
+
+                  {expandedId === report.id && (
+                    <div className="mt-3 space-y-3 border-t pt-3">
+                      <div className="bg-muted/40 rounded-md p-3 text-xs">
+                        <p className="font-medium mb-1 text-foreground">Description:</p>
+                        <p className="text-muted-foreground whitespace-pre-wrap">{report.description}</p>
+                      </div>
+
+                      {report.proof_image_url && (
+                        <div>
+                          <p className="text-xs font-medium mb-1">Proof Screenshot:</p>
+                          <a href={report.proof_image_url} target="_blank" rel="noopener noreferrer">
+                            <img
+                              src={report.proof_image_url}
+                              alt="Proof"
+                              className="max-h-48 rounded-md border object-contain cursor-pointer hover:opacity-90 transition-opacity"
+                              data-testid={`img-proof-${report.id}`}
+                            />
+                          </a>
+                        </div>
+                      )}
+
+                      {report.admin_note && (
+                        <div className="bg-blue-50 dark:bg-blue-900/20 rounded-md p-2 text-xs">
+                          <span className="font-medium text-blue-700 dark:text-blue-400">Admin Note:</span>
+                          <p className="text-muted-foreground mt-0.5">{report.admin_note}</p>
+                        </div>
+                      )}
+
+                      <div className="space-y-2">
+                        <label className="text-xs font-medium">Admin Note (optional)</label>
+                        <textarea
+                          className="w-full text-xs border rounded-md p-2 min-h-[60px] bg-background resize-none"
+                          placeholder="Add a note about this report…"
+                          value={noteInputs[report.id] ?? report.admin_note ?? ""}
+                          onChange={(e) => setNoteInputs(prev => ({ ...prev, [report.id]: e.target.value }))}
+                          data-testid={`textarea-admin-note-${report.id}`}
+                        />
+                      </div>
+
+                      <div className="flex gap-2 flex-wrap">
+                        <Button
+                          size="sm"
+                          className="text-xs"
+                          variant="outline"
+                          onClick={() => updateMutation.mutate({ id: report.id, status: "reviewed", adminNote: noteInputs[report.id] ?? report.admin_note })}
+                          disabled={updateMutation.isPending}
+                          data-testid={`button-mark-reviewed-${report.id}`}
+                        >
+                          <CheckCircle className="w-3.5 h-3.5 mr-1 text-blue-500" /> Mark Reviewed
+                        </Button>
+                        <Button
+                          size="sm"
+                          className="text-xs"
+                          variant="outline"
+                          onClick={() => updateMutation.mutate({ id: report.id, status: "dismissed", adminNote: noteInputs[report.id] ?? report.admin_note })}
+                          disabled={updateMutation.isPending}
+                          data-testid={`button-dismiss-report-${report.id}`}
+                        >
+                          <XCircle className="w-3.5 h-3.5 mr-1 text-muted-foreground" /> Dismiss
+                        </Button>
+                        {report.status !== "pending" && (
+                          <Button
+                            size="sm"
+                            className="text-xs"
+                            variant="ghost"
+                            onClick={() => updateMutation.mutate({ id: report.id, status: "pending" })}
+                            disabled={updateMutation.isPending}
+                            data-testid={`button-reopen-report-${report.id}`}
+                          >
+                            <RefreshCw className="w-3.5 h-3.5 mr-1" /> Reopen
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+          {filtered.length > 0 && (
+            <div className="px-4 py-2 border-t text-xs text-muted-foreground">
+              Showing {filtered.length} report{filtered.length !== 1 ? "s" : ""}
             </div>
           )}
         </CardContent>

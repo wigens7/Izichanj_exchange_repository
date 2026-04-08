@@ -265,6 +265,28 @@ app.use((req, res, next) => {
     console.warn("[startup migration] wigens7 name fix skipped:", (e as Error).message);
   }
 
+  // User reports table
+  try {
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS user_reports (
+        id SERIAL PRIMARY KEY,
+        reporter_profile_id INTEGER NOT NULL REFERENCES profiles(id),
+        reported_identifier TEXT NOT NULL,
+        reported_profile_id INTEGER REFERENCES profiles(id),
+        reason TEXT NOT NULL,
+        description TEXT NOT NULL,
+        proof_image_url TEXT,
+        status TEXT DEFAULT 'pending' NOT NULL,
+        admin_note TEXT,
+        created_at TIMESTAMP DEFAULT NOW() NOT NULL,
+        reviewed_at TIMESTAMP
+      )
+    `);
+    console.log("[startup migration] user_reports table ensured");
+  } catch (e) {
+    console.warn("[startup migration] user_reports skipped:", (e as Error).message);
+  }
+
   // Security events table for audit trail
   try {
     await db.execute(sql`

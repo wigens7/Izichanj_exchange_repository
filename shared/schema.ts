@@ -316,6 +316,21 @@ export const securityEvents = pgTable("security_events", {
 });
 export type SecurityEvent = typeof securityEvents.$inferSelect;
 
+export const userReports = pgTable("user_reports", {
+  id: serial("id").primaryKey(),
+  reporterProfileId: integer("reporter_profile_id").references(() => profiles.id).notNull(),
+  reportedIdentifier: text("reported_identifier").notNull(),
+  reportedProfileId: integer("reported_profile_id").references(() => profiles.id),
+  reason: text("reason").notNull(),
+  description: text("description").notNull(),
+  proofImageUrl: text("proof_image_url"),
+  status: text("status").default("pending").notNull(),
+  adminNote: text("admin_note"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  reviewedAt: timestamp("reviewed_at"),
+});
+export type UserReport = typeof userReports.$inferSelect;
+
 export const balanceLogs = pgTable("balance_logs", {
   id: serial("id").primaryKey(),
   profileId: integer("profile_id").references(() => profiles.id).notNull(),

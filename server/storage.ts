@@ -1,4 +1,4 @@
-import { profiles, deposits, withdrawals, kycDocuments, otps, webauthnCredentials, notifications, supportConversations, supportMessages, virtualCards, blacklistedUsers, p2pTransfers, loginLogs, fraudRejections, cardTransactions, topUpTransactions, securityEvents, balanceLogs, type Profile, type Deposit, type InsertDeposit, type Withdrawal, type InsertWithdrawal, type KycDocument, type WebAuthnCredential, type Notification, type SupportConversation, type SupportMessage, type VirtualCard, type BlacklistedUser, type P2PTransfer, type LoginLog, type FraudRejection, type CardTransaction, type TopUpTransaction, type SecurityEvent, type BalanceLog } from "@shared/schema";
+import { profiles, deposits, withdrawals, kycDocuments, otps, webauthnCredentials, notifications, supportConversations, supportMessages, virtualCards, blacklistedUsers, p2pTransfers, loginLogs, fraudRejections, cardTransactions, topUpTransactions, securityEvents, balanceLogs, userReports, type Profile, type Deposit, type InsertDeposit, type Withdrawal, type InsertWithdrawal, type KycDocument, type WebAuthnCredential, type Notification, type SupportConversation, type SupportMessage, type VirtualCard, type BlacklistedUser, type P2PTransfer, type LoginLog, type FraudRejection, type CardTransaction, type TopUpTransaction, type SecurityEvent, type BalanceLog, type UserReport } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, ne, lt, sql, or, ilike, inArray } from "drizzle-orm";
 import crypto from "crypto";
@@ -879,6 +879,47 @@ export class DatabaseStorage implements IStorage {
         multiAccountAlert: (sharedIpUsers.rows as any[]).length > 0,
       },
     };
+  }
+
+  async createUserReport(data: {
+    reporterProfileId: number;
+    reportedIdentifier: string;
+    reportedProfileId?: number | null;
+    reason: string;
+    description: string;
+    proofImageUrl?: string | null;
+  }): Promise<UserReport> {
+    const [row] = await db.insert(userReports).values({
+      reporterProfileId: data.reporterProfileId,
+      reportedIdentifier: data.reportedIdentifier,
+      reportedProfileId: data.reportedProfileId ?? null,
+      reason: data.reason,
+      description: data.description,
+      proofImageUrl: data.proofImageUrl ?? null,
+      status: "pending",
+    }).returning();
+    return row;
+  }
+
+  async getUserReports(limit = 200): Promise<any[]> {
+    const rows = await db.execute(sql`
+      SELECT ur.*,
+        rp.full_name as reporter_name, rp.email as reporter_email,
+        tp.full_name as reported_name, tp.email as reported_email
+      FROM user_reports ur
+      LEFT JOIN profiles rp ON rp.id = ur.reporter_profile_id
+      LEFT JOIN profiles tp ON tp.id = ur.reported_profile_id
+      ORDER BY ur.created_at DESC LIMIT ${limit}
+    `);
+    return rows.rows as any[];
+  }
+
+  async updateUserReportStatus(id: number, status: string, adminNote?: string): Promise<UserReport | null> {
+    const [row] = await db.update(userReports)
+      .set({ status, adminNote: adminNote ?? null, reviewedAt: new Date() })
+      .where(eq(userReports.id, id))
+      .returning();
+    return row ?? null;
   }
 }
 
