@@ -34,12 +34,28 @@ if (process.env.SENDGRID_API_KEY) {
 const rpName = "Izichanj";
 
 function getClientIp(req: Request): string {
+  // 1. Cloudflare — most reliable when deployed behind CF
+  const cfIp = req.headers["cf-connecting-ip"] as string;
+  if (cfIp?.trim()) return cfIp.trim();
+
+  // 2. X-Forwarded-For — leftmost IP is the original client
   const forwarded = req.headers["x-forwarded-for"];
   if (forwarded) {
-    const ips = Array.isArray(forwarded) ? forwarded[0] : forwarded;
-    return ips.split(",")[0].trim();
+    const raw = Array.isArray(forwarded) ? forwarded[0] : forwarded;
+    const first = raw.split(",")[0].trim();
+    if (first && first !== "::1" && first !== "127.0.0.1") return first;
   }
-  return (req.headers["x-real-ip"] as string) || req.ip || "unknown";
+
+  // 3. X-Real-IP — set by Nginx and some load balancers
+  const realIp = req.headers["x-real-ip"] as string;
+  if (realIp?.trim()) return realIp.trim();
+
+  // 4. Fly-Client-IP (Fly.io deployments)
+  const flyIp = req.headers["fly-client-ip"] as string;
+  if (flyIp?.trim()) return flyIp.trim();
+
+  // 5. Fallback to Express req.ip (respects trust proxy setting)
+  return req.ip || req.socket?.remoteAddress || "unknown";
 }
 
 function getDeviceInfo(req: Request): string {

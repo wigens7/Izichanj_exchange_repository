@@ -8,6 +8,9 @@ import { sql } from "drizzle-orm";
 const app = express();
 const httpServer = createServer(app);
 
+// Trust all proxy hops so req.ip and X-Forwarded-For reflect the real client IP
+app.set("trust proxy", true);
+
 declare module "http" {
   interface IncomingMessage {
     rawBody: unknown;
@@ -339,6 +342,28 @@ app.use((req, res, next) => {
     console.log("[startup migration] security_events.status ensured");
   } catch (e) {
     console.warn("[startup migration] security_events.status skipped:", (e as Error).message);
+  }
+
+  // One-time cleanup: clear stale IP logs captured before the real-IP fix.
+  // All IPs that were the Replit proxy/server IP (10.x.x.x internal or identical
+  // across all users) are wiped so multi-account detection starts from clean data.
+  try {
+    const flagKey = "ip_cleanup_v1_done";
+    const alreadyDone = await db.execute(
+      sql`SELECT 1 FROM app_settings WHERE key = ${flagKey} LIMIT 1`
+    );
+    if ((alreadyDone.rows as any[]).length === 0) {
+      await db.execute(sql`UPDATE login_logs SET ip_address = NULL WHERE ip_address IS NOT NULL`);
+      await db.execute(sql`UPDATE security_events SET ip_address = NULL WHERE ip_address IS NOT NULL`);
+      await db.execute(sql`UPDATE deposits SET ip_address = NULL WHERE ip_address IS NOT NULL`);
+      await db.execute(sql`UPDATE withdrawals SET ip_address = NULL WHERE ip_address IS NOT NULL`);
+      await db.execute(
+        sql`INSERT INTO app_settings (key, value) VALUES (${flagKey}, 'true') ON CONFLICT (key) DO NOTHING`
+      );
+      console.log("[startup migration] stale IP data cleared — real IP tracking now active");
+    }
+  } catch (e) {
+    console.warn("[startup migration] IP cleanup skipped:", (e as Error).message);
   }
 
   await registerRoutes(httpServer, app);
