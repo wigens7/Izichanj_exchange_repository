@@ -71,7 +71,19 @@ import {
   ShieldOff,
   Copy,
   Link as LinkIcon,
+  Filter,
+  Wifi,
+  Globe,
+  ArrowRightLeft,
+  Landmark,
+  ShieldAlert,
+  History,
+  Info,
 } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Separator } from "@/components/ui/separator";
 import { format } from "date-fns";
 import { formatHtg, formatUsdt } from "@shared/constants";
 import { useRates } from "@/hooks/use-rates";
@@ -342,6 +354,7 @@ function UserRow({ user, onUpdateBalance, isPending }: { user: any; onUpdateBala
   const [isEditing, setIsEditing] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [receiptBlobUrl, setReceiptBlobUrl] = useState<string | null>(null);
+  const [show360, setShow360] = useState(false);
   const { toast } = useToast();
   const qc = useQueryClient();
 
@@ -712,10 +725,23 @@ function UserRow({ user, onUpdateBalance, isPending }: { user: any; onUpdateBala
                   </div>
                 )}
               </div>
+              <div className="pt-2 border-t">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={(e) => { e.stopPropagation(); setShow360(true); }}
+                  className="gap-2 text-primary border-primary/30 hover:bg-primary/5"
+                  data-testid={`button-360-view-${user.id}`}
+                >
+                  <Activity className="w-3.5 h-3.5" />
+                  360° Activity View
+                </Button>
+              </div>
             </div>
           </TableCell>
         </TableRow>
       )}
+      {show360 && <User360Modal userId={user.id} userName={user.fullName} onClose={() => setShow360(false)} />}
       {/* Modal for setting Strowallet Customer ID */}
       {showStrowalletModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
@@ -1295,6 +1321,95 @@ function DepositsTab() {
   );
 }
 
+function WithdrawalRiskBadge({ withdrawalId, ipAddress }: { withdrawalId: number; ipAddress?: string }) {
+  const [open, setOpen] = useState(false);
+  const { data: risk, isLoading } = useQuery<any>({
+    queryKey: ["/api/admin/withdrawals", withdrawalId, "risk-check"],
+    queryFn: async () => {
+      const res = await fetch(`/api/admin/withdrawals/${withdrawalId}/risk-check`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed");
+      return res.json();
+    },
+    enabled: open,
+  });
+
+  const hasRisk = risk?.riskFlags?.ipChanged || risk?.riskFlags?.multiAccountAlert || risk?.riskFlags?.failedLoginsLast24h > 2;
+
+  return (
+    <>
+      <button
+        onClick={() => setOpen(true)}
+        className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium border ${hasRisk ? "bg-red-50 dark:bg-red-900/20 border-red-300 dark:border-red-700 text-red-700 dark:text-red-400" : "bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-500"}`}
+        data-testid={`button-risk-check-${withdrawalId}`}
+        title="Risk Check"
+      >
+        {hasRisk ? <ShieldAlert className="w-3 h-3" /> : <ShieldCheck className="w-3 h-3" />}
+        {hasRisk ? "RISK" : "OK"}
+      </button>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ShieldAlert className="w-5 h-5 text-amber-500" />
+              Withdrawal Risk Assessment #{withdrawalId}
+            </DialogTitle>
+          </DialogHeader>
+          {isLoading ? (
+            <div className="flex items-center justify-center py-8"><Loader2 className="w-6 h-6 animate-spin" /></div>
+          ) : risk ? (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div className={`p-3 rounded-lg border text-center ${risk.riskFlags.ipChanged ? "bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800" : "bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800"}`}>
+                  <Globe className={`w-5 h-5 mx-auto mb-1 ${risk.riskFlags.ipChanged ? "text-red-500" : "text-green-500"}`} />
+                  <p className="text-xs font-medium">IP Changed</p>
+                  <p className={`text-sm font-bold ${risk.riskFlags.ipChanged ? "text-red-600" : "text-green-600"}`}>
+                    {risk.riskFlags.ipChanged ? "⚠ YES" : "✓ NO"}
+                  </p>
+                </div>
+                <div className={`p-3 rounded-lg border text-center ${risk.riskFlags.multiAccountAlert ? "bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800" : "bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800"}`}>
+                  <Users className={`w-5 h-5 mx-auto mb-1 ${risk.riskFlags.multiAccountAlert ? "text-red-500" : "text-green-500"}`} />
+                  <p className="text-xs font-medium">Multi-Account</p>
+                  <p className={`text-sm font-bold ${risk.riskFlags.multiAccountAlert ? "text-red-600" : "text-green-600"}`}>
+                    {risk.riskFlags.multiAccountAlert ? "⚠ YES" : "✓ NO"}
+                  </p>
+                </div>
+                <div className={`p-3 rounded-lg border text-center ${risk.riskFlags.failedLoginsLast24h > 2 ? "bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800" : "bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800"}`}>
+                  <AlertTriangle className={`w-5 h-5 mx-auto mb-1 ${risk.riskFlags.failedLoginsLast24h > 2 ? "text-amber-500" : "text-green-500"}`} />
+                  <p className="text-xs font-medium">Failed Logins (24h)</p>
+                  <p className="text-sm font-bold">{risk.riskFlags.failedLoginsLast24h}</p>
+                </div>
+                <div className="p-3 rounded-lg border text-center bg-slate-50 dark:bg-slate-800">
+                  <Wifi className="w-5 h-5 mx-auto mb-1 text-slate-500" />
+                  <p className="text-xs font-medium">Withdrawal IP</p>
+                  <p className="text-xs font-mono text-slate-600 dark:text-slate-400 break-all">{risk.riskFlags.withdrawalIp || "—"}</p>
+                </div>
+              </div>
+
+              {risk.riskFlags.ipChanged && risk.riskFlags.recentLoginIps?.length > 0 && (
+                <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-3">
+                  <p className="text-xs font-medium text-amber-700 dark:text-amber-400 mb-1">Recent login IPs (last 5):</p>
+                  {risk.riskFlags.recentLoginIps.map((ip: string, i: number) => (
+                    <p key={i} className="text-xs font-mono text-amber-600 dark:text-amber-300">{ip}</p>
+                  ))}
+                </div>
+              )}
+
+              {risk.riskFlags.sharedIpUsers?.length > 0 && (
+                <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3">
+                  <p className="text-xs font-medium text-red-700 dark:text-red-400 mb-1">⚠ Other accounts from same IP:</p>
+                  {risk.riskFlags.sharedIpUsers.map((u: any, i: number) => (
+                    <p key={i} className="text-xs text-red-600 dark:text-red-300">{u.full_name} ({u.email})</p>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : <p className="text-muted-foreground text-sm">No risk data available.</p>}
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
 function WithdrawalsTab() {
   const { data: withdrawals, isLoading } = useAdminWithdrawals();
   const { depositRate } = useRates();
@@ -1341,7 +1456,7 @@ function WithdrawalsTab() {
                 <TableHead>Wallet</TableHead>
                 <TableHead>Method</TableHead>
                 <TableHead>Details</TableHead>
-                <TableHead>IP</TableHead>
+                <TableHead>IP / Risk</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Date</TableHead>
                 <TableHead>Actions</TableHead>
@@ -1374,9 +1489,14 @@ function WithdrawalsTab() {
                     )}
                   </TableCell>
                   <TableCell>
-                    {w.ipAddress ? (
-                      <span className="font-mono text-[10px] text-muted-foreground" data-testid={`text-withdrawal-ip-${w.id}`}>{w.ipAddress}</span>
-                    ) : <span className="text-muted-foreground/40 text-xs">—</span>}
+                    <div className="flex flex-col gap-1">
+                      {w.ipAddress ? (
+                        <span className="font-mono text-[10px] text-muted-foreground" data-testid={`text-withdrawal-ip-${w.id}`}>{w.ipAddress}</span>
+                      ) : <span className="text-muted-foreground/40 text-xs">—</span>}
+                      {w.status === "pending" && (
+                        <WithdrawalRiskBadge withdrawalId={w.id} ipAddress={w.ipAddress} />
+                      )}
+                    </div>
                   </TableCell>
                   <TableCell>
                     <StatusBadge status={w.status} />
@@ -3131,6 +3251,410 @@ function SettingsTab() {
             <p>Deposit: 100 USDT → <strong>{(100 * previewDep).toLocaleString()} HTG</strong></p>
             <p>Withdrawal: 100 USDT → <strong>{(100 * previewWit).toLocaleString()} HTG</strong></p>
           </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+// ─── User 360° Activity Modal ─────────────────────────────────────────────────
+function User360Modal({ userId, userName, onClose }: { userId: number; userName: string; onClose: () => void }) {
+  const { data, isLoading } = useQuery<any>({
+    queryKey: ["/api/admin/users", userId, "activity"],
+    queryFn: async () => {
+      const res = await fetch(`/api/admin/users/${userId}/activity`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch user activity");
+      return res.json();
+    },
+  });
+
+  const secEventColor = (type: string) => {
+    if (type === "failed_login") return "bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300";
+    if (type === "password_reset") return "bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300";
+    return "bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300";
+  };
+
+  const balanceChangeColor = (change: number) => change >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400";
+
+  return (
+    <Dialog open onOpenChange={onClose}>
+      <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Activity className="w-5 h-5 text-primary" />
+            360° Activity View — {userName}
+          </DialogTitle>
+        </DialogHeader>
+        {isLoading ? (
+          <div className="flex items-center justify-center py-16"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>
+        ) : data ? (
+          <ScrollArea className="flex-1 pr-2">
+            <div className="space-y-5">
+
+              {/* Balance & Security Summary */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                {[
+                  { label: "Deposits", value: data.deposits?.length ?? 0, icon: <ArrowDownCircle className="w-4 h-4 text-emerald-500" /> },
+                  { label: "Withdrawals", value: data.withdrawals?.length ?? 0, icon: <ArrowUpCircle className="w-4 h-4 text-amber-500" /> },
+                  { label: "P2P Transfers", value: (data.p2pSent?.length ?? 0) + (data.p2pReceived?.length ?? 0), icon: <ArrowRightLeft className="w-4 h-4 text-blue-500" /> },
+                  { label: "Security Events", value: data.securityEvents?.length ?? 0, icon: <ShieldAlert className="w-4 h-4 text-red-500" /> },
+                ].map(s => (
+                  <div key={s.label} className="flex items-center gap-3 p-3 rounded-lg bg-muted/40 border">
+                    {s.icon}
+                    <div>
+                      <p className="text-xs text-muted-foreground">{s.label}</p>
+                      <p className="text-lg font-bold">{s.value}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Login History */}
+              <div>
+                <h3 className="text-sm font-semibold mb-2 flex items-center gap-2"><LogIn className="w-4 h-4 text-primary" />Login History ({data.loginLogs?.length ?? 0})</h3>
+                {data.loginLogs?.length > 0 ? (
+                  <div className="border rounded-md overflow-hidden">
+                    <Table>
+                      <TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Method</TableHead><TableHead>IP Address</TableHead><TableHead>Device</TableHead></TableRow></TableHeader>
+                      <TableBody>
+                        {data.loginLogs.slice(0, 20).map((l: any) => (
+                          <TableRow key={l.id}>
+                            <TableCell className="text-xs">{l.login_at ? format(new Date(l.login_at), "dd/MM/yy HH:mm") : "—"}</TableCell>
+                            <TableCell><Badge variant="outline" className="text-xs">{l.method}</Badge></TableCell>
+                            <TableCell className="font-mono text-xs text-muted-foreground">{l.ip_address || "—"}</TableCell>
+                            <TableCell className="text-xs text-muted-foreground">{l.device_info || "—"}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                ) : <p className="text-xs text-muted-foreground">No login records.</p>}
+              </div>
+
+              <Separator />
+
+              {/* Security Events */}
+              <div>
+                <h3 className="text-sm font-semibold mb-2 flex items-center gap-2"><ShieldAlert className="w-4 h-4 text-red-500" />Security Events ({data.securityEvents?.length ?? 0})</h3>
+                {data.securityEvents?.length > 0 ? (
+                  <div className="space-y-1.5">
+                    {data.securityEvents.slice(0, 20).map((e: any) => (
+                      <div key={e.id} className="flex items-start gap-3 p-2.5 rounded-md bg-muted/30 border">
+                        <span className={`inline-flex px-2 py-0.5 rounded-full text-[10px] font-medium ${secEventColor(e.event_type)}`}>{e.event_type}</span>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs text-muted-foreground truncate">{e.details || "—"}</p>
+                          <p className="text-xs font-mono text-muted-foreground/70">{e.ip_address} · {e.device_info}</p>
+                        </div>
+                        <span className="text-[10px] text-muted-foreground whitespace-nowrap">{e.created_at ? format(new Date(e.created_at), "dd/MM HH:mm") : "—"}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : <p className="text-xs text-muted-foreground">No security events recorded.</p>}
+              </div>
+
+              <Separator />
+
+              {/* Balance History */}
+              <div>
+                <h3 className="text-sm font-semibold mb-2 flex items-center gap-2"><History className="w-4 h-4 text-indigo-500" />Balance History ({data.balanceLogs?.length ?? 0})</h3>
+                {data.balanceLogs?.length > 0 ? (
+                  <div className="border rounded-md overflow-hidden">
+                    <Table>
+                      <TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Action</TableHead><TableHead>Change</TableHead><TableHead>Before</TableHead><TableHead>After</TableHead></TableRow></TableHeader>
+                      <TableBody>
+                        {data.balanceLogs.slice(0, 30).map((b: any) => {
+                          const ch = Number(b.change);
+                          return (
+                            <TableRow key={b.id}>
+                              <TableCell className="text-xs">{b.created_at ? format(new Date(b.created_at), "dd/MM/yy HH:mm") : "—"}</TableCell>
+                              <TableCell><Badge variant="outline" className="text-xs">{b.action}</Badge></TableCell>
+                              <TableCell className={`font-medium text-sm ${balanceChangeColor(ch)}`}>{ch >= 0 ? "+" : ""}{ch.toFixed(2)}</TableCell>
+                              <TableCell className="text-xs text-muted-foreground">{Number(b.previous_balance).toFixed(2)}</TableCell>
+                              <TableCell className="text-xs font-medium">{Number(b.new_balance).toFixed(2)}</TableCell>
+                            </TableRow>
+                          );
+                        })}
+                      </TableBody>
+                    </Table>
+                  </div>
+                ) : <p className="text-xs text-muted-foreground">No balance changes recorded yet.</p>}
+              </div>
+
+              <Separator />
+
+              {/* Deposits */}
+              <div>
+                <h3 className="text-sm font-semibold mb-2 flex items-center gap-2"><ArrowDownCircle className="w-4 h-4 text-emerald-500" />Deposits ({data.deposits?.length ?? 0})</h3>
+                {data.deposits?.length > 0 ? (
+                  <div className="space-y-1.5">
+                    {data.deposits.slice(0, 20).map((d: any) => (
+                      <div key={d.id} className="flex items-center gap-3 p-2 rounded-md bg-muted/30 border text-xs">
+                        <StatusBadge status={d.status} />
+                        <span className="font-medium">{Number(d.amount_usdt).toFixed(2)} USDT</span>
+                        <Badge variant="outline" className="text-[10px]">{d.deposit_method}</Badge>
+                        <span className="text-muted-foreground font-mono">{d.ip_address}</span>
+                        <span className="ml-auto text-muted-foreground">{d.created_at ? format(new Date(d.created_at), "dd/MM/yy HH:mm") : "—"}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : <p className="text-xs text-muted-foreground">No deposits.</p>}
+              </div>
+
+              <Separator />
+
+              {/* Withdrawals */}
+              <div>
+                <h3 className="text-sm font-semibold mb-2 flex items-center gap-2"><ArrowUpCircle className="w-4 h-4 text-amber-500" />Withdrawals ({data.withdrawals?.length ?? 0})</h3>
+                {data.withdrawals?.length > 0 ? (
+                  <div className="space-y-1.5">
+                    {data.withdrawals.slice(0, 20).map((w: any) => (
+                      <div key={w.id} className="flex items-center gap-3 p-2 rounded-md bg-muted/30 border text-xs">
+                        <StatusBadge status={w.status} />
+                        <span className="font-medium">{Number(w.amount).toFixed(2)} USDT</span>
+                        <Badge variant="outline" className="text-[10px]">{w.currency}</Badge>
+                        {w.trc_address && <span className="font-mono text-muted-foreground">{w.trc_address.slice(0, 8)}…</span>}
+                        <span className="text-muted-foreground font-mono">{w.ip_address}</span>
+                        <span className="ml-auto text-muted-foreground">{w.created_at ? format(new Date(w.created_at), "dd/MM/yy HH:mm") : "—"}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : <p className="text-xs text-muted-foreground">No withdrawals.</p>}
+              </div>
+
+              <Separator />
+
+              {/* P2P Transfers */}
+              <div>
+                <h3 className="text-sm font-semibold mb-2 flex items-center gap-2"><ArrowRightLeft className="w-4 h-4 text-blue-500" />P2P Transfers</h3>
+                {(data.p2pSent?.length > 0 || data.p2pReceived?.length > 0) ? (
+                  <div className="space-y-1.5">
+                    {[...( data.p2pSent || []).map((t: any) => ({ ...t, dir: "sent" })), ...(data.p2pReceived || []).map((t: any) => ({ ...t, dir: "received" }))]
+                      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+                      .slice(0, 20)
+                      .map((t: any) => (
+                        <div key={`${t.id}-${t.dir}`} className="flex items-center gap-3 p-2 rounded-md bg-muted/30 border text-xs">
+                          <span className={`inline-flex px-2 py-0.5 rounded-full text-[10px] font-medium ${t.dir === "sent" ? "bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300" : "bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300"}`}>{t.dir}</span>
+                          <span className="font-medium">{Number(t.amount).toFixed(2)} USDT</span>
+                          <span className="text-muted-foreground">{t.dir === "sent" ? `→ ${t.receiver_name || "unknown"}` : `← ${t.sender_name || "unknown"}`}</span>
+                          {t.note && <span className="text-muted-foreground italic">"{t.note}"</span>}
+                          <span className="ml-auto text-muted-foreground">{t.created_at ? format(new Date(t.created_at), "dd/MM/yy HH:mm") : "—"}</span>
+                        </div>
+                      ))}
+                  </div>
+                ) : <p className="text-xs text-muted-foreground">No P2P transfers.</p>}
+              </div>
+
+              {/* Virtual Cards */}
+              {data.cards?.length > 0 && (
+                <>
+                  <Separator />
+                  <div>
+                    <h3 className="text-sm font-semibold mb-2 flex items-center gap-2"><CreditCard className="w-4 h-4 text-purple-500" />Virtual Cards ({data.cards?.length ?? 0})</h3>
+                    <div className="space-y-1.5">
+                      {data.cards.map((c: any) => (
+                        <div key={c.id} className="flex items-center gap-3 p-2 rounded-md bg-muted/30 border text-xs">
+                          <StatusBadge status={c.status} />
+                          <span className="font-medium">{c.card_type} *{c.last4 || "?????"}</span>
+                          <Badge variant="outline" className="text-[10px]">{c.brand || "Visa"}</Badge>
+                          <span className="text-muted-foreground">${Number(c.balance || 0).toFixed(2)}</span>
+                          <span className="ml-auto text-muted-foreground">{c.created_at ? format(new Date(c.created_at), "dd/MM/yy") : "—"}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </>
+              )}
+
+            </div>
+          </ScrollArea>
+        ) : <p className="text-muted-foreground text-sm text-center py-8">No data available.</p>}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ─── Global Audit Log Tab ─────────────────────────────────────────────────────
+function AuditTab() {
+  const [filterType, setFilterType] = useState("all");
+  const [search, setSearch] = useState("");
+
+  const { data: auditLog, isLoading: auditLoading, refetch: refetchAudit } = useQuery<any[]>({
+    queryKey: ["/api/admin/audit-log", filterType],
+    queryFn: async () => {
+      const res = await fetch(`/api/admin/audit-log?type=${filterType}&limit=200`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed");
+      return res.json();
+    },
+  });
+
+  const { data: multiAccountAlerts, isLoading: alertsLoading } = useQuery<any[]>({
+    queryKey: ["/api/admin/multi-account-alerts"],
+    queryFn: async () => {
+      const res = await fetch("/api/admin/multi-account-alerts", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed");
+      return res.json();
+    },
+  });
+
+  const entryIcon = (type: string) => {
+    if (type === "deposit") return <ArrowDownCircle className="w-3.5 h-3.5 text-emerald-500 flex-shrink-0" />;
+    if (type === "withdrawal") return <ArrowUpCircle className="w-3.5 h-3.5 text-amber-500 flex-shrink-0" />;
+    if (type === "security") return <ShieldAlert className="w-3.5 h-3.5 text-red-500 flex-shrink-0" />;
+    if (type === "login") return <LogIn className="w-3.5 h-3.5 text-blue-500 flex-shrink-0" />;
+    if (type === "p2p") return <ArrowRightLeft className="w-3.5 h-3.5 text-purple-500 flex-shrink-0" />;
+    if (type === "balance") return <History className="w-3.5 h-3.5 text-indigo-500 flex-shrink-0" />;
+    return <Info className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />;
+  };
+
+  const entryBadge = (entry: any) => {
+    if (entry.entryType === "deposit") return entry.deposit_method || entry.status;
+    if (entry.entryType === "withdrawal") return `${Number(entry.amount || 0).toFixed(2)} USDT`;
+    if (entry.entryType === "security") return entry.event_type;
+    if (entry.entryType === "login") return entry.method;
+    if (entry.entryType === "p2p") return `${Number(entry.amount || 0).toFixed(2)} USDT`;
+    if (entry.entryType === "balance") return entry.action;
+    return "—";
+  };
+
+  const entryDescription = (entry: any) => {
+    const name = entry.full_name || "Unknown";
+    if (entry.entryType === "deposit") return `${name} deposited ${Number(entry.amount_usdt || 0).toFixed(2)} USDT via ${entry.deposit_method}`;
+    if (entry.entryType === "withdrawal") return `${name} withdrew ${Number(entry.amount || 0).toFixed(2)} USDT to ${entry.currency}`;
+    if (entry.entryType === "security") return `${name}: ${entry.details || entry.event_type}`;
+    if (entry.entryType === "login") return `${name} logged in via ${entry.method}`;
+    if (entry.entryType === "p2p") return `${entry.sender_name || "?"} → ${entry.receiver_name || "?"}: ${Number(entry.amount || 0).toFixed(2)} USDT`;
+    if (entry.entryType === "balance") return `${name} balance changed by ${Number(entry.change || 0) >= 0 ? "+" : ""}${Number(entry.change || 0).toFixed(2)} USDT (${entry.action})`;
+    return "";
+  };
+
+  const filtered = (auditLog || []).filter(e => {
+    if (!search) return true;
+    const name = (e.full_name || e.sender_name || "").toLowerCase();
+    const email = (e.email || e.sender_email || "").toLowerCase();
+    const q = search.toLowerCase();
+    return name.includes(q) || email.includes(q) || (e.ip_address || "").includes(q) || (e.event_type || "").includes(q);
+  });
+
+  return (
+    <div className="space-y-6">
+
+      {/* Multi-Account IP Alerts */}
+      <Card className="border-red-200 dark:border-red-800">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <ShieldAlert className="w-4 h-4 text-red-500" />
+            Multi-Account IP Alerts
+            {(multiAccountAlerts?.length ?? 0) > 0 && (
+              <Badge variant="destructive" data-testid="badge-multi-account-count">{multiAccountAlerts!.length}</Badge>
+            )}
+          </CardTitle>
+          <p className="text-xs text-muted-foreground">IP addresses used by more than one registered account — high fraud risk indicator.</p>
+        </CardHeader>
+        <CardContent>
+          {alertsLoading ? (
+            <div className="space-y-2">{[...Array(3)].map((_, i) => <Skeleton key={i} className="h-10 w-full" />)}</div>
+          ) : (multiAccountAlerts?.length ?? 0) === 0 ? (
+            <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400 text-sm py-2">
+              <CheckCircle className="w-4 h-4" />
+              No multi-account alerts detected.
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {multiAccountAlerts!.map((alert: any, i: number) => (
+                <div key={i} className="flex flex-col md:flex-row md:items-center gap-3 p-3 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800" data-testid={`row-ip-alert-${i}`}>
+                  <div className="flex items-center gap-2">
+                    <Globe className="w-4 h-4 text-red-500" />
+                    <span className="font-mono text-sm font-bold text-red-700 dark:text-red-400">{alert.ip_address}</span>
+                    <Badge variant="destructive" className="text-xs">{alert.user_count} accounts</Badge>
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-xs text-muted-foreground">
+                      Users: {(alert.user_names || []).join(", ")}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      Emails: {(alert.emails || []).join(", ")}
+                    </p>
+                  </div>
+                  <span className="text-xs text-muted-foreground whitespace-nowrap">
+                    Last: {alert.last_seen ? format(new Date(alert.last_seen), "dd/MM/yy HH:mm") : "—"}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Global Audit Log */}
+      <Card>
+        <CardHeader className="pb-3">
+          <div className="flex flex-row items-center justify-between gap-2 flex-wrap">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Activity className="w-4 h-4 text-primary" />
+              Global Audit Log
+            </CardTitle>
+            <Button size="sm" variant="outline" onClick={() => refetchAudit()} className="gap-2">
+              <RefreshCw className="w-3.5 h-3.5" />
+              Refresh
+            </Button>
+          </div>
+          <div className="flex gap-2 flex-wrap">
+            <div className="relative flex-1 min-w-[200px]">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+              <Input placeholder="Search by name, email, IP…" value={search} onChange={e => setSearch(e.target.value)} className="pl-8 h-8 text-sm" data-testid="input-audit-search" />
+            </div>
+            <Select value={filterType} onValueChange={setFilterType}>
+              <SelectTrigger className="w-40 h-8 text-sm" data-testid="select-audit-filter">
+                <Filter className="w-3.5 h-3.5 mr-1.5 text-muted-foreground" />
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Events</SelectItem>
+                <SelectItem value="deposit">Deposits</SelectItem>
+                <SelectItem value="withdrawal">Withdrawals</SelectItem>
+                <SelectItem value="security">Security</SelectItem>
+                <SelectItem value="login">Logins</SelectItem>
+                <SelectItem value="p2p">P2P Transfers</SelectItem>
+                <SelectItem value="balance">Balance Changes</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </CardHeader>
+        <CardContent className="p-0">
+          {auditLoading ? (
+            <div className="p-4 space-y-2">{[...Array(8)].map((_, i) => <Skeleton key={i} className="h-12 w-full" />)}</div>
+          ) : filtered.length === 0 ? (
+            <div className="text-center py-10 text-muted-foreground">
+              <Activity className="w-8 h-8 mx-auto mb-2 opacity-30" />
+              <p className="text-sm">No audit entries found</p>
+            </div>
+          ) : (
+            <div className="divide-y max-h-[600px] overflow-y-auto">
+              {filtered.map((entry: any, i: number) => (
+                <div key={i} className="flex items-start gap-3 px-4 py-3 hover:bg-muted/30 transition-colors" data-testid={`row-audit-${i}`}>
+                  <div className="mt-0.5">{entryIcon(entry.entryType)}</div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm truncate">{entryDescription(entry)}</p>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <span className="text-[10px] font-mono text-muted-foreground">{entry.ip_address || "no IP"}</span>
+                      {entry.device_info && <span className="text-[10px] text-muted-foreground hidden sm:block">· {entry.device_info}</span>}
+                    </div>
+                  </div>
+                  <div className="flex flex-col items-end gap-1 flex-shrink-0">
+                    <Badge variant="outline" className="text-[10px] px-1.5 py-0 capitalize">{entryBadge(entry)}</Badge>
+                    <span className="text-[10px] text-muted-foreground whitespace-nowrap">
+                      {entry.created_at ? format(new Date(entry.created_at), "dd/MM/yy HH:mm") : "—"}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          {filtered.length > 0 && (
+            <div className="px-4 py-2 border-t text-xs text-muted-foreground">
+              Showing {filtered.length} entries
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>

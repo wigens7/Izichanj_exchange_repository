@@ -728,7 +728,7 @@ export class DatabaseStorage implements IStorage {
 
     const [deps, withs, p2pSent, p2pRec, loginActivity, secEvts, balLogs, cards, topups] = await Promise.all([
       db.execute(sql`SELECT id, amount_usdt, amount_htg, deposit_method, status, created_at, ip_address, moncash_transaction_id, nowpayments_payment_id, rejection_reason FROM deposits WHERE profile_id = ${profileId} ORDER BY created_at DESC LIMIT 50`),
-      db.execute(sql`SELECT id, amount, currency, status, created_at, ip_address, trc_address, fee, transaction_hash FROM withdrawals WHERE profile_id = ${profileId} ORDER BY created_at DESC LIMIT 50`),
+      db.execute(sql`SELECT id, amount, currency, status, created_at, ip_address, trc_address, fee FROM withdrawals WHERE profile_id = ${profileId} ORDER BY created_at DESC LIMIT 50`),
       db.execute(sql`SELECT pt.*, p.full_name as receiver_name, p.email as receiver_email FROM p2p_transfers pt LEFT JOIN profiles p ON p.id = pt.receiver_profile_id WHERE pt.sender_profile_id = ${profileId} ORDER BY pt.created_at DESC LIMIT 30`),
       db.execute(sql`SELECT pt.*, p.full_name as sender_name, p.email as sender_email FROM p2p_transfers pt LEFT JOIN profiles p ON p.id = pt.sender_profile_id WHERE pt.receiver_profile_id = ${profileId} ORDER BY pt.created_at DESC LIMIT 30`),
       db.execute(sql`SELECT * FROM login_logs WHERE profile_id = ${profileId} ORDER BY login_at DESC LIMIT 50`),
