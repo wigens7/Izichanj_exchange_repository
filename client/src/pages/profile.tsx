@@ -2,6 +2,7 @@ import { useUser, useUpdateProfile, useLogout } from "@/hooks/use-auth";
 import { useKycStatus, useUploadKyc } from "@/hooks/use-kyc";
 import { useUpload } from "@/hooks/use-upload";
 import { compressImage } from "@/lib/image-compress";
+import { formatDate } from "@/lib/dateUtils";
 import { useLanguage, languageNames, type Language } from "@/lib/i18n";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -127,7 +128,7 @@ export default function ProfilePage() {
                 <div className="flex justify-between items-center py-2 border-b border-border">
                   <span className="text-sm text-muted-foreground">{t.profile.joined}</span>
                   <span className="text-sm font-medium">
-                    {new Date(user.createdAt).toLocaleDateString()}
+                    {formatDate(user.createdAt)}
                   </span>
                 </div>
                 <div className="py-2 space-y-2">

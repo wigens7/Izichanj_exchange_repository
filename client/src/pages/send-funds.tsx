@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { formatDate } from "@/lib/dateUtils";
 import { useUser } from "@/hooks/use-auth";
 import { useLanguage } from "@/lib/i18n";
 import { useQuery, useMutation } from "@tanstack/react-query";
@@ -308,7 +309,7 @@ export default function SendFundsPage() {
                       {tr.direction === "sent" ? "-" : "+"}{formatUsdt(parseFloat(tr.amount))} USDT
                     </p>
                     <p className="text-[11px] text-muted-foreground">
-                      {new Date(tr.createdAt).toLocaleDateString()}
+                      {formatDate(tr.createdAt)}
                     </p>
                   </div>
                 </div>

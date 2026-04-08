@@ -12,7 +12,7 @@ import { Separator } from "@/components/ui/separator";
 import { Smartphone, CheckCircle2, AlertCircle, Loader2, ShieldAlert, History, Phone, RefreshCw } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Link } from "wouter";
-import { format } from "date-fns";
+import { formatDateTime } from "@/lib/dateUtils";
 import { TOPUP_FEE_USD } from "@shared/constants";
 
 export default function TopUpPage() {
@@ -385,7 +385,7 @@ export default function TopUpPage() {
         ) : (
           <div className="space-y-2">
             {history.map((tx: any) => {
-              const txDate = tx.createdAt ? (() => { try { return format(new Date(tx.createdAt), "MMM d, yyyy · h:mm a"); } catch { return ""; } })() : "";
+              const txDate = tx.createdAt ? formatDateTime(tx.createdAt) : "";
               return (
                 <div key={tx.id} className="flex items-center gap-3 p-3 rounded-lg border bg-card" data-testid={`topup-history-${tx.id}`}>
                   <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center shrink-0">

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { formatDateLong } from "@/lib/dateUtils";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -81,7 +82,7 @@ export default function WithdrawPage() {
   const frozenUntil = (user as any)?.frozenUntil;
   const isFrozen = frozenUntil && new Date(frozenUntil) > new Date();
   const frozenUntilFormatted = isFrozen
-    ? new Date(frozenUntil).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })
+    ? formatDateLong(frozenUntil)
     : null;
 
   const { data: pinStatus } = useQuery<{ hasWithdrawalPin: boolean }>({

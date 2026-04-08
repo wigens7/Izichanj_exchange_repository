@@ -32,6 +32,17 @@ if (process.env.SENDGRID_API_KEY) {
 }
 
 const rpName = "Izichanj";
+const HAITI_TZ = "America/Port-au-Prince";
+
+function haitiDate(date: Date | string | null | undefined): string {
+  if (!date) return "—";
+  return new Intl.DateTimeFormat("en-US", { timeZone: HAITI_TZ, year: "numeric", month: "short", day: "numeric" }).format(new Date(date as any));
+}
+
+function haitiDateTime(date: Date | string | null | undefined): string {
+  if (!date) return "—";
+  return new Intl.DateTimeFormat("en-US", { timeZone: HAITI_TZ, year: "numeric", month: "short", day: "numeric", hour: "numeric", minute: "2-digit", hour12: true }).format(new Date(date as any));
+}
 
 function getClientIp(req: Request): string {
   // 1. Cloudflare — most reliable when deployed behind CF
@@ -1081,7 +1092,7 @@ export async function registerRoutes(
       if (profile.isBanned) return res.status(403).json({ message: "Your account is temporarily banned or disabled. Please contact customer support." });
       if (profile.kycStatus !== "verified") return res.status(403).json({ message: "KYC verification required before making withdrawals" });
       if ((profile as any).frozenUntil && new Date((profile as any).frozenUntil) > new Date()) {
-        const frozenUntilDate = new Date((profile as any).frozenUntil).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
+        const frozenUntilDate = haitiDate((profile as any).frozenUntil);
         return res.status(403).json({ message: `Your account is frozen until ${frozenUntilDate}. Withdrawals are not permitted during this period. Contact support if you believe this is an error.`, errorCode: "ACCOUNT_FROZEN", frozenUntil: (profile as any).frozenUntil });
       }
 
@@ -1424,7 +1435,7 @@ export async function registerRoutes(
       const frozenUntil = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
       const profile = await storage.freezeUser(profileId, frozenUntil);
       sendTelegramMessage(
-        `🧊 <b>Account Frozen</b>\n\n👤 ${target.fullName} (${target.email})\n🔒 Frozen until: ${frozenUntil.toLocaleDateString("en-US", { year:"numeric", month:"short", day:"numeric" })}\nAction taken from admin report review.`
+        `🧊 <b>Account Frozen</b>\n\n👤 ${target.fullName} (${target.email})\n🔒 Frozen until: ${haitiDate(frozenUntil)}\nAction taken from admin report review.`
       ).catch(() => {});
       res.json({ message: "Account frozen for 7 days", frozenUntil, profile });
     } catch (e: any) {
@@ -1666,7 +1677,7 @@ export async function registerRoutes(
       if (profile.kycStatus !== "verified") return res.status(403).json({ message: "KYC verification required to make deposits" });
       if (profile.isBanned) return res.status(403).json({ message: "Account suspended" });
       if ((profile as any).frozenUntil && new Date((profile as any).frozenUntil) > new Date()) {
-        const frozenUntilDate = new Date((profile as any).frozenUntil).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
+        const frozenUntilDate = haitiDate((profile as any).frozenUntil);
         return res.status(403).json({ message: `Your account is frozen until ${frozenUntilDate}. Withdrawals are not permitted during this period. Contact support if you believe this is an error.`, errorCode: "ACCOUNT_FROZEN", frozenUntil: (profile as any).frozenUntil });
       }
 
@@ -1800,7 +1811,7 @@ export async function registerRoutes(
 
       const amountDisplay = `${Number(deposit.amountUsdt).toFixed(2)} USDT`;
       const frozenMsg = accountFrozen
-        ? `\n\n🚨 ACCOUNT FROZEN until ${frozenUntil!.toLocaleString()} — 3 fraud attempts detected in 30 minutes!`
+        ? `\n\n🚨 ACCOUNT FROZEN until ${haitiDateTime(frozenUntil!)} (Haiti time) — 3 fraud attempts detected in 30 minutes!`
         : `\n⚠️ Warning ${recentFrauds.length}/3 fraud attempts in the last 30 minutes.`;
 
       // Notify admin via Telegram

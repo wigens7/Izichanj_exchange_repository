@@ -40,7 +40,7 @@ import {
   AlertTriangle,
   Trash2,
 } from "lucide-react";
-import { format } from "date-fns";
+import { formatDateTime } from "@/lib/dateUtils";
 import type { VirtualCard } from "@shared/schema";
 import cardTemplateBg from "@assets/IMG_20260325_122830_199_1774459787355.jpg";
 
@@ -882,7 +882,7 @@ function CardItem({ card }: { card: VirtualCard }) {
                     const statusOk = isLocal ? true : (rawStatus === "success" || rawStatus === "successful" || rawStatus === "completed" || rawStatus === "approved");
                     const statusFail = !isLocal && (rawStatus === "failed" || rawStatus === "declined" || rawStatus === "rejected" || rawStatus === "error");
                     const rawDate = tx.date || tx.created_at || tx.transaction_date || tx.createdAt || null;
-                    const txDate = rawDate ? (() => { try { return format(new Date(rawDate), "MMM d, yyyy · h:mm a"); } catch { return String(rawDate); } })() : null;
+                    const txDate = rawDate ? formatDateTime(rawDate) : null;
 
                     return (
                       <div key={tx.id ?? idx} className="flex items-start gap-3 p-3 rounded-lg hover:bg-muted/40 transition-colors border border-transparent hover:border-border/50">

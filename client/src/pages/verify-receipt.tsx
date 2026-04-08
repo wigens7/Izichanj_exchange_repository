@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { CheckCircle, XCircle, Loader2, ArrowDownLeft, ArrowUpRight, Shield } from "lucide-react";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { format } from "date-fns";
+import { formatDateTimeFull } from "@/lib/dateUtils";
 
 export default function VerifyReceiptPage() {
   const params = useParams<{ receiptId: string }>();
@@ -75,7 +75,7 @@ export default function VerifyReceiptPage() {
                       {data.type === "deposit" ? `USDT Deposit${data.network ? ` (${data.network})` : ""}` : `${data.currency} Withdrawal`}
                     </p>
                     <p className="text-xs text-slate-500">
-                      {data.createdAt ? format(new Date(data.createdAt), "MMMM d, yyyy 'at' h:mm a") : "N/A"}
+                      {data.createdAt ? formatDateTimeFull(data.createdAt) : "N/A"}
                     </p>
                   </div>
                 </div>

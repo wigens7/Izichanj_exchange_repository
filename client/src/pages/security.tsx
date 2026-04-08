@@ -1,4 +1,5 @@
 import { useUser } from "@/hooks/use-auth";
+import { formatDate } from "@/lib/dateUtils";
 import { useLanguage } from "@/lib/i18n";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -320,7 +321,7 @@ export default function SecurityPage() {
                       <Fingerprint className="w-4 h-4 text-muted-foreground flex-shrink-0" />
                       <span className="text-sm font-medium truncate">{cred.deviceName}</span>
                       <span className="text-xs text-muted-foreground flex-shrink-0">
-                        {new Date(cred.createdAt).toLocaleDateString()}
+                        {formatDate(cred.createdAt)}
                       </span>
                     </div>
                     <Button

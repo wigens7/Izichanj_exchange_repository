@@ -86,7 +86,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
-import { format } from "date-fns";
+import { formatDateTime, formatDateTimeFull, formatDateShortTime, formatTime, formatTimeSecs, formatDateDMY, formatDateTimeShort, formatDateTimeMedium, formatDateTimeMin, formatDateShort } from "@/lib/dateUtils";
 import { formatHtg, formatUsdt } from "@shared/constants";
 import { useRates } from "@/hooks/use-rates";
 import { useForm } from "react-hook-form";
@@ -332,7 +332,7 @@ function UsersTab() {
                       <TableCell className="font-mono text-xs">{user.referenceId || "—"}</TableCell>
                       <TableCell>{user.fullName}</TableCell>
                       <TableCell className="text-sm">{user.email}</TableCell>
-                      <TableCell className="text-sm">{user.deletedAt ? format(new Date(user.deletedAt), "MMM d, yyyy h:mm a") : "—"}</TableCell>
+                      <TableCell className="text-sm">{user.deletedAt ? formatDateTime(user.deletedAt) : "—"}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -574,7 +574,7 @@ function UserRow({ user, onUpdateBalance, isPending }: { user: any; onUpdateBala
           )}
         </TableCell>
         <TableCell className="text-sm text-muted-foreground">
-          {format(new Date(user.createdAt), "MMM d, yyyy h:mm a")}
+          {formatDateTime(user.createdAt)}
         </TableCell>
         <TableCell onClick={(e) => e.stopPropagation()}>
           <div className="flex items-center gap-1 flex-wrap">
@@ -700,7 +700,7 @@ function UserRow({ user, onUpdateBalance, isPending }: { user: any; onUpdateBala
                   <Calendar className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
                   <div>
                     <p className="text-muted-foreground text-xs">Signed Up</p>
-                    <p className="font-medium">{format(new Date(user.createdAt), "MMM d, yyyy 'at' h:mm:ss a")}</p>
+                    <p className="font-medium">{formatDateTimeFull(user.createdAt)}</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
@@ -729,7 +729,7 @@ function UserRow({ user, onUpdateBalance, isPending }: { user: any; onUpdateBala
                     <Clock className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
                     <div>
                       <p className="text-muted-foreground text-xs">Last Login</p>
-                      <p className="font-medium text-xs">{format(new Date((user as any).lastLoginAt), "MMM d, yyyy h:mm a")}</p>
+                      <p className="font-medium text-xs">{formatDateTime((user as any).lastLoginAt)}</p>
                     </div>
                   </div>
                 )}
@@ -1204,12 +1204,12 @@ function DepositsTab() {
                         <StatusBadge status={deposit.status} />
                         {deposit.expiresAt && deposit.status !== "approved" && deposit.status !== "rejected" && (
                           <div className={`text-[10px] mt-0.5 ${deposit.status === "expired" ? "text-orange-500" : "text-muted-foreground/60"}`}>
-                            {deposit.status === "expired" ? "⏰ Expired" : "⏳"} {format(new Date(deposit.expiresAt), "h:mm a")}
+                            {deposit.status === "expired" ? "⏰ Expired" : "⏳"} {formatTime(deposit.expiresAt)}
                           </div>
                         )}
                       </TableCell>
                       <TableCell className="text-xs text-muted-foreground">
-                        {format(new Date(deposit.createdAt), "MMM d, yyyy h:mm a")}
+                        {formatDateTime(deposit.createdAt)}
                       </TableCell>
                       <TableCell>
                         {(deposit.status === "pending" || deposit.status === "expired") ? (
@@ -1511,7 +1511,7 @@ function WithdrawalsTab() {
                     <StatusBadge status={w.status} />
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground">
-                    {format(new Date(w.createdAt), "MMM d, yyyy h:mm a")}
+                    {formatDateTime(w.createdAt)}
                   </TableCell>
                   <TableCell>
                     {w.status === "pending" ? (
@@ -2727,7 +2727,7 @@ function PendingCardsSection() {
                     <Badge variant="outline" className="font-mono text-amber-600 border-amber-300">${Number(card.balance || 20).toFixed(2)} USDT</Badge>
                   </TableCell>
                   <TableCell className="text-xs text-muted-foreground">
-                    {format(new Date(card.createdAt), "MMM d, h:mm a")}
+                    {formatDateShortTime(card.createdAt)}
                   </TableCell>
                   <TableCell>
                     <div className="flex flex-col gap-1.5 min-w-[220px]">
@@ -3119,11 +3119,11 @@ function ActivityTab() {
                         <TableCell>
                           <div className="flex flex-col">
                             <span className="text-sm font-medium" data-testid={`text-activity-date-${log.id}`}>
-                              {log.loginAt ? format(new Date(log.loginAt), "dd/MM/yyyy") : "—"}
+                              {log.loginAt ? formatDateDMY(log.loginAt) : "—"}
                             </span>
                             <span className="text-xs text-muted-foreground flex items-center gap-1">
                               <Clock className="w-3 h-3" />
-                              {log.loginAt ? format(new Date(log.loginAt), "HH:mm:ss") : ""}
+                              {log.loginAt ? formatTimeSecs(log.loginAt) : ""}
                             </span>
                           </div>
                         </TableCell>
@@ -3328,7 +3328,7 @@ function User360Modal({ userId, userName, onClose }: { userId: number; userName:
                       <TableBody>
                         {data.loginLogs.slice(0, 20).map((l: any) => (
                           <TableRow key={l.id}>
-                            <TableCell className="text-xs">{l.login_at ? format(new Date(l.login_at), "dd/MM/yy HH:mm") : "—"}</TableCell>
+                            <TableCell className="text-xs">{l.login_at ? formatDateTimeShort(l.login_at) : "—"}</TableCell>
                             <TableCell><Badge variant="outline" className="text-xs">{l.method}</Badge></TableCell>
                             <TableCell className="font-mono text-xs text-muted-foreground">{l.ip_address || "—"}</TableCell>
                             <TableCell className="text-xs text-muted-foreground">{l.device_info || "—"}</TableCell>
@@ -3354,7 +3354,7 @@ function User360Modal({ userId, userName, onClose }: { userId: number; userName:
                           <p className="text-xs text-muted-foreground truncate">{e.details || "—"}</p>
                           <p className="text-xs font-mono text-muted-foreground/70">{e.ip_address} · {e.device_info}</p>
                         </div>
-                        <span className="text-[10px] text-muted-foreground whitespace-nowrap">{e.created_at ? format(new Date(e.created_at), "dd/MM HH:mm") : "—"}</span>
+                        <span className="text-[10px] text-muted-foreground whitespace-nowrap">{e.created_at ? formatDateTimeMin(e.created_at) : "—"}</span>
                       </div>
                     ))}
                   </div>
@@ -3375,7 +3375,7 @@ function User360Modal({ userId, userName, onClose }: { userId: number; userName:
                           const ch = Number(b.change);
                           return (
                             <TableRow key={b.id}>
-                              <TableCell className="text-xs">{b.created_at ? format(new Date(b.created_at), "dd/MM/yy HH:mm") : "—"}</TableCell>
+                              <TableCell className="text-xs">{b.created_at ? formatDateTimeShort(b.created_at) : "—"}</TableCell>
                               <TableCell><Badge variant="outline" className="text-xs">{b.action}</Badge></TableCell>
                               <TableCell className={`font-medium text-sm ${balanceChangeColor(ch)}`}>{ch >= 0 ? "+" : ""}{ch.toFixed(2)}</TableCell>
                               <TableCell className="text-xs text-muted-foreground">{Number(b.previous_balance).toFixed(2)}</TableCell>
@@ -3402,7 +3402,7 @@ function User360Modal({ userId, userName, onClose }: { userId: number; userName:
                         <span className="font-medium">{Number(d.amount_usdt).toFixed(2)} USDT</span>
                         <Badge variant="outline" className="text-[10px]">{d.deposit_method}</Badge>
                         <span className="text-muted-foreground font-mono">{d.ip_address}</span>
-                        <span className="ml-auto text-muted-foreground">{d.created_at ? format(new Date(d.created_at), "dd/MM/yy HH:mm") : "—"}</span>
+                        <span className="ml-auto text-muted-foreground">{d.created_at ? formatDateTimeShort(d.created_at) : "—"}</span>
                       </div>
                     ))}
                   </div>
@@ -3423,7 +3423,7 @@ function User360Modal({ userId, userName, onClose }: { userId: number; userName:
                         <Badge variant="outline" className="text-[10px]">{w.currency}</Badge>
                         {w.trc_address && <span className="font-mono text-muted-foreground">{w.trc_address.slice(0, 8)}…</span>}
                         <span className="text-muted-foreground font-mono">{w.ip_address}</span>
-                        <span className="ml-auto text-muted-foreground">{w.created_at ? format(new Date(w.created_at), "dd/MM/yy HH:mm") : "—"}</span>
+                        <span className="ml-auto text-muted-foreground">{w.created_at ? formatDateTimeShort(w.created_at) : "—"}</span>
                       </div>
                     ))}
                   </div>
@@ -3446,7 +3446,7 @@ function User360Modal({ userId, userName, onClose }: { userId: number; userName:
                           <span className="font-medium">{Number(t.amount).toFixed(2)} USDT</span>
                           <span className="text-muted-foreground">{t.dir === "sent" ? `→ ${t.receiver_name || "unknown"}` : `← ${t.sender_name || "unknown"}`}</span>
                           {t.note && <span className="text-muted-foreground italic">"{t.note}"</span>}
-                          <span className="ml-auto text-muted-foreground">{t.created_at ? format(new Date(t.created_at), "dd/MM/yy HH:mm") : "—"}</span>
+                          <span className="ml-auto text-muted-foreground">{t.created_at ? formatDateTimeShort(t.created_at) : "—"}</span>
                         </div>
                       ))}
                   </div>
@@ -3466,7 +3466,7 @@ function User360Modal({ userId, userName, onClose }: { userId: number; userName:
                           <span className="font-medium">{c.card_type} *{c.last4 || "?????"}</span>
                           <Badge variant="outline" className="text-[10px]">{c.brand || "Visa"}</Badge>
                           <span className="text-muted-foreground">${Number(c.balance || 0).toFixed(2)}</span>
-                          <span className="ml-auto text-muted-foreground">{c.created_at ? format(new Date(c.created_at), "dd/MM/yy") : "—"}</span>
+                          <span className="ml-auto text-muted-foreground">{c.created_at ? formatDateShort(c.created_at) : "—"}</span>
                         </div>
                       ))}
                     </div>
@@ -3585,7 +3585,7 @@ function AuditTab() {
                     </p>
                   </div>
                   <span className="text-xs text-muted-foreground whitespace-nowrap">
-                    Last: {alert.last_seen ? format(new Date(alert.last_seen), "dd/MM/yy HH:mm") : "—"}
+                    Last: {alert.last_seen ? formatDateTimeShort(alert.last_seen) : "—"}
                   </span>
                 </div>
               ))}
@@ -3652,7 +3652,7 @@ function AuditTab() {
                   <div className="flex flex-col items-end gap-1 flex-shrink-0">
                     <Badge variant="outline" className="text-[10px] px-1.5 py-0 capitalize">{entryBadge(entry)}</Badge>
                     <span className="text-[10px] text-muted-foreground whitespace-nowrap">
-                      {entry.created_at ? format(new Date(entry.created_at), "dd/MM/yy HH:mm") : "—"}
+                      {entry.created_at ? formatDateTimeShort(entry.created_at) : "—"}
                     </span>
                   </div>
                 </div>
@@ -3800,7 +3800,7 @@ function ReportsTab() {
                           {REPORT_REASON_LABELS[report.reason] ?? report.reason}
                         </Badge>
                         <span className="text-xs text-muted-foreground">
-                          {report.created_at ? format(new Date(report.created_at), "dd/MM/yyyy HH:mm") : "—"}
+                          {report.created_at ? formatDateTimeMedium(report.created_at) : "—"}
                         </span>
                       </div>
                       <div className="text-xs space-y-0.5">

@@ -4,6 +4,11 @@ import path from "path";
 import { PassThrough } from "stream";
 import { EXCHANGE_RATE_USDT_HTG } from "@shared/constants";
 
+const HAITI_TZ = "America/Port-au-Prince";
+function haitiDateTime(date: Date | string): string {
+  return new Intl.DateTimeFormat("en-US", { timeZone: HAITI_TZ, dateStyle: "long", timeStyle: "short" }).format(new Date(date as any));
+}
+
 const LOGO_PATH = path.join(process.cwd(), "client/src/assets/logo.png");
 const BRAND_DARK = "#0A0F1E";
 const BRAND_INDIGO = "#4F46E5";
@@ -100,7 +105,7 @@ export async function generateAdjustmentReceiptPDF(data: AdjustmentReceiptData):
 
     const detailRows: [string, string][] = [
       ["Receipt ID", data.receiptId.toUpperCase()],
-      ["Date & Time", new Date(data.createdAt).toLocaleString("en-US", { dateStyle: "long", timeStyle: "short" })],
+      ["Date & Time", haitiDateTime(data.createdAt)],
       ["Transaction Type", "Admin Balance Adjustment"],
       ["Reason", data.reason],
       ["Previous Balance", `${data.oldBalance.toFixed(2)} USDT`],
@@ -258,7 +263,7 @@ export async function generateReceiptPDF(data: ReceiptData): Promise<Buffer> {
     // ── Detail rows ──
     const detailRows: [string, string][] = [
       ["Transaction ID", data.transactionRef],
-      ["Date & Time", new Date(data.createdAt).toLocaleString("en-US", { dateStyle: "long", timeStyle: "short" })],
+      ["Date & Time", haitiDateTime(data.createdAt)],
       ["Transaction Type", isDeposit ? "Crypto Deposit (USDT → HTG)" : "Mobile Money Withdrawal"],
       ["Gross Amount", `${data.amountUsdt.toFixed(2)} USDT`],
       ["Service Fee", `${data.fee.toFixed(2)} USDT`],

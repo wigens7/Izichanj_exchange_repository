@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ArrowUpRight, ArrowDownLeft, Wallet, TrendingUp, TrendingDown, ArrowRightLeft, FileText, Eye, EyeOff, Copy, CheckCheck } from "lucide-react";
 import { useState } from "react";
-import { format } from "date-fns";
+import { formatDateTime } from "@/lib/dateUtils";
 import { StatusBadge } from "@/components/status-badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -176,7 +176,7 @@ function TransactionRow({ txn }: { txn: any }) {
                         {isDeposit ? t.dashboard.usdtDeposit : `${txn.currency} ${t.dashboard.withdrawal}`}
                     </p>
                     <p className="text-xs text-muted-foreground">
-                        {format(new Date(txn.createdAt), "MMM d, yyyy 'at' h:mm a")}
+                        {formatDateTime(txn.createdAt)}
                     </p>
                 </div>
             </div>
