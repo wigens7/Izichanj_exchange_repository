@@ -63,7 +63,7 @@ export default function DepositPage() {
   const [mobileWallet, setMobileWallet] = useState<MobileWallet>("moncash");
   const [amountHtg, setAmountHtg] = useState("");
   const [transactionId, setTransactionId] = useState("");
-  const [proofFile, setProofFile] = useState<File | null>(null);
+  const [_proofFile, setProofFile] = useState<File | null>(null);
   const [proofPreview, setProofPreview] = useState<string | null>(null);
   const [proofObjectPath, setProofObjectPath] = useState<string | null>(null);
   const [uploadingProof, setUploadingProof] = useState(false);
