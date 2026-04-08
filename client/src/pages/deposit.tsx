@@ -83,7 +83,8 @@ export default function DepositPage() {
   const creditedUsdt = Math.max(0, cryptoUsdt - networkFee);
   const creditedHtg = creditedUsdt * depositRate;
   const belowMinimum = cryptoUsdt > 0 && cryptoUsdt < networkConfig.minAmount;
-  const canSubmit = cryptoUsdt >= networkConfig.minAmount && kycVerified;
+  const aboveMaximum = cryptoUsdt > networkConfig.maxAmount;
+  const canSubmit = cryptoUsdt >= networkConfig.minAmount && cryptoUsdt <= networkConfig.maxAmount && kycVerified;
 
   const htgAmount = parseFloat(amountHtg) || 0;
   const usdtEquiv = htgAmount > 0 ? (htgAmount / depositRate) : 0;
@@ -352,7 +353,7 @@ export default function DepositPage() {
                   }`}
                 >
                   <span className="font-bold">TRC20</span>
-                  <span className="text-xs opacity-70">TRON · Min $5.00 · Fee $2.50</span>
+                  <span className="text-xs opacity-70">TRON · Min $10.00 · Fee $2.50</span>
                 </button>
                 <button
                   type="button"
@@ -365,7 +366,7 @@ export default function DepositPage() {
                   }`}
                 >
                   <span className="font-bold">BEP20</span>
-                  <span className="text-xs opacity-70">BSC · Min $1.00 · Fee $0.25</span>
+                  <span className="text-xs opacity-70">BSC · Min $10.00 · Fee $0.25</span>
                 </button>
               </div>
             </div>
@@ -380,7 +381,7 @@ export default function DepositPage() {
                   placeholder={networkConfig.minAmount.toFixed(2)}
                   value={cryptoAmount}
                   onChange={(e) => setCryptoAmount(e.target.value)}
-                  className={`pr-16 ${belowMinimum ? "border-red-400 focus-visible:ring-red-400" : ""}`}
+                  className={`pr-16 ${(belowMinimum || aboveMaximum) ? "border-red-400 focus-visible:ring-red-400" : ""}`}
                   data-testid="input-crypto-amount"
                 />
                 <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground font-medium">USDT</span>
@@ -390,9 +391,14 @@ export default function DepositPage() {
                   Minimum for {networkConfig.label}: ${networkConfig.minAmount.toFixed(2)} USDT
                 </p>
               )}
+              {aboveMaximum && (
+                <p className="text-xs text-red-500 mt-1" data-testid="text-above-maximum">
+                  Maximum deposit is ${networkConfig.maxAmount.toLocaleString()} USDT
+                </p>
+              )}
             </div>
 
-            {cryptoUsdt >= networkConfig.minAmount && (
+            {cryptoUsdt >= networkConfig.minAmount && !aboveMaximum && (
               <div className="rounded-lg border border-border bg-muted/30 divide-y divide-border overflow-hidden" data-testid="fee-summary">
                 <div className="flex items-center justify-between px-4 py-2.5 text-sm">
                   <span className="text-muted-foreground">Amount to Send</span>

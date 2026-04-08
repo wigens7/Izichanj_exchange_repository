@@ -340,14 +340,18 @@ export async function registerRoutes(
       }
 
       const currency = (payCurrency === "usdtbsc" ? "usdtbsc" : "usdttrc20") as "usdttrc20" | "usdtbsc";
-      const FEE_CONFIG: Record<string, { minAmount: number; fee: number }> = {
-        usdttrc20: { minAmount: 5.00, fee: 2.50 },
-        usdtbsc:   { minAmount: 1.00, fee: 0.25 },
+      const FEE_CONFIG: Record<string, { minAmount: number; maxAmount: number; fee: number }> = {
+        usdttrc20: { minAmount: 10.00, maxAmount: 50000, fee: 2.50 },
+        usdtbsc:   { minAmount: 10.00, maxAmount: 50000, fee: 0.25 },
       };
       const networkConfig = FEE_CONFIG[currency];
       const amount = Number(amountUsdt);
+      const networkLabel = currency === "usdtbsc" ? "BEP20" : "TRC20";
       if (amount < networkConfig.minAmount) {
-        return res.status(400).json({ message: `Minimum deposit for ${currency === "usdtbsc" ? "BEP20" : "TRC20"} is $${networkConfig.minAmount.toFixed(2)} USDT.` });
+        return res.status(400).json({ message: `Minimum deposit for ${networkLabel} is $${networkConfig.minAmount.toFixed(2)} USDT.` });
+      }
+      if (amount > networkConfig.maxAmount) {
+        return res.status(400).json({ message: `Maximum deposit for ${networkLabel} is $${networkConfig.maxAmount.toLocaleString()} USDT.` });
       }
       const creditAmount = amount - networkConfig.fee;
       const orderId = `NP-${profile.id}-${Date.now()}`;
