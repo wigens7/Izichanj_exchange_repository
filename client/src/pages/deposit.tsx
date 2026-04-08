@@ -1,7 +1,8 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useUser } from "@/hooks/use-auth";
 import { useLanguage } from "@/lib/i18n";
 import { useQuery } from "@tanstack/react-query";
+import { useDeposits } from "@/hooks/use-transactions";
 import { formatHtg, formatUsdt, NETWORK_FEE_CONFIG, MANUAL_DEPOSIT_MIN_HTG, type NetworkCurrency } from "@shared/constants";
 import { useRates } from "@/hooks/use-rates";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -58,6 +59,8 @@ export default function DepositPage() {
   const [isLocallyExpired, setIsLocallyExpired] = useState(false);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [isResumedDeposit, setIsResumedDeposit] = useState(false);
+  const resumeAppliedRef = useRef(false);
 
   // ── Manual deposit state ───────────────────────
   const [mobileWallet, setMobileWallet] = useState<MobileWallet>("moncash");
@@ -75,6 +78,19 @@ export default function DepositPage() {
     queryKey: ["/api/deposits/manual/payment-info"],
     enabled: depositMethod === "moncash",
   });
+
+  const { data: allDeposits, isLoading: depositsLoading } = useDeposits();
+
+  const activePendingDeposit = useMemo(() => {
+    if (!allDeposits) return null;
+    return (allDeposits as any[]).find(
+      (d: any) =>
+        d.depositMethod === "nowpayments" &&
+        d.status === "pending" &&
+        d.expiresAt &&
+        new Date(d.expiresAt) > new Date()
+    ) ?? null;
+  }, [allDeposits]);
 
   const networkCurrency = NETWORK_MAP[selectedNetwork];
   const networkConfig = NETWORK_FEE_CONFIG[networkCurrency];
@@ -117,6 +133,31 @@ export default function DepositPage() {
     timerRef.current = setInterval(tick, 1000);
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
   }, [paymentInfo?.expiresAt]);
+
+  // Restore pending NOWPayments deposit from DB on load
+  useEffect(() => {
+    if (depositsLoading || paymentInfo || resumeAppliedRef.current) return;
+    if (!activePendingDeposit) return;
+    resumeAppliedRef.current = true;
+    setIsResumedDeposit(true);
+    setPaymentInfo({
+      depositId: activePendingDeposit.id,
+      paymentId: String(activePendingDeposit.nowpaymentsPaymentId),
+      payAddress: activePendingDeposit.payAddress,
+      payAmount: parseFloat(activePendingDeposit.amountUsdt),
+      payCurrency: activePendingDeposit.payCurrency,
+      expirationDate: activePendingDeposit.expiresAt,
+      expiresAt: activePendingDeposit.expiresAt,
+    });
+  }, [activePendingDeposit, depositsLoading]);
+
+  // Start polling when a resumed deposit is active
+  useEffect(() => {
+    if (isResumedDeposit && paymentInfo?.paymentId) {
+      startPolling(String(paymentInfo.paymentId));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isResumedDeposit, paymentInfo?.paymentId]);
 
   const startPolling = (paymentId: string) => {
     if (pollingRef.current) clearInterval(pollingRef.current);
@@ -172,6 +213,8 @@ export default function DepositPage() {
     setCryptoAmount("");
     setSecondsLeft(0);
     setIsLocallyExpired(false);
+    setIsResumedDeposit(false);
+    resumeAppliedRef.current = false;
   };
 
   const formatCountdown = (secs: number) => {
@@ -454,6 +497,19 @@ export default function DepositPage() {
             <CardDescription className="text-xs">{t.deposit.npSendToAddress}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
+            {isResumedDeposit && paymentStatus === "waiting" && !isLocallyExpired && (
+              <Alert className="bg-blue-500/8 border-blue-200 dark:border-blue-800/50 text-blue-800 dark:text-blue-300" data-testid="alert-pending-deposit-active">
+                <AlertCircle className="h-4 w-4" />
+                <AlertTitle>Pending Deposit Active</AlertTitle>
+                <AlertDescription className="text-xs">
+                  You already have an active crypto deposit request. Complete your transfer to this address or wait for it to expire before generating a new one.{" "}
+                  <Link href="/support" className="underline font-medium">
+                    Need help? Contact Support →
+                  </Link>
+                </AlertDescription>
+              </Alert>
+            )}
+
             {!isLocallyExpired && paymentInfo.expiresAt && paymentStatus === "waiting" && (
               <Alert className={`${secondsLeft <= 60 ? "bg-red-500/8 border-red-300 dark:border-red-700 text-red-700 dark:text-red-300" : "bg-amber-500/8 border-amber-200 dark:border-amber-800/50 text-amber-800 dark:text-amber-300"}`} data-testid="alert-deposit-timer">
                 <Clock className="h-4 w-4" />
@@ -527,9 +583,11 @@ export default function DepositPage() {
               <p className="text-xs text-muted-foreground text-center">{t.deposit.npWaitingNote}</p>
             )}
 
-            <Button variant="outline" className="w-full" onClick={handleNewPayment} data-testid="button-new-payment">
-              {isLocallyExpired ? "Generate New Deposit Request" : t.deposit.npNewPayment}
-            </Button>
+            {(!isResumedDeposit || isLocallyExpired || paymentStatus === "failed" || paymentStatus === "expired" || paymentStatus === "finished" || paymentStatus === "confirmed") && (
+              <Button variant="outline" className="w-full" onClick={handleNewPayment} data-testid="button-new-payment">
+                {isLocallyExpired ? "Generate New Deposit Request" : t.deposit.npNewPayment}
+              </Button>
+            )}
           </CardContent>
         </Card>
       )}

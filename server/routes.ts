@@ -361,6 +361,19 @@ export async function registerRoutes(
       if (!profile) return res.status(401).json({ message: "Unauthorized" });
       if (profile.kycStatus !== "verified") return res.status(403).json({ message: "KYC verification required before making deposits" });
 
+      // Block if there's already an active pending NOWPayments deposit
+      const existingDeposits = await storage.getDeposits(profile.id);
+      const activePending = existingDeposits.find(
+        (d) =>
+          d.depositMethod === "nowpayments" &&
+          d.status === "pending" &&
+          d.expiresAt &&
+          new Date(d.expiresAt) > new Date()
+      );
+      if (activePending) {
+        return res.status(409).json({ message: "You already have an active pending crypto deposit. Please complete that transfer or wait for it to expire before creating a new one." });
+      }
+
       const { amountUsdt, payCurrency } = req.body;
       if (!amountUsdt || isNaN(Number(amountUsdt)) || Number(amountUsdt) <= 0) {
         return res.status(400).json({ message: "Amount must be greater than 0" });
