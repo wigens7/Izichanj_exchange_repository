@@ -91,6 +91,8 @@ export interface IStorage {
   getP2PTransfers(profileId: number): Promise<P2PTransfer[]>;
 
   getProfileByReferenceId(referenceId: string): Promise<Profile | undefined>;
+  getProfileByDepositAddress(address: string): Promise<Profile | undefined>;
+  updateDepositAddresses(profileId: number, trc20?: string | null, bep20?: string | null): Promise<void>;
   searchProfiles(query: string): Promise<Profile[]>;
   softDeleteProfile(id: number): Promise<void>;
   addToBlacklist(data: { email?: string; phone?: string; firstName?: string; lastName?: string; dateOfBirth?: string; idDocumentUrl?: string; idDocumentBackUrl?: string; selfieUrl?: string; reason?: string; originalProfileId?: number; referenceId?: string }): Promise<BlacklistedUser>;
@@ -602,6 +604,26 @@ export class DatabaseStorage implements IStorage {
   async getProfileByReferenceId(referenceId: string): Promise<Profile | undefined> {
     const [profile] = await db.select().from(profiles).where(eq(profiles.referenceId, referenceId));
     return profile;
+  }
+
+  async getProfileByDepositAddress(address: string): Promise<Profile | undefined> {
+    const normalized = address.trim();
+    const [profile] = await db.select().from(profiles).where(
+      or(
+        eq(profiles.trc20DepositAddress, normalized),
+        eq(profiles.bep20DepositAddress, normalized),
+      )
+    );
+    return profile;
+  }
+
+  async updateDepositAddresses(profileId: number, trc20?: string | null, bep20?: string | null): Promise<void> {
+    const data: Partial<typeof profiles.$inferSelect> = {};
+    if (trc20 !== undefined) data.trc20DepositAddress = trc20;
+    if (bep20 !== undefined) data.bep20DepositAddress = bep20;
+    if (Object.keys(data).length > 0) {
+      await db.update(profiles).set(data).where(eq(profiles.id, profileId));
+    }
   }
 
   async searchProfiles(query: string): Promise<Profile[]> {

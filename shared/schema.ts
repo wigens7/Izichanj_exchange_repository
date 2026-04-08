@@ -42,6 +42,8 @@ export const profiles = pgTable("profiles", {
   registrationIp: text("registration_ip"),
   lastLoginAt: timestamp("last_login_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
+  trc20DepositAddress: text("trc20_deposit_address"),
+  bep20DepositAddress: text("bep20_deposit_address"),
 });
 
 export const blacklistedUsers = pgTable("blacklisted_users", {

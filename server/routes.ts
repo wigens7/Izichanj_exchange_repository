@@ -328,6 +328,77 @@ export async function registerRoutes(
   const NOWPAYMENTS_API_KEY = process.env.NOWPAYMENTS_API_KEY || "";
   const NOWPAYMENTS_BASE_URL = "https://api.nowpayments.io/v1";
 
+  // Helper: generate a permanent USDT deposit address via NOWPayments
+  async function generatePermanentAddress(currency: "usdttrc20" | "usdtbsc", profileId: number, baseUrl: string): Promise<string | null> {
+    try {
+      const response = await fetch(`${NOWPAYMENTS_BASE_URL}/sub-partner/address`, {
+        method: "POST",
+        headers: { "x-api-key": NOWPAYMENTS_API_KEY, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: `user-${profileId}-${currency}`,
+          currency,
+          ipn_callback_url: `${baseUrl}/api/nowpayments/ipn`,
+        }),
+      });
+      if (response.ok) {
+        const data = await response.json() as any;
+        if (data.address) return data.address;
+      }
+      // Fallback: try custody/addresses endpoint
+      const resp2 = await fetch(`${NOWPAYMENTS_BASE_URL}/custody/addresses`, {
+        method: "POST",
+        headers: { "x-api-key": NOWPAYMENTS_API_KEY, "Content-Type": "application/json" },
+        body: JSON.stringify({ currency, ipn_callback_url: `${baseUrl}/api/nowpayments/ipn` }),
+      });
+      if (resp2.ok) {
+        const data2 = await resp2.json() as any;
+        if (data2.address) return data2.address;
+      }
+      console.error(`[NOWPayments] Failed to generate permanent address for ${currency}:`, await response.text());
+      return null;
+    } catch (e) {
+      console.error(`[NOWPayments] Error generating permanent address for ${currency}:`, e);
+      return null;
+    }
+  }
+
+  // GET /api/deposits/addresses — get (or create) permanent deposit addresses for the user
+  app.get("/api/deposits/addresses", isAuthenticated, async (req: any, res) => {
+    try {
+      const profile = await getProfileFromReq(req);
+      if (!profile) return res.status(401).json({ message: "Unauthorized" });
+
+      let { trc20DepositAddress, bep20DepositAddress } = profile;
+      const proto = req.headers["x-forwarded-proto"] || req.protocol;
+      const host = req.headers["x-forwarded-host"] || req.headers.host;
+      const baseUrl = `${proto}://${host}`;
+
+      let updated = false;
+
+      if (!trc20DepositAddress) {
+        const addr = await generatePermanentAddress("usdttrc20", profile.id, baseUrl);
+        if (addr) { trc20DepositAddress = addr; updated = true; }
+      }
+      if (!bep20DepositAddress) {
+        const addr = await generatePermanentAddress("usdtbsc", profile.id, baseUrl);
+        if (addr) { bep20DepositAddress = addr; updated = true; }
+      }
+
+      if (updated) {
+        await storage.updateDepositAddresses(
+          profile.id,
+          trc20DepositAddress ?? null,
+          bep20DepositAddress ?? null,
+        );
+      }
+
+      res.json({ trc20Address: trc20DepositAddress ?? null, bep20Address: bep20DepositAddress ?? null });
+    } catch (e: any) {
+      console.error("[deposits/addresses]", e);
+      res.status(500).json({ message: "Failed to fetch deposit addresses" });
+    }
+  });
+
   app.post("/api/nowpayments/create-payment", isAuthenticated, async (req: any, res) => {
     try {
       const profile = await getProfileFromReq(req);
@@ -714,53 +785,98 @@ export async function registerRoutes(
         }
       }
 
-      const { payment_id, payment_status, order_id, actually_paid, pay_amount, outcome_amount } = req.body;
-      console.log(`[NOWPayments IPN] Payment ${payment_id} status: ${payment_status}, order: ${order_id}`);
+      const { payment_id, payment_status, order_id, actually_paid, pay_currency, pay_address, outcome_amount } = req.body;
+      console.log(`[NOWPayments IPN] Payment ${payment_id} status: ${payment_status}, order: ${order_id}, address: ${pay_address}, currency: ${pay_currency}, paid: ${actually_paid}`);
 
       if (payment_status === "finished" || payment_status === "confirmed") {
-        const deposit = await storage.getDepositByNowpaymentsPaymentId(String(payment_id));
-        if (!deposit) {
-          console.error(`[NOWPayments IPN] Deposit not found for payment_id: ${payment_id}`);
-          return res.sendStatus(200);
-        }
+        // ── Try to find an existing deposit record first (one-time payments) ──
+        const existingDeposit = payment_id
+          ? await storage.getDepositByNowpaymentsPaymentId(String(payment_id))
+          : null;
 
-        if (deposit.status === "approved") {
-          return res.sendStatus(200);
-        }
+        if (existingDeposit) {
+          // Existing one-time payment flow
+          if (existingDeposit.status === "approved") return res.sendStatus(200);
 
-        const [updatedDeposit] = await db.update(deposits).set({
-          status: "approved",
-        }).where(eq(deposits.id, deposit.id)).returning();
-
-        const profile = await storage.getProfile(deposit.profileId);
-        if (profile) {
-          const depositAmount = parseFloat(deposit.amountUsdt);
-          const DEPOSIT_FEES: Record<string, number> = { usdttrc20: 1.50, usdtbsc: 0.25 };
-          const fee = DEPOSIT_FEES[deposit.payCurrency || "usdttrc20"] ?? 1.50;
-          const creditAmount = Math.max(0, depositAmount - fee);
-          const currentBalance = parseFloat(profile.balance);
-          const newBalance = currentBalance + creditAmount;
-          await storage.updateProfileBalance(deposit.profileId, newBalance);
-
-          const htgAmount = formatHtg(rateUsdtToHtg(creditAmount));
-          await storage.createNotification({
-            profileId: deposit.profileId,
-            type: "deposit_approved",
-            title: "Crypto Deposit Approved",
-            message: `Your crypto deposit of ${depositAmount.toFixed(2)} USDT has been confirmed. After the $${fee.toFixed(2)} network fee, ${creditAmount.toFixed(2)} USDT (${htgAmount} HTG) was credited to your balance.`,
-          });
-
-          const admins = await storage.getAllProfiles();
-          const adminList = admins.filter(a => a.role === "admin");
-          for (const admin of adminList) {
+          await db.update(deposits).set({ status: "approved" }).where(eq(deposits.id, existingDeposit.id));
+          const profile = await storage.getProfile(existingDeposit.profileId);
+          if (profile) {
+            const DEPOSIT_FEES: Record<string, number> = { usdttrc20: 2.50, usdtbsc: 0.25 };
+            const depositAmount = parseFloat(existingDeposit.amountUsdt);
+            const fee = DEPOSIT_FEES[existingDeposit.payCurrency || "usdttrc20"] ?? 2.50;
+            const creditAmount = Math.max(0, depositAmount - fee);
+            await storage.updateProfileBalance(existingDeposit.profileId, parseFloat(profile.balance) + creditAmount);
+            const htgAmount = formatHtg(rateUsdtToHtg(creditAmount));
             await storage.createNotification({
-              profileId: admin.id,
-              type: "custom_message",
-              title: "Crypto Deposit Auto-Approved",
-              message: `User ${profile.fullName} deposited ${depositAmount.toFixed(2)} USDT via NOWPayments (auto-approved). Payment ID: ${payment_id}`,
+              profileId: existingDeposit.profileId, type: "deposit_approved",
+              title: "Crypto Deposit Approved",
+              message: `Your deposit of ${depositAmount.toFixed(2)} USDT was confirmed. After the $${fee.toFixed(2)} network fee, ${creditAmount.toFixed(2)} USDT (${htgAmount} HTG) was credited to your balance.`,
             });
           }
+          return res.sendStatus(200);
         }
+
+        // ── Permanent address flow: match by pay_address ──
+        const receivingAddress = pay_address || req.body.address;
+        let permProfile: typeof profiles.$inferSelect | undefined = undefined;
+        if (receivingAddress) {
+          permProfile = await storage.getProfileByDepositAddress(receivingAddress);
+        }
+        if (!permProfile) {
+          console.error(`[NOWPayments IPN] No user found for address: ${receivingAddress}, payment_id: ${payment_id}`);
+          return res.sendStatus(200);
+        }
+
+        // Deduplicate: skip if we already processed this payment_id
+        if (payment_id) {
+          const dup = await storage.getDepositByNowpaymentsPaymentId(String(payment_id));
+          if (dup) { console.log(`[NOWPayments IPN] Duplicate payment_id ${payment_id}, skipping`); return res.sendStatus(200); }
+        }
+
+        const PERM_FEES: Record<string, number> = { usdttrc20: 2.50, usdtbsc: 0.25 };
+        const PERM_MIN: Record<string, number> = { usdttrc20: 5.00, usdtbsc: 1.00 };
+        const currency = (pay_currency || "usdttrc20") as string;
+        const fee = PERM_FEES[currency] ?? 2.50;
+        const minDeposit = PERM_MIN[currency] ?? 5.00;
+        const rawAmount = parseFloat(String(actually_paid || outcome_amount || 0));
+
+        if (rawAmount <= fee || rawAmount < minDeposit) {
+          console.log(`[NOWPayments IPN] Amount ${rawAmount} USDT too small for ${currency}, ignoring`);
+          return res.sendStatus(200);
+        }
+
+        const creditAmount = Math.max(0, rawAmount - fee);
+        const htgAmt = rateUsdtToHtg(creditAmount);
+        const orderId = `PERM-${permProfile.id}-${Date.now()}`;
+
+        const newDeposit = await storage.createDeposit({
+          profileId: permProfile.id,
+          amountUsdt: rawAmount.toFixed(2),
+          txHash: orderId,
+          depositMethod: "nowpayments",
+          amountHtg: htgAmt.toFixed(2),
+          nowpaymentsPaymentId: payment_id ? String(payment_id) : null,
+          payAddress: receivingAddress,
+          payCurrency: currency,
+        });
+        await storage.updateDepositStatus(newDeposit.id, "approved");
+
+        await storage.updateProfileBalance(permProfile.id, parseFloat(permProfile.balance) + creditAmount);
+        const htgFormatted = formatHtg(htgAmt);
+        await storage.createNotification({
+          profileId: permProfile.id, type: "deposit_approved",
+          title: "Crypto Deposit Received",
+          message: `${rawAmount.toFixed(2)} USDT received on your ${currency === "usdtbsc" ? "BEP20" : "TRC20"} address. After the $${fee.toFixed(2)} network fee, ${creditAmount.toFixed(2)} USDT (${htgFormatted} HTG) was credited to your balance.`,
+        });
+        const admins = await storage.getAllProfiles();
+        for (const admin of admins.filter(a => a.role === "admin")) {
+          await storage.createNotification({
+            profileId: admin.id, type: "custom_message",
+            title: "Permanent Address Deposit",
+            message: `${permProfile.fullName} received ${rawAmount.toFixed(2)} USDT on their ${currency === "usdtbsc" ? "BEP20" : "TRC20"} address. Credited: ${creditAmount.toFixed(2)} USDT`,
+          });
+        }
+        console.log(`[NOWPayments IPN] Permanent deposit processed: ${rawAmount} USDT → ${creditAmount} USDT for user ${permProfile.id}`);
       }
 
       res.sendStatus(200);

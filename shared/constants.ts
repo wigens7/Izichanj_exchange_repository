@@ -5,8 +5,8 @@ export const MANUAL_DEPOSIT_MIN_USDT = 10;
 export const MANUAL_DEPOSIT_EXCHANGE_RATE = EXCHANGE_RATE_USDT_HTG; // Same as global rate
 
 export const NETWORK_FEE_CONFIG = {
-  usdttrc20: { label: "TRC20", network: "TRON", minAmount: 12.00, fee: 1.50 },
-  usdtbsc:   { label: "BEP20", network: "BSC",  minAmount: 10.25, fee: 0.25 },
+  usdttrc20: { label: "TRC20", network: "TRON", minAmount: 5.00, fee: 2.50 },
+  usdtbsc:   { label: "BEP20", network: "BSC",  minAmount: 1.00, fee: 0.25 },
 } as const;
 
 export type NetworkCurrency = keyof typeof NETWORK_FEE_CONFIG;
