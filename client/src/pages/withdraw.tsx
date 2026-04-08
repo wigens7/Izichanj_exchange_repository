@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -74,6 +75,14 @@ export default function WithdrawPage() {
   const [activeTab, setActiveTab] = useState<Tab>("mobile");
   const [otpSent, setOtpSent] = useState(false);
   const [qrUploaded, setQrUploaded] = useState(false);
+  const [showFrozenDialog, setShowFrozenDialog] = useState(false);
+
+  // Check if account is frozen
+  const frozenUntil = (user as any)?.frozenUntil;
+  const isFrozen = frozenUntil && new Date(frozenUntil) > new Date();
+  const frozenUntilFormatted = isFrozen
+    ? new Date(frozenUntil).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })
+    : null;
 
   const { data: pinStatus } = useQuery<{ hasWithdrawalPin: boolean }>({
     queryKey: ["/api/security/withdrawal-pin/status"],
@@ -116,6 +125,7 @@ export default function WithdrawPage() {
   };
 
   const onMobileSubmit = (data: z.infer<typeof mobileMoneySchema>) => {
+    if (isFrozen) { setShowFrozenDialog(true); return; }
     createWithdrawal({
       amount: data.amount,
       currency: data.currency,
@@ -133,6 +143,7 @@ export default function WithdrawPage() {
   };
 
   const onTrcSubmit = (data: z.infer<typeof usdtTrc20Schema>) => {
+    if (isFrozen) { setShowFrozenDialog(true); return; }
     createWithdrawal({
       amount: data.amount,
       currency: "USDT_TRC20",
@@ -145,10 +156,50 @@ export default function WithdrawPage() {
 
   return (
     <div className="max-w-xl mx-auto space-y-6 animate-in fade-in duration-300">
+      {/* Frozen Account Dialog */}
+      <Dialog open={showFrozenDialog} onOpenChange={setShowFrozenDialog}>
+        <DialogContent className="max-w-sm text-center" data-testid="dialog-frozen-account">
+          <DialogHeader>
+            <div className="flex justify-center mb-3">
+              <div className="w-16 h-16 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
+                <Lock className="w-8 h-8 text-blue-500" />
+              </div>
+            </div>
+            <DialogTitle className="text-center text-lg">Account Frozen</DialogTitle>
+            <DialogDescription className="text-center space-y-2 pt-1">
+              <span className="block text-base font-semibold text-foreground">
+                Your account is frozen{frozenUntilFormatted ? ` until ${frozenUntilFormatted}` : " for 7 days"}.
+              </span>
+              <span className="block text-sm text-muted-foreground">
+                Withdrawals are not permitted while your account is frozen. You can still log in and deposit funds. Contact support if you believe this is an error.
+              </span>
+            </DialogDescription>
+          </DialogHeader>
+          <button
+            className="mt-2 w-full py-2 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors"
+            onClick={() => setShowFrozenDialog(false)}
+            data-testid="button-frozen-dialog-close"
+          >
+            Understood
+          </button>
+        </DialogContent>
+      </Dialog>
+
       <div>
         <h1 className="text-2xl font-display font-bold" data-testid="text-withdraw-title">{t.withdraw.title}</h1>
         <p className="text-sm text-muted-foreground mt-0.5">{t.withdraw.subtitle}</p>
       </div>
+
+      {/* Frozen account alert */}
+      {isFrozen && (
+        <Alert className="bg-blue-500/8 border-blue-300 dark:border-blue-800/50 text-blue-900 dark:text-blue-300" data-testid="alert-frozen-account">
+          <Lock className="h-4 w-4" />
+          <AlertTitle>Account Frozen</AlertTitle>
+          <AlertDescription>
+            Your account is frozen{frozenUntilFormatted ? ` until ${frozenUntilFormatted}` : " for 7 days"}. Withdrawals are disabled. Deposits are still allowed.
+          </AlertDescription>
+        </Alert>
+      )}
 
       {/* Banned alert */}
       {user?.isBanned && (
@@ -414,9 +465,10 @@ export default function WithdrawPage() {
                 </div>
 
                 <Button
-                  type="submit"
+                  type={isFrozen ? "button" : "submit"}
                   className="w-full primary-gradient"
-                  disabled={isWithdrawPending || !otpSent || mExceedsBalance || (mMethod === "qrcode" && !qrUploaded)}
+                  disabled={!isFrozen && (isWithdrawPending || !otpSent || mExceedsBalance || (mMethod === "qrcode" && !qrUploaded))}
+                  onClick={isFrozen ? () => setShowFrozenDialog(true) : undefined}
                   data-testid="button-confirm-withdrawal"
                 >
                   {isWithdrawPending ? <><Loader2 className="animate-spin mr-2 w-4 h-4" /> Processing...</> : t.withdraw.confirmWithdrawal}
@@ -571,9 +623,10 @@ export default function WithdrawPage() {
                 />
 
                 <Button
-                  type="submit"
+                  type={isFrozen ? "button" : "submit"}
                   className="w-full primary-gradient"
-                  disabled={isWithdrawPending || tExceedsBalance || (pinStatus !== undefined && !pinStatus.hasWithdrawalPin)}
+                  disabled={!isFrozen && (isWithdrawPending || tExceedsBalance || (pinStatus !== undefined && !pinStatus.hasWithdrawalPin))}
+                  onClick={isFrozen ? () => setShowFrozenDialog(true) : undefined}
                   data-testid="button-confirm-withdrawal-trc20"
                 >
                   {isWithdrawPending

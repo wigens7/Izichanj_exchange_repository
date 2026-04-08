@@ -333,6 +333,12 @@ export class DatabaseStorage implements IStorage {
     return profile;
   }
 
+  async unfreezeUser(id: number): Promise<Profile> {
+    const [profile] = await db.update(profiles).set({ frozenUntil: null } as any).where(eq(profiles.id, id)).returning();
+    if (!profile) throw new Error("Profile not found");
+    return profile;
+  }
+
   async getAllProfiles(): Promise<Profile[]> {
     return db.select().from(profiles).orderBy(desc(profiles.createdAt));
   }

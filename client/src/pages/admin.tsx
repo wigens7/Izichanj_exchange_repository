@@ -80,6 +80,7 @@ import {
   History,
   Info,
   Flag,
+  Lock,
 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -3709,6 +3710,48 @@ function ReportsTab() {
     onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
+  const freezeMutation = useMutation({
+    mutationFn: async (userId: number) => {
+      const res = await apiRequest("POST", `/api/admin/users/${userId}/freeze`);
+      if (!res.ok) throw new Error((await res.json()).message);
+      return res.json();
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["/api/admin/reports"] });
+      qc.invalidateQueries({ queryKey: ["/api/admin/users"] });
+      toast({ title: "Account frozen for 7 days" });
+    },
+    onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const unfreezeMutation = useMutation({
+    mutationFn: async (userId: number) => {
+      const res = await apiRequest("POST", `/api/admin/users/${userId}/unfreeze`);
+      if (!res.ok) throw new Error((await res.json()).message);
+      return res.json();
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["/api/admin/reports"] });
+      qc.invalidateQueries({ queryKey: ["/api/admin/users"] });
+      toast({ title: "Account unfrozen successfully" });
+    },
+    onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const banMutation = useMutation({
+    mutationFn: async ({ userId, isBanned }: { userId: number; isBanned: boolean }) => {
+      const res = await apiRequest("PATCH", `/api/admin/users/${userId}/ban`, { isBanned });
+      if (!res.ok) throw new Error((await res.json()).message);
+      return res.json();
+    },
+    onSuccess: (_, { isBanned }) => {
+      qc.invalidateQueries({ queryKey: ["/api/admin/reports"] });
+      qc.invalidateQueries({ queryKey: ["/api/admin/users"] });
+      toast({ title: isBanned ? "Account banned" : "Account unbanned" });
+    },
+    onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
   const filtered = statusFilter === "all" ? reports : reports.filter((r: any) => r.status === statusFilter);
 
   const statusBadge = (status: string) => {
@@ -3849,6 +3892,48 @@ function ReportsTab() {
                           </Button>
                         )}
                       </div>
+
+                      {/* Account Actions — only if reported user is matched */}
+                      {report.reported_profile_id && (
+                        <div className="space-y-1.5">
+                          <Separator />
+                          <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Account Actions</p>
+                          <div className="flex gap-2 flex-wrap">
+                            <Button
+                              size="sm"
+                              className="text-xs bg-blue-600 hover:bg-blue-700 text-white"
+                              onClick={() => freezeMutation.mutate(report.reported_profile_id)}
+                              disabled={freezeMutation.isPending || unfreezeMutation.isPending}
+                              data-testid={`button-freeze-user-${report.id}`}
+                            >
+                              <Lock className="w-3.5 h-3.5 mr-1" /> Freeze 7 Days
+                            </Button>
+                            <Button
+                              size="sm"
+                              className="text-xs"
+                              variant="outline"
+                              onClick={() => unfreezeMutation.mutate(report.reported_profile_id)}
+                              disabled={freezeMutation.isPending || unfreezeMutation.isPending}
+                              data-testid={`button-unfreeze-user-${report.id}`}
+                            >
+                              <Unlock className="w-3.5 h-3.5 mr-1 text-green-500" /> Unfreeze
+                            </Button>
+                            <Button
+                              size="sm"
+                              className="text-xs"
+                              variant="destructive"
+                              onClick={() => banMutation.mutate({ userId: report.reported_profile_id, isBanned: true })}
+                              disabled={banMutation.isPending}
+                              data-testid={`button-ban-reported-user-${report.id}`}
+                            >
+                              <Ban className="w-3.5 h-3.5 mr-1" /> Ban Account
+                            </Button>
+                          </div>
+                          {report.reported_name && (
+                            <p className="text-[10px] text-muted-foreground">Reported user: <span className="font-medium">{report.reported_name}</span> ({report.reported_email})</p>
+                          )}
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>

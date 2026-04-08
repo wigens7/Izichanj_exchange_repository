@@ -1063,7 +1063,8 @@ export async function registerRoutes(
       if (profile.isBanned) return res.status(403).json({ message: "Your account is temporarily banned or disabled. Please contact customer support." });
       if (profile.kycStatus !== "verified") return res.status(403).json({ message: "KYC verification required before making withdrawals" });
       if ((profile as any).frozenUntil && new Date((profile as any).frozenUntil) > new Date()) {
-        return res.status(403).json({ message: "Your account is temporarily frozen due to suspicious activity. Contact support." });
+        const frozenUntilDate = new Date((profile as any).frozenUntil).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
+        return res.status(403).json({ message: `Your account is frozen until ${frozenUntilDate}. Withdrawals are not permitted during this period. Contact support if you believe this is an error.`, errorCode: "ACCOUNT_FROZEN", frozenUntil: (profile as any).frozenUntil });
       }
 
       const parsed = api.withdrawals.create.input.parse(req.body);
@@ -1396,6 +1397,39 @@ export async function registerRoutes(
     }
   });
 
+  // Admin: Freeze a user account for 7 days
+  app.post("/api/admin/users/:id/freeze", isAuthenticated, isAdmin, async (req: any, res) => {
+    try {
+      const profileId = Number(req.params.id);
+      const target = await storage.getProfile(profileId);
+      if (!target) return res.status(404).json({ message: "User not found" });
+      const frozenUntil = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+      const profile = await storage.freezeUser(profileId, frozenUntil);
+      sendTelegramMessage(
+        `🧊 <b>Account Frozen</b>\n\n👤 ${target.fullName} (${target.email})\n🔒 Frozen until: ${frozenUntil.toLocaleDateString("en-US", { year:"numeric", month:"short", day:"numeric" })}\nAction taken from admin report review.`
+      ).catch(() => {});
+      res.json({ message: "Account frozen for 7 days", frozenUntil, profile });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message || "Internal Error" });
+    }
+  });
+
+  // Admin: Unfreeze a user account
+  app.post("/api/admin/users/:id/unfreeze", isAuthenticated, isAdmin, async (req: any, res) => {
+    try {
+      const profileId = Number(req.params.id);
+      const target = await storage.getProfile(profileId);
+      if (!target) return res.status(404).json({ message: "User not found" });
+      const profile = await storage.unfreezeUser(profileId);
+      sendTelegramMessage(
+        `✅ <b>Account Unfrozen</b>\n\n👤 ${target.fullName} (${target.email})\nAccount manually unfrozen by admin.`
+      ).catch(() => {});
+      res.json({ message: "Account unfrozen successfully", profile });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message || "Internal Error" });
+    }
+  });
+
   app.patch("/api/admin/users/:id/disable-2fa", isAuthenticated, isAdmin, async (req: any, res) => {
     try {
       const profileId = Number(req.params.id);
@@ -1614,8 +1648,8 @@ export async function registerRoutes(
       if (profile.kycStatus !== "verified") return res.status(403).json({ message: "KYC verification required to make deposits" });
       if (profile.isBanned) return res.status(403).json({ message: "Account suspended" });
       if ((profile as any).frozenUntil && new Date((profile as any).frozenUntil) > new Date()) {
-        const until = new Date((profile as any).frozenUntil).toLocaleString();
-        return res.status(403).json({ message: `Your account is temporarily frozen due to suspicious activity until ${until}. Contact support if you believe this is an error.` });
+        const frozenUntilDate = new Date((profile as any).frozenUntil).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
+        return res.status(403).json({ message: `Your account is frozen until ${frozenUntilDate}. Withdrawals are not permitted during this period. Contact support if you believe this is an error.`, errorCode: "ACCOUNT_FROZEN", frozenUntil: (profile as any).frozenUntil });
       }
 
       const { amountHtg, mobileWallet, transactionId, proofImageUrl } = req.body;
