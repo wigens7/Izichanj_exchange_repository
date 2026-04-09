@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { formatDateLong } from "@/lib/dateUtils";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { useForm } from "react-hook-form";
@@ -78,12 +79,39 @@ export default function WithdrawPage() {
   const [qrUploaded, setQrUploaded] = useState(false);
   const [showFrozenDialog, setShowFrozenDialog] = useState(false);
 
+  const queryClient = useQueryClient();
+
   // Check if account is frozen
   const frozenUntil = (user as any)?.frozenUntil;
   const isFrozen = frozenUntil && new Date(frozenUntil) > new Date();
-  const frozenUntilFormatted = isFrozen
-    ? formatDateLong(frozenUntil)
-    : null;
+  const frozenUntilFormatted = isFrozen ? formatDateLong(frozenUntil) : null;
+
+  // Live countdown until account unfreezes
+  const [frozenCountdown, setFrozenCountdown] = useState("");
+  useEffect(() => {
+    if (!frozenUntil || !isFrozen) { setFrozenCountdown(""); return; }
+    const compute = () => {
+      const diff = Math.max(0, Math.floor((new Date(frozenUntil).getTime() - Date.now()) / 1000));
+      if (diff <= 0) {
+        setFrozenCountdown("");
+        queryClient.invalidateQueries({ queryKey: ["/api/user"] });
+        return;
+      }
+      const d = Math.floor(diff / 86400);
+      const h = Math.floor((diff % 86400) / 3600);
+      const m = Math.floor((diff % 3600) / 60);
+      const s = diff % 60;
+      const parts: string[] = [];
+      if (d > 0) parts.push(`${d}d`);
+      if (h > 0) parts.push(`${h}h`);
+      if (m > 0) parts.push(`${m}m`);
+      parts.push(`${s}s`);
+      setFrozenCountdown(parts.join(" "));
+    };
+    compute();
+    const interval = setInterval(compute, 1000);
+    return () => clearInterval(interval);
+  }, [frozenUntil, isFrozen]);
 
   const { data: pinStatus } = useQuery<{ hasWithdrawalPin: boolean }>({
     queryKey: ["/api/security/withdrawal-pin/status"],
@@ -171,6 +199,11 @@ export default function WithdrawPage() {
               <span className="block text-base font-semibold text-foreground">
                 Your account is frozen{frozenUntilFormatted ? ` until ${frozenUntilFormatted}` : " for 7 days"}.
               </span>
+              {frozenCountdown && (
+                <span className="block text-sm font-mono font-bold text-blue-600 dark:text-blue-400">
+                  ⏱ {frozenCountdown} remaining
+                </span>
+              )}
               <span className="block text-sm text-muted-foreground">
                 Withdrawals are not permitted while your account is frozen. You can still log in and deposit funds. Contact support if you believe this is an error.
               </span>
@@ -195,9 +228,16 @@ export default function WithdrawPage() {
       {isFrozen && (
         <Alert className="bg-blue-500/8 border-blue-300 dark:border-blue-800/50 text-blue-900 dark:text-blue-300" data-testid="alert-frozen-account">
           <Lock className="h-4 w-4" />
-          <AlertTitle>Account Frozen</AlertTitle>
+          <AlertTitle className="flex items-center justify-between flex-wrap gap-2">
+            <span>Account Frozen{frozenUntilFormatted ? ` — Until ${frozenUntilFormatted}` : ""}</span>
+            {frozenCountdown && (
+              <span className="font-mono text-sm font-bold tabular-nums" data-testid="text-frozen-countdown">
+                ⏱ {frozenCountdown}
+              </span>
+            )}
+          </AlertTitle>
           <AlertDescription>
-            Your account is frozen{frozenUntilFormatted ? ` until ${frozenUntilFormatted}` : " for 7 days"}. Withdrawals are disabled. Deposits are still allowed.
+            Withdrawals are disabled until the freeze expires. Deposits are still allowed. Contact support if you believe this is an error.
           </AlertDescription>
         </Alert>
       )}
