@@ -872,13 +872,15 @@ function CardItem({ card }: { card: VirtualCard }) {
                     const isLocal = tx.source === "local";
                     const isFunding = isLocal && (tx.type === "fund" || tx.type === "creation");
 
+                    const rawMerchant = tx.narrative || tx.merchant_name || tx.merchant || tx.narration || tx.description || tx.reference || "";
                     const merchant = isFunding
                       ? (tx.description || "Card Funding")
-                      : (tx.merchant_name || tx.merchant || tx.narration || tx.description || tx.reference || "Unknown Merchant");
+                      : (rawMerchant ? rawMerchant.replace(/\s{2,}/g, " ").trim() : "Unknown Merchant");
                     const amount = Number(tx.amount || tx.transaction_amount || 0);
                     const currency = (tx.currency || tx.transaction_currency || "USD").toUpperCase();
                     const rawStatus = (tx.status || tx.transaction_status || "").toLowerCase();
-                    const isCredit = isFunding || (tx.type || tx.transaction_type || "").toLowerCase() === "credit" || rawStatus === "reversal";
+                    const txType = (tx.type || tx.transaction_type || "").toLowerCase();
+                    const isCredit = isFunding || txType === "credit" || txType === "reversal" || rawStatus === "reversal";
                     const statusOk = isLocal ? true : (rawStatus === "success" || rawStatus === "successful" || rawStatus === "completed" || rawStatus === "approved");
                     const statusFail = !isLocal && (rawStatus === "failed" || rawStatus === "declined" || rawStatus === "rejected" || rawStatus === "error");
                     const rawDate = tx.date || tx.created_at || tx.transaction_date || tx.createdAt || null;

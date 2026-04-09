@@ -4478,10 +4478,12 @@ export async function registerRoutes(
       }
 
       const txList =
+        Array.isArray(data.response?.card_transactions) ? data.response.card_transactions :
         Array.isArray(data.response) ? data.response :
         Array.isArray(data.response?.transactions) ? data.response.transactions :
         Array.isArray(data.response?.data) ? data.response.data :
         Array.isArray(data.response?.data?.transactions) ? data.response.data.transactions :
+        Array.isArray(data.card_transactions) ? data.card_transactions :
         Array.isArray(data.data) ? data.data :
         Array.isArray(data.data?.transactions) ? data.data.transactions :
         Array.isArray(data.transactions) ? data.transactions :
