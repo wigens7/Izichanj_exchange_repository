@@ -5141,6 +5141,229 @@ export async function registerRoutes(
   });
 
   // ═══════════════════════════════════════════════════════════
+  //  ADMIN P2P DISPUTE CENTER
+  // ═══════════════════════════════════════════════════════════
+
+  // GET /api/admin/p2p/disputes — list all disputed orders with buyer/seller info
+  app.get("/api/admin/p2p/disputes", isAuthenticated, isAdmin, async (_req: any, res) => {
+    try {
+      const rows = await db.execute(sql`
+        SELECT
+          o.id, o.status, o.amount_usdt, o.amount_local, o.rate, o.currency,
+          o.payment_method, o.dispute_reason, o.created_at, o.updated_at,
+          o.buyer_id, o.seller_id, o.ad_id,
+          b.full_name AS buyer_name, b.email AS buyer_email, b.reference_id AS buyer_ref,
+          b.is_banned AS buyer_banned, b.frozen_until AS buyer_frozen,
+          b.p2p_flagged_as AS buyer_flagged, b.p2p_seller_restricted AS buyer_restricted,
+          s.full_name AS seller_name, s.email AS seller_email, s.reference_id AS seller_ref,
+          s.is_banned AS seller_banned, s.frozen_until AS seller_frozen,
+          s.p2p_flagged_as AS seller_flagged, s.p2p_seller_restricted AS seller_restricted,
+          (SELECT COUNT(*) FROM p2p_chat_messages WHERE order_id = o.id) AS message_count
+        FROM p2p_orders o
+        JOIN profiles b ON b.id = o.buyer_id
+        JOIN profiles s ON s.id = o.seller_id
+        WHERE o.status = 'disputed'
+        ORDER BY o.updated_at DESC
+      `);
+      res.json(rows.rows);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // GET /api/admin/p2p/disputes/:id — full dispute detail with chat + login IPs
+  app.get("/api/admin/p2p/disputes/:id", isAuthenticated, isAdmin, async (req: any, res) => {
+    try {
+      const orderId = Number(req.params.id);
+      const orderRows = await db.execute(sql`
+        SELECT
+          o.*, o.amount_local AS total_htg, o.rate AS rate_htg,
+          b.full_name AS buyer_name, b.email AS buyer_email, b.phone AS buyer_phone,
+          b.reference_id AS buyer_ref, b.is_banned AS buyer_banned,
+          b.frozen_until AS buyer_frozen, b.p2p_flagged_as AS buyer_flagged,
+          b.p2p_seller_restricted AS buyer_restricted, b.country AS buyer_country,
+          s.full_name AS seller_name, s.email AS seller_email, s.phone AS seller_phone,
+          s.reference_id AS seller_ref, s.is_banned AS seller_banned,
+          s.frozen_until AS seller_frozen, s.p2p_flagged_as AS seller_flagged,
+          s.p2p_seller_restricted AS seller_restricted, s.country AS seller_country
+        FROM p2p_orders o
+        JOIN profiles b ON b.id = o.buyer_id
+        JOIN profiles s ON s.id = o.seller_id
+        WHERE o.id = ${orderId}
+      `);
+      const order = orderRows.rows[0] as any;
+      if (!order) return res.status(404).json({ message: "Order not found" });
+
+      const chatRows = await db.execute(sql`
+        SELECT m.*, p.full_name AS sender_name
+        FROM p2p_chat_messages m
+        LEFT JOIN profiles p ON p.id = m.sender_id
+        WHERE m.order_id = ${orderId}
+        ORDER BY m.created_at ASC
+      `);
+
+      // Fetch recent login IPs for both parties
+      const buyerLogins = await db.execute(sql`
+        SELECT ip_address, device_info, created_at FROM login_logs
+        WHERE profile_id = ${order.buyer_id}
+        ORDER BY created_at DESC LIMIT 5
+      `);
+      const sellerLogins = await db.execute(sql`
+        SELECT ip_address, device_info, created_at FROM login_logs
+        WHERE profile_id = ${order.seller_id}
+        ORDER BY created_at DESC LIMIT 5
+      `);
+
+      // Fetch past admin actions for this order
+      const actionRows = await db.execute(sql`
+        SELECT da.*, a.full_name AS admin_name
+        FROM p2p_dispute_actions da
+        LEFT JOIN profiles a ON a.id = da.admin_id
+        WHERE da.order_id = ${orderId}
+        ORDER BY da.created_at DESC
+      `);
+
+      res.json({
+        order,
+        chat: chatRows.rows,
+        buyerLogins: buyerLogins.rows,
+        sellerLogins: sellerLogins.rows,
+        actions: actionRows.rows,
+      });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // POST /api/admin/p2p/disputes/:id/resolve — release to buyer OR refund to seller
+  app.post("/api/admin/p2p/disputes/:id/resolve", isAuthenticated, isAdmin, async (req: any, res) => {
+    const adminId = req.session.profileId;
+    const orderId = Number(req.params.id);
+    const { action, reason } = req.body;
+    if (!action || !reason?.trim()) return res.status(400).json({ message: "action and reason are required" });
+    if (!["release_buyer", "refund_seller"].includes(action)) return res.status(400).json({ message: "Invalid action" });
+
+    try {
+      const rows = await db.execute(sql`SELECT * FROM p2p_orders WHERE id = ${orderId}`);
+      const order = rows.rows[0] as any;
+      if (!order) return res.status(404).json({ message: "Order not found" });
+      if (!["disputed", "paid"].includes(order.status)) return res.status(400).json({ message: "Order is not in a resolvable state" });
+
+      const amount = parseFloat(order.amount_usdt);
+
+      if (action === "release_buyer") {
+        // Credit buyer
+        const buyerRows = await db.execute(sql`SELECT balance FROM profiles WHERE id = ${order.buyer_id}`);
+        const prevBal = parseFloat((buyerRows.rows[0] as any)?.balance || "0");
+        await db.execute(sql`UPDATE profiles SET balance = balance + ${amount} WHERE id = ${order.buyer_id}`);
+        await db.execute(sql`INSERT INTO balance_logs (profile_id, previous_balance, new_balance, change, action, reference_id) VALUES (${order.buyer_id}, ${prevBal}, ${prevBal + amount}, ${amount}, 'p2p_admin_release', ${String(orderId)})`);
+        await db.execute(sql`UPDATE p2p_orders SET status = 'released', released_at = NOW() WHERE id = ${orderId}`);
+        await db.execute(sql`INSERT INTO p2p_chat_messages (order_id, sender_id, message) VALUES (${orderId}, ${adminId}, ${'✅ Admin Decision: Funds released to buyer after dispute investigation. Trade closed.'})`);
+        // Notify both parties
+        await db.execute(sql`INSERT INTO notifications (profile_id, type, title, message) VALUES (${order.buyer_id}, 'custom_message', 'Dispute Resolved — Funds Released', ${reason})`).catch(() => {});
+        await db.execute(sql`INSERT INTO notifications (profile_id, type, title, message) VALUES (${order.seller_id}, 'custom_message', 'Dispute Resolved — Funds Released to Buyer', ${reason})`).catch(() => {});
+      } else {
+        // Refund seller — return USDT to seller balance (escrow was already deducted from ad)
+        const sellerRows = await db.execute(sql`SELECT balance FROM profiles WHERE id = ${order.seller_id}`);
+        const prevBal = parseFloat((sellerRows.rows[0] as any)?.balance || "0");
+        await db.execute(sql`UPDATE profiles SET balance = balance + ${amount} WHERE id = ${order.seller_id}`);
+        await db.execute(sql`INSERT INTO balance_logs (profile_id, previous_balance, new_balance, change, action, reference_id) VALUES (${order.seller_id}, ${prevBal}, ${prevBal + amount}, ${amount}, 'p2p_admin_refund', ${String(orderId)})`);
+        // Restore ad available_usdt
+        await db.execute(sql`UPDATE p2p_ads SET available_usdt = available_usdt + ${amount}, updated_at = NOW() WHERE id = ${order.ad_id}`);
+        await db.execute(sql`UPDATE p2p_orders SET status = 'cancelled', cancelled_by = 'admin', cancellation_reason = ${reason}, cancelled_at = NOW() WHERE id = ${orderId}`);
+        await db.execute(sql`INSERT INTO p2p_chat_messages (order_id, sender_id, message) VALUES (${orderId}, ${adminId}, ${'🔒 Admin Decision: Funds refunded to seller after dispute investigation. Trade closed.'})`);
+        await db.execute(sql`INSERT INTO notifications (profile_id, type, title, message) VALUES (${order.seller_id}, 'custom_message', 'Dispute Resolved — Funds Refunded', ${reason})`).catch(() => {});
+        await db.execute(sql`INSERT INTO notifications (profile_id, type, title, message) VALUES (${order.buyer_id}, 'custom_message', 'Dispute Resolved — Funds Returned to Seller', ${reason})`).catch(() => {});
+      }
+
+      // Log action
+      await db.execute(sql`INSERT INTO p2p_dispute_actions (order_id, admin_id, action, reason) VALUES (${orderId}, ${adminId}, ${action}, ${reason})`);
+      res.json({ success: true });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // POST /api/admin/p2p/disputes/:id/flag — flag a user involved in a dispute
+  app.post("/api/admin/p2p/disputes/:id/flag", isAuthenticated, isAdmin, async (req: any, res) => {
+    const adminId = req.session.profileId;
+    const orderId = Number(req.params.id);
+    const { userId, flagAs, reason } = req.body;
+    if (!userId || !reason?.trim()) return res.status(400).json({ message: "userId and reason are required" });
+
+    try {
+      const newFlag = flagAs || null; // null = clear flag
+      await db.execute(sql`UPDATE profiles SET p2p_flagged_as = ${newFlag} WHERE id = ${userId}`);
+      await db.execute(sql`INSERT INTO p2p_dispute_actions (order_id, admin_id, action, reason, target_user_id) VALUES (${orderId}, ${adminId}, ${'flag_user:' + (newFlag ?? 'cleared')}, ${reason}, ${userId})`);
+      if (newFlag) {
+        await db.execute(sql`INSERT INTO notifications (profile_id, type, title, message) VALUES (${userId}, 'custom_message', 'Account Flagged', ${reason})`).catch(() => {});
+      }
+      res.json({ success: true });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // POST /api/admin/p2p/users/:id/seller-restrict — toggle seller restriction
+  app.post("/api/admin/p2p/users/:id/seller-restrict", isAuthenticated, isAdmin, async (req: any, res) => {
+    const adminId = req.session.profileId;
+    const userId = Number(req.params.id);
+    const { restricted, reason, orderId } = req.body;
+    try {
+      await db.execute(sql`UPDATE profiles SET p2p_seller_restricted = ${!!restricted} WHERE id = ${userId}`);
+      const actionLabel = restricted ? "seller_restricted" : "seller_unrestricted";
+      if (orderId) {
+        await db.execute(sql`INSERT INTO p2p_dispute_actions (order_id, admin_id, action, reason, target_user_id) VALUES (${orderId}, ${adminId}, ${actionLabel}, ${reason ?? 'No reason provided'}, ${userId})`);
+      }
+      await db.execute(sql`INSERT INTO notifications (profile_id, type, title, message) VALUES (${userId}, 'custom_message', ${restricted ? 'P2P Selling Restricted' : 'P2P Selling Restored'}, ${reason ?? (restricted ? 'Your ability to post P2P ads has been restricted.' : 'Your P2P selling privileges have been restored.')})`).catch(() => {});
+      res.json({ success: true });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // POST /api/admin/p2p/users/:id/ban — ban/unban with dispute log
+  app.post("/api/admin/p2p/users/:id/ban", isAuthenticated, isAdmin, async (req: any, res) => {
+    const adminId = req.session.profileId;
+    const userId = Number(req.params.id);
+    const { isBanned, reason, orderId } = req.body;
+    try {
+      await db.execute(sql`UPDATE profiles SET is_banned = ${!!isBanned} WHERE id = ${userId}`);
+      if (orderId) {
+        await db.execute(sql`INSERT INTO p2p_dispute_actions (order_id, admin_id, action, reason, target_user_id) VALUES (${orderId}, ${adminId}, ${isBanned ? 'ban_user' : 'unban_user'}, ${reason ?? 'No reason'}, ${userId})`);
+      }
+      await db.execute(sql`INSERT INTO notifications (profile_id, type, title, message) VALUES (${userId}, 'custom_message', ${isBanned ? 'Account Banned' : 'Account Restored'}, ${reason ?? (isBanned ? 'Your account has been permanently banned.' : 'Your account ban has been lifted.')})`).catch(() => {});
+      res.json({ success: true });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // POST /api/admin/p2p/users/:id/freeze — freeze/unfreeze with dispute log
+  app.post("/api/admin/p2p/users/:id/freeze", isAuthenticated, isAdmin, async (req: any, res) => {
+    const adminId = req.session.profileId;
+    const userId = Number(req.params.id);
+    const { freeze, durationDays, reason, orderId } = req.body;
+    try {
+      if (freeze) {
+        const frozenUntil = new Date(Date.now() + (durationDays ?? 7) * 24 * 60 * 60 * 1000);
+        await db.execute(sql`UPDATE profiles SET frozen_until = ${frozenUntil} WHERE id = ${userId}`);
+        if (orderId) await db.execute(sql`INSERT INTO p2p_dispute_actions (order_id, admin_id, action, reason, target_user_id) VALUES (${orderId}, ${adminId}, ${'freeze_user'}, ${reason ?? 'No reason'}, ${userId})`);
+        await db.execute(sql`INSERT INTO notifications (profile_id, type, title, message) VALUES (${userId}, 'custom_message', 'Account Frozen', ${reason ?? `Your account has been frozen for ${durationDays ?? 7} days.`})`).catch(() => {});
+      } else {
+        await db.execute(sql`UPDATE profiles SET frozen_until = NULL WHERE id = ${userId}`);
+        if (orderId) await db.execute(sql`INSERT INTO p2p_dispute_actions (order_id, admin_id, action, reason, target_user_id) VALUES (${orderId}, ${adminId}, ${'unfreeze_user'}, ${reason ?? 'No reason'}, ${userId})`);
+        await db.execute(sql`INSERT INTO notifications (profile_id, type, title, message) VALUES (${userId}, 'custom_message', 'Account Unfrozen', ${reason ?? 'Your account freeze has been lifted.'})`).catch(() => {});
+      }
+      res.json({ success: true });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // GET /api/admin/p2p/disputes/:id/actions — fetch admin action log for an order
+  app.get("/api/admin/p2p/disputes/:id/actions", isAuthenticated, isAdmin, async (req: any, res) => {
+    try {
+      const orderId = Number(req.params.id);
+      const rows = await db.execute(sql`
+        SELECT da.*, a.full_name AS admin_name, u.full_name AS target_name
+        FROM p2p_dispute_actions da
+        LEFT JOIN profiles a ON a.id = da.admin_id
+        LEFT JOIN profiles u ON u.id = da.target_user_id
+        WHERE da.order_id = ${orderId}
+        ORDER BY da.created_at DESC
+      `);
+      res.json(rows.rows);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // ═══════════════════════════════════════════════════════════
   //  P2P MARKET ROUTES
   // ═══════════════════════════════════════════════════════════
 
@@ -5463,10 +5686,11 @@ export async function registerRoutes(
       if (!paymentMethods || paymentMethods.length === 0) return res.status(400).json({ message: "At least one payment method required" });
 
       // Get seller profile
-      const pRows = await db.execute(sql`SELECT balance, country, kyc_status, full_name FROM profiles WHERE id = ${profileId}`);
+      const pRows = await db.execute(sql`SELECT balance, country, kyc_status, full_name, p2p_seller_restricted FROM profiles WHERE id = ${profileId}`);
       const seller = pRows.rows[0] as any;
       if (!seller) return res.status(404).json({ message: "Profile not found" });
       if (seller.kyc_status !== "verified") return res.status(403).json({ message: "KYC required" });
+      if (seller.p2p_seller_restricted) return res.status(403).json({ message: "Your account has been restricted from posting P2P ads. Please contact support." });
 
       const balance = parseFloat(seller.balance);
       const amount = parseFloat(amountUsdt);

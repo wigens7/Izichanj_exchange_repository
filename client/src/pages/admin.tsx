@@ -17,6 +17,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { StatusBadge } from "@/components/status-badge";
 import { useState, useRef, useEffect } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -119,7 +120,7 @@ export default function AdminPage() {
       </div>
 
       <Tabs defaultValue="users" className="w-full">
-        <TabsList className="mb-4 grid w-full grid-cols-11 gap-1">
+        <TabsList className="mb-4 grid w-full grid-cols-12 gap-1">
           <TabsTrigger value="users" className="gap-2" data-testid="tab-admin-users">
             <Users className="w-4 h-4" />
             <span className="hidden sm:inline">Users</span>
@@ -168,6 +169,10 @@ export default function AdminPage() {
             <Share2 className="w-4 h-4" />
             <span className="hidden sm:inline">Referrals</span>
           </TabsTrigger>
+          <TabsTrigger value="p2p-disputes" className="gap-2 relative" data-testid="tab-admin-p2p-disputes">
+            <ShieldAlert className="w-4 h-4" />
+            <span className="hidden sm:inline">Disputes</span>
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="users">
@@ -205,6 +210,9 @@ export default function AdminPage() {
         </TabsContent>
         <TabsContent value="referral-payouts">
           <ReferralPayoutsTab />
+        </TabsContent>
+        <TabsContent value="p2p-disputes">
+          <P2PDisputesTab key="p2p-disputes" />
         </TabsContent>
       </Tabs>
     </div>
@@ -4108,6 +4116,573 @@ function ReferralPayoutsTab() {
           )}
         </CardContent>
       </Card>
+    </div>
+  );
+}
+
+// ─── P2P Dispute & Investigation Center ─────────────────────────────────────
+function P2PDisputesTab() {
+  const { toast } = useToast();
+  const qc = useQueryClient();
+  const [selectedId, setSelectedId] = useState<number | null>(null);
+
+  const { data: disputes, isLoading } = useQuery<any[]>({
+    queryKey: ["/api/admin/p2p/disputes"],
+    queryFn: () => fetch("/api/admin/p2p/disputes", { credentials: "include" }).then(r => r.json()),
+    refetchInterval: 15000,
+  });
+
+  const { data: detail, isLoading: detailLoading } = useQuery<any>({
+    queryKey: ["/api/admin/p2p/disputes", selectedId],
+    queryFn: () => fetch(`/api/admin/p2p/disputes/${selectedId}`, { credentials: "include" }).then(r => r.json()),
+    enabled: !!selectedId,
+    refetchInterval: 8000,
+  });
+
+  const count = disputes?.length ?? 0;
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <ShieldAlert className="w-5 h-5 text-red-400" />
+            P2P Dispute Center
+            {count > 0 && (
+              <Badge variant="destructive" className="ml-auto text-xs">{count} Active</Badge>
+            )}
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="p-0">
+          {isLoading ? (
+            <div className="flex justify-center py-10"><Loader2 className="w-6 h-6 animate-spin text-primary" /></div>
+          ) : !disputes?.length ? (
+            <div className="flex flex-col items-center justify-center py-14 gap-3 text-muted-foreground">
+              <ShieldCheck className="w-10 h-10 opacity-30" />
+              <p className="text-sm">No active disputes</p>
+            </div>
+          ) : (
+            <div className="divide-y divide-border">
+              {disputes.map((d: any) => (
+                <DisputeListItem
+                  key={d.id}
+                  dispute={d}
+                  isSelected={selectedId === d.id}
+                  onSelect={() => setSelectedId(selectedId === d.id ? null : d.id)}
+                />
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {selectedId && (
+        <DisputeDetailPanel
+          disputeId={selectedId}
+          detail={detail}
+          isLoading={detailLoading}
+          onClose={() => setSelectedId(null)}
+          onRefresh={() => {
+            qc.invalidateQueries({ queryKey: ["/api/admin/p2p/disputes"] });
+            qc.invalidateQueries({ queryKey: ["/api/admin/p2p/disputes", selectedId] });
+          }}
+          toast={toast}
+        />
+      )}
+    </div>
+  );
+}
+
+function DisputeListItem({ dispute: d, isSelected, onSelect }: { dispute: any; isSelected: boolean; onSelect: () => void }) {
+  const isBuyerBanned = d.buyer_banned;
+  const isSellerBanned = d.seller_banned;
+  const buyerFrozen = d.buyer_frozen && new Date(d.buyer_frozen) > new Date();
+  const sellerFrozen = d.seller_frozen && new Date(d.seller_frozen) > new Date();
+
+  return (
+    <div
+      className={`p-4 cursor-pointer transition-colors hover:bg-muted/30 ${isSelected ? "bg-primary/5 border-l-2 border-primary" : ""}`}
+      onClick={onSelect}
+      data-testid={`dispute-item-${d.id}`}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="font-mono text-xs text-muted-foreground">#{d.id}</span>
+            <Badge variant="destructive" className="text-[10px] py-0">Disputed</Badge>
+            <span className="text-sm font-semibold">{parseFloat(d.amount_usdt).toFixed(2)} USDT</span>
+            <span className="text-xs text-muted-foreground">
+              @ {parseFloat(d.rate).toFixed(2)} {d.currency ?? "HTG"}/USDT
+            </span>
+          </div>
+          <div className="flex flex-wrap gap-x-4 gap-y-0.5 mt-1.5 text-xs text-muted-foreground">
+            <span className="flex items-center gap-1">
+              <User className="w-3 h-3" />
+              Buyer: <span className="text-foreground font-medium ml-0.5">{d.buyer_name}</span>
+              {isBuyerBanned && <Badge variant="destructive" className="text-[9px] py-0 px-1 ml-0.5">Banned</Badge>}
+              {buyerFrozen && <Badge className="text-[9px] py-0 px-1 ml-0.5 bg-blue-500/20 text-blue-400 border-blue-500/30">Frozen</Badge>}
+              {d.buyer_flagged && <Badge className="text-[9px] py-0 px-1 ml-0.5 bg-orange-500/20 text-orange-400 border-orange-500/30">{d.buyer_flagged}</Badge>}
+            </span>
+            <span className="flex items-center gap-1">
+              <DollarSign className="w-3 h-3" />
+              Seller: <span className="text-foreground font-medium ml-0.5">{d.seller_name}</span>
+              {isSellerBanned && <Badge variant="destructive" className="text-[9px] py-0 px-1 ml-0.5">Banned</Badge>}
+              {sellerFrozen && <Badge className="text-[9px] py-0 px-1 ml-0.5 bg-blue-500/20 text-blue-400 border-blue-500/30">Frozen</Badge>}
+              {d.seller_flagged && <Badge className="text-[9px] py-0 px-1 ml-0.5 bg-orange-500/20 text-orange-400 border-orange-500/30">{d.seller_flagged}</Badge>}
+            </span>
+          </div>
+          {d.dispute_reason && (
+            <p className="text-xs text-red-400 mt-1 line-clamp-1 italic">"{d.dispute_reason}"</p>
+          )}
+        </div>
+        <div className="flex flex-col items-end gap-1 shrink-0">
+          <span className="text-[10px] text-muted-foreground">{d.message_count} msgs</span>
+          <span className="text-[10px] text-muted-foreground">{formatDateTime(d.updated_at)}</span>
+          {isSelected ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DisputeDetailPanel({ disputeId, detail, isLoading, onClose, onRefresh, toast }: {
+  disputeId: number; detail: any; isLoading: boolean; onClose: () => void;
+  onRefresh: () => void; toast: any;
+}) {
+  const [resolveAction, setResolveAction] = useState<"release_buyer" | "refund_seller" | "">("");
+  const [reason, setReason] = useState("");
+  const [actionPending, setActionPending] = useState(false);
+  const chatScrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (chatScrollRef.current) chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
+  }, [detail?.chat]);
+
+  if (isLoading || !detail) {
+    return (
+      <Card>
+        <CardContent className="flex justify-center py-10">
+          <Loader2 className="w-6 h-6 animate-spin text-primary" />
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const { order, chat, buyerLogins, sellerLogins, actions } = detail;
+  if (!order) return null;
+
+  const isResolved = ["released", "cancelled"].includes(order.status);
+
+  async function doResolve() {
+    if (!resolveAction || !reason.trim()) { toast({ title: "Please select an action and enter a reason.", variant: "destructive" }); return; }
+    setActionPending(true);
+    try {
+      const r = await fetch(`/api/admin/p2p/disputes/${disputeId}/resolve`, {
+        method: "POST", credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: resolveAction, reason }),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.message);
+      toast({ title: resolveAction === "release_buyer" ? "✅ Funds released to buyer" : "✅ Funds refunded to seller" });
+      setReason(""); setResolveAction("");
+      onRefresh();
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    } finally { setActionPending(false); }
+  }
+
+  async function doUserAction(userId: number, action: string, extraBody: any = {}) {
+    if (!reason.trim()) { toast({ title: "Enter a reason before taking action.", variant: "destructive" }); return; }
+    setActionPending(true);
+    let url = ""; let body: any = { reason, orderId: disputeId };
+    if (action === "flag_buyer" || action === "flag_seller") {
+      url = `/api/admin/p2p/disputes/${disputeId}/flag`;
+      body = { ...body, userId, flagAs: action === "flag_buyer" ? "Reported Buyer" : "Reported Seller" };
+    } else if (action === "unflag") {
+      url = `/api/admin/p2p/disputes/${disputeId}/flag`;
+      body = { ...body, userId, flagAs: null };
+    } else if (action === "seller_restrict" || action === "seller_unrestrict") {
+      url = `/api/admin/p2p/users/${userId}/seller-restrict`;
+      body = { ...body, restricted: action === "seller_restrict" };
+    } else if (action === "ban") {
+      url = `/api/admin/p2p/users/${userId}/ban`;
+      body = { ...body, isBanned: true };
+    } else if (action === "unban") {
+      url = `/api/admin/p2p/users/${userId}/ban`;
+      body = { ...body, isBanned: false };
+    } else if (action === "freeze") {
+      url = `/api/admin/p2p/users/${userId}/freeze`;
+      body = { ...body, freeze: true, durationDays: extraBody.days ?? 7 };
+    } else if (action === "unfreeze") {
+      url = `/api/admin/p2p/users/${userId}/freeze`;
+      body = { ...body, freeze: false };
+    }
+    try {
+      const r = await fetch(url, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.message);
+      toast({ title: "Action applied", description: `${action} on user #${userId}.` });
+      onRefresh();
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    } finally { setActionPending(false); }
+  }
+
+  const currency = order.currency ?? "HTG";
+  const buyerFrozen = order.buyer_frozen && new Date(order.buyer_frozen) > new Date();
+  const sellerFrozen = order.seller_frozen && new Date(order.seller_frozen) > new Date();
+
+  return (
+    <Card className="border-primary/20">
+      <CardHeader className="pb-3 border-b border-border">
+        <div className="flex items-start justify-between gap-2">
+          <div>
+            <CardTitle className="text-sm flex items-center gap-2">
+              <ShieldAlert className="w-4 h-4 text-red-400" />
+              Investigation — Order #{order.id}
+              {isResolved && <Badge className="text-[10px] bg-emerald-500/20 text-emerald-400 border-emerald-500/30">Resolved</Badge>}
+            </CardTitle>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {parseFloat(order.amount_usdt).toFixed(2)} USDT in escrow · Payment: {order.payment_method}
+            </p>
+          </div>
+          <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={onClose}>
+            <X className="w-4 h-4" />
+          </Button>
+        </div>
+      </CardHeader>
+
+      <CardContent className="p-4 space-y-5">
+        {/* Escrow Banner */}
+        <div className="flex items-center gap-3 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2.5">
+          <Lock className="w-4 h-4 text-amber-400 shrink-0" />
+          <div>
+            <p className="text-xs font-semibold text-amber-300">Funds Locked in Escrow</p>
+            <p className="text-[11px] text-amber-400/80">
+              {parseFloat(order.amount_usdt).toFixed(2)} USDT
+              {order.amount_local ? ` · ${parseFloat(order.amount_local).toFixed(2)} ${currency}` : ""}
+              {order.rate ? ` @ ${parseFloat(order.rate).toFixed(2)} ${currency}/USDT` : ""}
+            </p>
+          </div>
+        </div>
+
+        {/* Dispute reason */}
+        {order.dispute_reason && (
+          <div className="bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2.5">
+            <p className="text-xs font-semibold text-red-400 mb-0.5">Dispute Filed By User</p>
+            <p className="text-xs text-foreground italic">"{order.dispute_reason}"</p>
+          </div>
+        )}
+
+        {/* Both parties */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <DisputePartyCard
+            role="Buyer"
+            name={order.buyer_name}
+            email={order.buyer_email}
+            phone={order.buyer_phone}
+            refId={order.buyer_ref}
+            country={order.buyer_country}
+            isBanned={!!order.buyer_banned}
+            isFrozen={!!buyerFrozen}
+            frozenUntil={order.buyer_frozen}
+            flaggedAs={order.buyer_flagged}
+            isSellerRestricted={!!order.buyer_restricted}
+            logins={buyerLogins ?? []}
+            onAction={(action, extra) => doUserAction(order.buyer_id, action, extra)}
+            actionPending={actionPending}
+            reason={reason}
+          />
+          <DisputePartyCard
+            role="Seller"
+            name={order.seller_name}
+            email={order.seller_email}
+            phone={order.seller_phone}
+            refId={order.seller_ref}
+            country={order.seller_country}
+            isBanned={!!order.seller_banned}
+            isFrozen={!!sellerFrozen}
+            frozenUntil={order.seller_frozen}
+            flaggedAs={order.seller_flagged}
+            isSellerRestricted={!!order.seller_restricted}
+            logins={sellerLogins ?? []}
+            onAction={(action, extra) => doUserAction(order.seller_id, action, extra)}
+            actionPending={actionPending}
+            reason={reason}
+          />
+        </div>
+
+        {/* Chat History */}
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-2 flex items-center gap-1.5">
+            <MessageSquare className="w-3.5 h-3.5" /> Trade Chat History ({chat?.length ?? 0} messages)
+          </p>
+          <div ref={chatScrollRef} className="bg-muted/10 border border-border rounded-lg p-3 space-y-2.5 max-h-80 overflow-y-auto">
+            {!chat?.length ? (
+              <p className="text-xs text-muted-foreground text-center py-4">No messages</p>
+            ) : chat.map((m: any) => {
+              const isSystem = /^[💰✅❌⏰⚠️🔒]/.test(m.message ?? "");
+              const isBuyerMsg = m.sender_id === order.buyer_id;
+              const fileUrl = m.file_url;
+              return (
+                <div key={m.id} className={`flex flex-col ${isSystem ? "items-center" : isBuyerMsg ? "items-start" : "items-end"}`}>
+                  {isSystem ? (
+                    <span className="text-[10px] bg-muted text-muted-foreground rounded-full px-3 py-1 border border-border">{m.message}</span>
+                  ) : (
+                    <div className={`max-w-[85%] rounded-xl px-3 py-2 text-xs ${isBuyerMsg ? "bg-muted/60" : "bg-primary/15"}`}>
+                      <p className={`text-[10px] font-semibold mb-0.5 ${isBuyerMsg ? "text-blue-400" : "text-primary"}`}>
+                        {m.sender_name ?? (isBuyerMsg ? order.buyer_name : order.seller_name)}
+                        <span className="text-muted-foreground font-normal ml-1">({isBuyerMsg ? "Buyer" : "Seller"})</span>
+                      </p>
+                      {m.message && <p className="leading-relaxed break-words">{m.message}</p>}
+                      {fileUrl && (
+                        <a href={fileUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 mt-1.5 text-blue-400 underline hover:opacity-80">
+                          <ImageIcon className="w-3 h-3 shrink-0" /> {m.file_name ?? "View attachment"}
+                        </a>
+                      )}
+                      <p className="text-[9px] text-muted-foreground mt-1">{formatDateTimeFull(m.created_at)}</p>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Shared Reason Input */}
+        <div className="space-y-2">
+          <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+            Decision / Action Reason <span className="text-red-400">*</span>
+          </Label>
+          <Textarea
+            value={reason}
+            onChange={e => setReason(e.target.value)}
+            placeholder="Describe the reason for your decision — this will be sent as a notification to both parties…"
+            rows={3}
+            className="text-sm resize-none"
+            data-testid="textarea-admin-reason"
+          />
+          <p className="text-[10px] text-muted-foreground">Required for all actions — resolution and user management.</p>
+        </div>
+
+        {/* Resolution Actions */}
+        {!isResolved && (
+          <div className="border border-border rounded-lg p-4 space-y-3">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+              <CheckCircle className="w-3.5 h-3.5 text-emerald-400" /> Resolve Trade Dispute
+            </p>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                onClick={() => setResolveAction("release_buyer")}
+                className={`flex flex-col items-center gap-1.5 rounded-lg border p-3 text-xs transition-all ${resolveAction === "release_buyer" ? "border-emerald-500 bg-emerald-500/10 text-emerald-400 ring-1 ring-emerald-500/30" : "border-border text-muted-foreground hover:border-emerald-500/40 hover:text-foreground"}`}
+                data-testid="button-resolve-release-buyer"
+              >
+                <ArrowDownCircle className="w-5 h-5" />
+                <span className="font-semibold">Release to Buyer</span>
+                <span className="text-[10px] opacity-70">USDT credited to buyer</span>
+              </button>
+              <button
+                onClick={() => setResolveAction("refund_seller")}
+                className={`flex flex-col items-center gap-1.5 rounded-lg border p-3 text-xs transition-all ${resolveAction === "refund_seller" ? "border-blue-500 bg-blue-500/10 text-blue-400 ring-1 ring-blue-500/30" : "border-border text-muted-foreground hover:border-blue-500/40 hover:text-foreground"}`}
+                data-testid="button-resolve-refund-seller"
+              >
+                <ArrowUpCircle className="w-5 h-5" />
+                <span className="font-semibold">Refund to Seller</span>
+                <span className="text-[10px] opacity-70">USDT returned to seller</span>
+              </button>
+            </div>
+            <Button
+              className="w-full gap-2"
+              onClick={doResolve}
+              disabled={!resolveAction || !reason.trim() || actionPending}
+              data-testid="button-confirm-dispute-resolution"
+            >
+              {actionPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
+              Confirm Decision & Notify Both Parties
+            </Button>
+          </div>
+        )}
+        {isResolved && (
+          <div className="flex items-center justify-center gap-2 bg-emerald-500/10 border border-emerald-500/20 rounded-lg px-3 py-3 text-sm text-emerald-400">
+            <CheckCircle className="w-4 h-4" />
+            This dispute has been resolved.
+          </div>
+        )}
+
+        {/* Admin Action Log */}
+        {actions?.length > 0 && (
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-2 flex items-center gap-1.5">
+              <History className="w-3.5 h-3.5" /> Admin Action Log
+            </p>
+            <div className="space-y-1.5">
+              {actions.map((a: any) => (
+                <div key={a.id} className="flex items-start gap-2 bg-muted/20 rounded-lg px-3 py-2 text-xs">
+                  <ShieldCheck className="w-3.5 h-3.5 mt-0.5 text-primary shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <span className="font-semibold">{a.admin_name}</span>
+                    <span className="text-muted-foreground mx-1.5">→</span>
+                    <span className="text-amber-400 font-mono text-[10px]">{a.action}</span>
+                    {a.target_name && <span className="text-muted-foreground ml-1.5 text-[10px]">on {a.target_name}</span>}
+                    <p className="text-muted-foreground mt-0.5 break-words">"{a.reason}"</p>
+                  </div>
+                  <span className="text-[10px] text-muted-foreground shrink-0 whitespace-nowrap">{formatDateTime(a.created_at)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+// ─── Dispute Party Card ──────────────────────────────────────────────────────
+function DisputePartyCard({ role, name, email, phone, refId, country, isBanned, isFrozen, frozenUntil, flaggedAs, isSellerRestricted, logins, onAction, actionPending, reason }: {
+  role: "Buyer" | "Seller"; name: string; email: string; phone?: string; refId?: string;
+  country?: string; isBanned: boolean; isFrozen: boolean; frozenUntil?: string;
+  flaggedAs?: string; isSellerRestricted: boolean; logins: any[];
+  onAction: (action: string, extra?: any) => void; actionPending: boolean; reason: string;
+}) {
+  const [showLogins, setShowLogins] = useState(false);
+  const isFlagged = !!flaggedAs;
+
+  return (
+    <div className="border border-border rounded-lg p-3 space-y-3 text-xs">
+      {/* Header */}
+      <div>
+        <div className="flex items-center gap-1.5 mb-1.5">
+          <span className="text-[10px] font-mono bg-muted text-muted-foreground px-1.5 py-0.5 rounded">{role}</span>
+          <span className="font-semibold text-sm text-foreground">{name}</span>
+        </div>
+        <div className="flex flex-wrap gap-1">
+          {isBanned && <Badge variant="destructive" className="text-[9px] py-0 px-1.5">Banned</Badge>}
+          {isFrozen && <Badge className="text-[9px] py-0 px-1.5 bg-blue-500/20 text-blue-400 border-blue-500/30">Frozen</Badge>}
+          {isSellerRestricted && <Badge className="text-[9px] py-0 px-1.5 bg-purple-500/20 text-purple-400 border-purple-500/30">Seller Restricted</Badge>}
+          {flaggedAs && <Badge className="text-[9px] py-0 px-1.5 bg-orange-500/20 text-orange-400 border-orange-500/30">🚩 {flaggedAs}</Badge>}
+        </div>
+      </div>
+
+      {/* Info */}
+      <div className="space-y-1 text-muted-foreground">
+        <div className="flex items-center gap-1.5 truncate"><Mail className="w-3 h-3 shrink-0" /><span className="truncate">{email}</span></div>
+        {phone && <div className="flex items-center gap-1.5"><Phone className="w-3 h-3 shrink-0" />{phone}</div>}
+        {refId && <div className="flex items-center gap-1.5"><Hash className="w-3 h-3 shrink-0" />{refId}</div>}
+        {country && <div className="flex items-center gap-1.5"><Globe className="w-3 h-3 shrink-0" />{country}</div>}
+        {isFrozen && frozenUntil && <div className="flex items-center gap-1.5 text-blue-400"><Clock className="w-3 h-3 shrink-0" />Until {formatDateTime(frozenUntil)}</div>}
+      </div>
+
+      {/* Login IP history */}
+      <button
+        className="w-full flex items-center justify-between text-[10px] text-muted-foreground hover:text-foreground transition-colors py-1"
+        onClick={() => setShowLogins(!showLogins)}
+      >
+        <span className="flex items-center gap-1"><Monitor className="w-3 h-3" /> Login History ({logins.length})</span>
+        {showLogins ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+      </button>
+      {showLogins && (
+        <div className="bg-muted/20 rounded-lg p-2 space-y-2">
+          {!logins.length ? (
+            <p className="text-[10px] text-muted-foreground text-center py-1">No records</p>
+          ) : logins.map((l: any, i: number) => (
+            <div key={i} className="text-[10px] border-b border-border/50 last:border-0 pb-1.5 last:pb-0">
+              <div className="flex items-center gap-1.5 font-mono text-foreground">
+                <Wifi className="w-2.5 h-2.5 text-blue-400 shrink-0" />
+                {l.ip_address ?? "Unknown IP"}
+              </div>
+              {l.device_info && <p className="text-muted-foreground pl-4 truncate">{l.device_info}</p>}
+              <p className="text-muted-foreground pl-4">{formatDateTime(l.created_at)}</p>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Per-user Actions */}
+      <div className="pt-2 border-t border-border space-y-1.5">
+        <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">User Actions</p>
+        <div className="flex flex-wrap gap-1.5">
+          {/* Flag / Unflag */}
+          {!isFlagged ? (
+            <Button size="sm" variant="outline"
+              className="h-6 text-[10px] px-2 border-orange-500/30 text-orange-400 hover:bg-orange-500/10"
+              onClick={() => onAction(role === "Buyer" ? "flag_buyer" : "flag_seller")}
+              disabled={actionPending || !reason.trim()}
+              data-testid={`button-flag-${role.toLowerCase()}`}
+            >
+              <Flag className="w-2.5 h-2.5 mr-1" /> Flag {role}
+            </Button>
+          ) : (
+            <Button size="sm" variant="outline"
+              className="h-6 text-[10px] px-2"
+              onClick={() => onAction("unflag")}
+              disabled={actionPending || !reason.trim()}
+            >
+              <XCircle className="w-2.5 h-2.5 mr-1" /> Remove Flag
+            </Button>
+          )}
+
+          {/* Seller Restrict (available for all parties, for cross-role abuse) */}
+          {!isSellerRestricted ? (
+            <Button size="sm" variant="outline"
+              className="h-6 text-[10px] px-2 border-purple-500/30 text-purple-400 hover:bg-purple-500/10"
+              onClick={() => onAction("seller_restrict")}
+              disabled={actionPending || !reason.trim()}
+              data-testid={`button-seller-restrict-${role.toLowerCase()}`}
+            >
+              <ShieldOff className="w-2.5 h-2.5 mr-1" /> Restrict Selling
+            </Button>
+          ) : (
+            <Button size="sm" variant="outline"
+              className="h-6 text-[10px] px-2 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10"
+              onClick={() => onAction("seller_unrestrict")}
+              disabled={actionPending || !reason.trim()}
+            >
+              <ShieldCheck className="w-2.5 h-2.5 mr-1" /> Restore Selling
+            </Button>
+          )}
+
+          {/* Freeze / Unfreeze */}
+          {!isFrozen ? (
+            <Button size="sm" variant="outline"
+              className="h-6 text-[10px] px-2 border-blue-500/30 text-blue-400 hover:bg-blue-500/10"
+              onClick={() => onAction("freeze", { days: 7 })}
+              disabled={actionPending || !reason.trim()}
+              data-testid={`button-freeze-${role.toLowerCase()}`}
+            >
+              <Lock className="w-2.5 h-2.5 mr-1" /> Freeze 7d
+            </Button>
+          ) : (
+            <Button size="sm" variant="outline"
+              className="h-6 text-[10px] px-2 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10"
+              onClick={() => onAction("unfreeze")}
+              disabled={actionPending || !reason.trim()}
+            >
+              <Unlock className="w-2.5 h-2.5 mr-1" /> Unfreeze
+            </Button>
+          )}
+
+          {/* Ban / Unban */}
+          {!isBanned ? (
+            <Button size="sm" variant="outline"
+              className="h-6 text-[10px] px-2 border-red-500/30 text-red-400 hover:bg-red-500/10"
+              onClick={() => onAction("ban")}
+              disabled={actionPending || !reason.trim()}
+              data-testid={`button-ban-${role.toLowerCase()}`}
+            >
+              <Ban className="w-2.5 h-2.5 mr-1" /> Ban Account
+            </Button>
+          ) : (
+            <Button size="sm" variant="outline"
+              className="h-6 text-[10px] px-2 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10"
+              onClick={() => onAction("unban")}
+              disabled={actionPending || !reason.trim()}
+            >
+              <Unlock className="w-2.5 h-2.5 mr-1" /> Unban
+            </Button>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
