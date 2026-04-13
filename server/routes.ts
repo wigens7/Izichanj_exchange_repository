@@ -6254,21 +6254,46 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 
-  // POST /api/p2p/orders/:id/cancel — POST alias for PATCH cancel route
+  // POST /api/p2p/orders/:id/cancel — cancel order with mandatory reason + buyer confirmation
   app.post("/api/p2p/orders/:id/cancel", isAuthenticated, async (req: any, res) => {
     const profileId = req.session.profileId;
     const orderId = Number(req.params.id);
-    const { reason } = req.body;
+    const { reason, buyerConfirmedNoPayment } = req.body;
+    if (!reason?.trim()) return res.status(400).json({ message: "A cancellation reason is required." });
     try {
       const rows = await db.execute(sql`SELECT * FROM p2p_orders WHERE id = ${orderId} AND (buyer_id = ${profileId} OR seller_id = ${profileId})`);
       const order = rows.rows[0] as any;
       if (!order) return res.status(404).json({ message: "Order not found" });
-      if (!["pending", "paid"].includes(order.status)) return res.status(400).json({ message: `Cannot cancel a ${order.status} order` });
+      if (!["pending", "paid"].includes(order.status)) return res.status(400).json({ message: `Cannot cancel a ${order.status} order.` });
       const role = order.buyer_id === profileId ? "buyer" : "seller";
-      await db.execute(sql`UPDATE p2p_orders SET status = 'cancelled', cancelled_by = ${role}, cancellation_reason = ${reason || "No reason given"}, cancelled_at = NOW() WHERE id = ${orderId}`);
-      await db.execute(sql`UPDATE p2p_ads SET available_usdt = available_usdt + ${order.amount_usdt}, updated_at = NOW() WHERE id = ${order.ad_id}`);
-      await db.execute(sql`INSERT INTO p2p_chat_messages (order_id, sender_id, message) VALUES (${orderId}, ${profileId}, ${`❌ Order cancelled by ${role}. USDT returned to seller's ad.`})`);
-      await db.execute(sql`INSERT INTO p2p_cancellations (profile_id, order_id, role, reason) VALUES (${profileId}, ${orderId}, ${role}, ${reason || "No reason given"})`);
+      // Seller cannot cancel if buyer already marked as paid
+      if (role === "seller" && order.status === "paid") {
+        return res.status(400).json({ message: "Cannot cancel: buyer has already marked as paid. Raise a dispute if needed." });
+      }
+      // Update order status
+      await db.execute(sql`
+        UPDATE p2p_orders SET status = 'cancelled', cancelled_by = ${role}, cancellation_reason = ${reason.trim()}, cancelled_at = NOW()
+        WHERE id = ${orderId}
+      `);
+      // Return USDT to ad's available pool and re-activate ad if it was paused due to zero availability
+      await db.execute(sql`
+        UPDATE p2p_ads SET
+          available_usdt = available_usdt + ${parseFloat(order.amount_usdt)},
+          status = CASE WHEN status = 'paused' AND available_usdt + ${parseFloat(order.amount_usdt)} > 0 THEN 'active' ELSE status END,
+          updated_at = NOW()
+        WHERE id = ${order.ad_id} AND status NOT IN ('cancelled', 'completed')
+      `);
+      // Log to p2p_cancellations with buyer confirmation flag
+      await db.execute(sql`
+        INSERT INTO p2p_cancellations (profile_id, order_id, role, reason, buyer_confirmed_no_payment)
+        VALUES (${profileId}, ${orderId}, ${role}, ${reason.trim()}, ${role === "buyer" ? !!buyerConfirmedNoPayment : null})
+      `);
+      // Chat message with reason
+      const chatMsg = role === "buyer"
+        ? `❌ Order cancelled by buyer. Reason: ${reason.trim()}. USDT returned to seller's ad.`
+        : `❌ Order cancelled by seller. Reason: ${reason.trim()}. USDT returned to ad — ad is now live again.`;
+      await db.execute(sql`INSERT INTO p2p_chat_messages (order_id, sender_id, message) VALUES (${orderId}, ${profileId}, ${chatMsg})`);
+      // Anti-abuse: count buyer cancellations in last 24h
       if (role === "buyer") {
         const cancelCount = await db.execute(sql`SELECT COUNT(*) as cnt FROM p2p_cancellations WHERE profile_id = ${profileId} AND role = 'buyer' AND created_at > NOW() - INTERVAL '24 hours'`);
         const cnt = parseInt((cancelCount.rows[0] as any)?.cnt || "0");

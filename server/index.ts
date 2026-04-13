@@ -512,6 +512,8 @@ app.use((req, res, next) => {
         created_at TIMESTAMP NOT NULL DEFAULT NOW()
       )
     `);
+    // Cancellation flow — buyer confirmed no payment checkbox log
+    await db.execute(sql`ALTER TABLE p2p_cancellations ADD COLUMN IF NOT EXISTS buyer_confirmed_no_payment BOOLEAN DEFAULT FALSE`);
     console.log("[startup migration] P2P market tables ensured");
   } catch (e) {
     console.warn("[startup migration] P2P market tables skipped:", (e as Error).message);

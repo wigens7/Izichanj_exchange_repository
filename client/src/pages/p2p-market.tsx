@@ -723,11 +723,7 @@ function TradeDialog({ open, order, currentUserId, onClose }: { open: boolean; o
     releasePinMut.mutate({ pin });
   };
 
-  const cancelMut = useMutation({
-    mutationFn: () => apiRequest("POST", `/api/p2p/orders/${orderId}/cancel`),
-    onSuccess: () => { toast({ title: "Order cancelled." }); qc.invalidateQueries({ queryKey: ["/api/p2p/orders"] }); onClose(); },
-    onError: (e: any) => toast({ title: "Error", description: e?.message, variant: "destructive" }),
-  });
+  const [showCancelModal, setShowCancelModal] = useState(false);
 
   const disputeMut = useMutation({
     mutationFn: (body: any) => apiRequest("POST", `/api/p2p/orders/${orderId}/dispute`, body),
@@ -940,8 +936,8 @@ function TradeDialog({ open, order, currentUserId, onClose }: { open: boolean; o
           {/* Cancel + Dispute */}
           {isActive && (
             <div className="flex gap-2">
-              <Button variant="outline" size="sm" className="flex-1 h-8 text-xs" onClick={() => cancelMut.mutate()} disabled={cancelMut.isPending} data-testid="button-cancel-order">
-                {cancelMut.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : "Cancel Order"}
+              <Button variant="outline" size="sm" className="flex-1 h-8 text-xs" onClick={() => setShowCancelModal(true)} data-testid="button-cancel-order">
+                Cancel Order
               </Button>
               <Button variant="outline" size="sm" className="flex-1 h-8 text-xs border-red-500/30 text-red-400 hover:bg-red-500/10" onClick={() => setShowDispute(true)} data-testid="button-dispute-order">
                 <AlertTriangle className="w-3 h-3 mr-1" /> Dispute
@@ -1035,6 +1031,16 @@ function TradeDialog({ open, order, currentUserId, onClose }: { open: boolean; o
           </div>
         )}
 
+        {/* Cancel order modal */}
+        {showCancelModal && (
+          <CancelOrderModal
+            orderId={orderId}
+            isBuyer={isBuyer}
+            onClose={() => setShowCancelModal(false)}
+            onSuccess={() => { qc.invalidateQueries({ queryKey: ["/api/p2p/orders"] }); onClose(); }}
+          />
+        )}
+
         {/* Dispute overlay */}
         {showDispute && (
           <div className="absolute inset-0 bg-background/97 backdrop-blur-sm rounded-lg flex flex-col p-5 gap-4 z-20">
@@ -1065,6 +1071,134 @@ function TradeDialog({ open, order, currentUserId, onClose }: { open: boolean; o
         )}
       </DialogContent>
     </Dialog>
+  );
+}
+
+// ─── Cancel Order Modal ────────────────────────────────────────────────────
+const BUYER_CANCEL_REASONS = [
+  "I no longer want to buy.",
+  "Payment method unavailable / problem.",
+  "Seller is not responding.",
+  "Made a mistake in the amount.",
+];
+
+const SELLER_CANCEL_REASONS = [
+  "Payment not received.",
+  "Issue with my payment account (Full / Limit).",
+  "Suspicious buyer activity.",
+  "I am currently unavailable to trade.",
+];
+
+function CancelOrderModal({ orderId, isBuyer, onClose, onSuccess }: {
+  orderId: number;
+  isBuyer: boolean;
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const { toast } = useToast();
+  const [reason, setReason] = useState("");
+  const [confirmed, setConfirmed] = useState(false);
+
+  const reasons = isBuyer ? BUYER_CANCEL_REASONS : SELLER_CANCEL_REASONS;
+
+  const cancelMut = useMutation({
+    mutationFn: () => apiRequest("POST", `/api/p2p/orders/${orderId}/cancel`, {
+      reason,
+      buyerConfirmedNoPayment: isBuyer ? confirmed : undefined,
+    }),
+    onSuccess: () => {
+      toast({ title: "Order cancelled.", description: isBuyer ? "The seller has been notified." : "USDT returned to your ad — ad is live again." });
+      onSuccess();
+      onClose();
+    },
+    onError: (e: any) => toast({ title: "Error", description: e?.message ?? "Failed to cancel.", variant: "destructive" }),
+  });
+
+  const canConfirm = !!reason && (!isBuyer || confirmed);
+
+  return (
+    <div className="absolute inset-0 bg-background/98 backdrop-blur-sm rounded-lg flex flex-col p-5 gap-4 z-20 overflow-y-auto">
+      {/* Header */}
+      <div>
+        <h4 className="font-semibold text-sm flex items-center gap-2">
+          <X className="w-4 h-4 text-red-400" /> Cancel Order
+        </h4>
+        <p className="text-xs text-muted-foreground mt-1">
+          {isBuyer
+            ? "Select a reason. You cannot cancel without choosing one."
+            : "Select a reason. USDT will be returned to your ad automatically."}
+        </p>
+      </div>
+
+      {/* Reason selection */}
+      <div className="space-y-1.5">
+        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Reason for Cancellation *</p>
+        {reasons.map((r) => (
+          <button
+            key={r}
+            onClick={() => setReason(r)}
+            className={`w-full text-left text-xs px-3 py-2.5 rounded-lg border transition-all ${
+              reason === r
+                ? "border-primary bg-primary/10 text-foreground"
+                : "border-border text-muted-foreground hover:border-muted-foreground/40 hover:text-foreground"
+            }`}
+            data-testid={`reason-${r.slice(0, 20).replace(/\s/g, "-")}`}
+          >
+            {r}
+          </button>
+        ))}
+      </div>
+
+      {/* Buyer confirmation checkbox */}
+      {isBuyer && (
+        <div className="border border-amber-500/30 bg-amber-500/10 rounded-lg p-3 space-y-2.5">
+          <p className="text-[11px] font-semibold text-amber-300 flex items-center gap-1.5 uppercase tracking-wider">
+            <AlertTriangle className="w-3.5 h-3.5 shrink-0" /> Confirmation Required
+          </p>
+          <div className="flex items-start gap-2.5">
+            <Checkbox
+              id="no-payment-confirm"
+              checked={confirmed}
+              onCheckedChange={(v) => setConfirmed(!!v)}
+              className="mt-0.5 shrink-0 border-amber-400 data-[state=checked]:bg-amber-500 data-[state=checked]:border-amber-500"
+              data-testid="checkbox-buyer-cancel-confirm"
+            />
+            <label htmlFor="no-payment-confirm" className="text-xs text-amber-100/90 leading-relaxed cursor-pointer select-none">
+              I confirm that I have <strong>NOT</strong> sent any payment to the seller. I understand that falsely
+              canceling a trade after sending money is a violation of Izichanj terms and can lead to account suspension.
+            </label>
+          </div>
+        </div>
+      )}
+
+      {/* Seller info notice */}
+      {!isBuyer && reason && (
+        <div className="flex items-start gap-2 bg-blue-500/10 border border-blue-500/20 rounded-lg p-3">
+          <CheckCircle2 className="w-4 h-4 text-blue-400 shrink-0 mt-0.5" />
+          <p className="text-xs text-blue-300 leading-relaxed">
+            The locked USDT will automatically return to your ad balance and your ad will go live in the marketplace immediately.
+          </p>
+        </div>
+      )}
+
+      {/* Actions */}
+      <div className="flex gap-2 mt-auto pt-2">
+        <Button variant="outline" size="sm" className="flex-1" onClick={onClose} disabled={cancelMut.isPending} data-testid="button-keep-order">
+          Keep Order
+        </Button>
+        <Button
+          variant="destructive"
+          size="sm"
+          className="flex-1"
+          onClick={() => cancelMut.mutate()}
+          disabled={!canConfirm || cancelMut.isPending}
+          data-testid="button-confirm-cancel"
+        >
+          {cancelMut.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <X className="w-3 h-3 mr-1" />}
+          Confirm Cancellation
+        </Button>
+      </div>
+    </div>
   );
 }
 
