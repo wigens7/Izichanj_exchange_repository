@@ -18,7 +18,8 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
   Store, ShieldOff, AlertTriangle, Ban, Plus, Pause, Play, Trash2,
   Send, Paperclip, MessageSquare, AlertCircle, CheckCircle2, ChevronRight,
-  ShieldCheck, Loader2, RefreshCcw, X, Image as ImageIcon, Clock, Check
+  ShieldCheck, Loader2, RefreshCcw, X, Image as ImageIcon, Clock, Check,
+  Lock, KeyRound, Settings, MessageCircle, Save
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 
@@ -254,6 +255,69 @@ function AdCard({ ad, onBuy, isMine }: { ad: any; onBuy: (ad: any) => void; isMi
   );
 }
 
+// ─── Seller Settings Panel ─────────────────────────────────────────────────
+function SellerSettingsPanel() {
+  const { toast } = useToast();
+  const { data: settings, isLoading } = useQuery<any>({ queryKey: ["/api/p2p/settings"] });
+  const [msg, setMsg] = useState("");
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    if (settings?.welcomeMessage !== undefined) setMsg(settings.welcomeMessage);
+  }, [settings?.welcomeMessage]);
+
+  const saveMut = useMutation({
+    mutationFn: () => apiRequest("PUT", "/api/p2p/settings", { welcomeMessage: msg }),
+    onSuccess: () => { toast({ title: "Settings saved", description: "Welcome message updated." }); setOpen(false); },
+    onError: () => toast({ title: "Error", description: "Failed to save settings.", variant: "destructive" }),
+  });
+
+  if (!open) {
+    return (
+      <button
+        onClick={() => setOpen(true)}
+        className="w-full flex items-center gap-2 px-3 py-2.5 rounded-lg border border-border bg-muted/20 text-sm text-muted-foreground hover:border-primary/40 hover:text-foreground transition-colors"
+        data-testid="button-seller-settings"
+      >
+        <Settings className="w-4 h-4 shrink-0" />
+        <span className="flex-1 text-left truncate">
+          {settings?.welcomeMessage ? (
+            <><span className="text-foreground">Welcome msg: </span>{settings.welcomeMessage}</>
+          ) : "Set welcome message for buyers…"}
+        </span>
+      </button>
+    );
+  }
+
+  return (
+    <Card className="border-primary/20 bg-primary/5">
+      <CardContent className="p-4 space-y-3">
+        <div className="flex items-center gap-2">
+          <MessageCircle className="w-4 h-4 text-primary" />
+          <span className="text-sm font-medium">Seller Welcome Message</span>
+        </div>
+        <Textarea
+          value={msg}
+          onChange={e => setMsg(e.target.value)}
+          placeholder="e.g. Welcome! Please transfer to MonCash 509-XXXX-XXXX. Send screenshot once done."
+          rows={3}
+          maxLength={500}
+          className="text-sm resize-none"
+          data-testid="input-welcome-message"
+        />
+        <p className="text-[10px] text-muted-foreground">This message is auto-sent as the first message in every new trade. {msg.length}/500</p>
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" className="flex-1" onClick={() => { setOpen(false); setMsg(settings?.welcomeMessage ?? ""); }}>Cancel</Button>
+          <Button size="sm" className="flex-1 gap-1.5" onClick={() => saveMut.mutate()} disabled={saveMut.isPending} data-testid="button-save-welcome">
+            {saveMut.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+            Save
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 // ─── My Ads Tab ────────────────────────────────────────────────────────────
 function MyAdsTab() {
   const qc = useQueryClient();
@@ -272,59 +336,65 @@ function MyAdsTab() {
     onError: (e: any) => toast({ title: "Error", description: e?.message ?? "Failed to cancel ad.", variant: "destructive" }),
   });
 
-  if (isLoading) return <div className="flex justify-center py-10"><Loader2 className="w-6 h-6 animate-spin text-primary" /></div>;
-  if (!ads?.length) return <EmptyState icon={Plus} message="You have no ads yet. Post one to start selling USDT." />;
-
   return (
     <div className="space-y-3 mt-2">
-      {ads.map((ad) => (
-        <Card key={ad.id} className="border-border" data-testid={`my-ad-${ad.id}`}>
-          <CardContent className="p-4">
-            <div className="flex items-start justify-between gap-2">
-              <div>
-                <div className="text-lg font-bold text-primary">{parseFloat(ad.rate_htg ?? ad.rateHtg ?? 0).toFixed(2)} HTG/USDT</div>
-                <div className="text-xs text-muted-foreground">
-                  Total: {parseFloat(ad.total_usdt ?? ad.totalUsdt ?? 0).toFixed(2)} · Available: {parseFloat(ad.available_usdt ?? ad.availableUsdt ?? 0).toFixed(2)} USDT
+      {/* Seller settings panel always visible */}
+      <SellerSettingsPanel />
+
+      {isLoading && <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin text-primary" /></div>}
+      {!isLoading && !ads?.length && <EmptyState icon={Plus} message="You have no ads yet. Post one to start selling USDT." />}
+
+      {ads?.map((ad) => {
+        const currency = ad.currency ?? "HTG";
+        return (
+          <Card key={ad.id} className="border-border" data-testid={`my-ad-${ad.id}`}>
+            <CardContent className="p-4">
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <div className="text-lg font-bold text-primary">{parseFloat(ad.rate_htg ?? ad.rateHtg ?? 0).toFixed(2)} {currency}/USDT</div>
+                  <div className="text-xs text-muted-foreground">
+                    Total: {parseFloat(ad.amount_usdt ?? ad.totalUsdt ?? 0).toFixed(2)} · Available: {parseFloat(ad.available_usdt ?? ad.availableUsdt ?? 0).toFixed(2)} USDT
+                  </div>
+                  <div className="text-xs text-muted-foreground">Min {parseFloat(ad.min_order_usdt ?? ad.minOrderUsdt ?? 0).toFixed(0)} – Max {parseFloat(ad.max_order_usdt ?? ad.maxOrderUsdt ?? 0).toFixed(0)} USDT</div>
+                  <div className="flex flex-wrap gap-1 mt-1.5">
+                    {((ad.payment_methods ?? ad.paymentMethods) ?? []).map((m: string) => (
+                      <span key={m} className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] border border-border text-muted-foreground">{m}</span>
+                    ))}
+                  </div>
+                  <TimeAgo date={ad.created_at ?? ad.createdAt} />
                 </div>
-                <div className="text-xs text-muted-foreground">Min {parseFloat(ad.min_order_usdt ?? ad.minOrderUsdt ?? 0).toFixed(0)} – Max {parseFloat(ad.max_order_usdt ?? ad.maxOrderUsdt ?? 0).toFixed(0)} USDT</div>
-                <div className="flex flex-wrap gap-1 mt-1.5">
-                  {((ad.payment_methods ?? ad.paymentMethods) ?? []).map((m: string) => (
-                    <span key={m} className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] border border-border text-muted-foreground">{m}</span>
-                  ))}
+                <div className="flex flex-col items-end gap-2 shrink-0">
+                  <StatusBadge status={ad.status} />
+                  <div className="flex gap-1.5">
+                    {(ad.status === "active" || ad.status === "paused") && (
+                      <>
+                        <Button
+                          variant="outline" size="icon" className="h-7 w-7"
+                          onClick={() => pauseMut.mutate(ad.id)}
+                          disabled={pauseMut.isPending}
+                          title={ad.status === "active" ? "Pause" : "Resume"}
+                          data-testid={`button-pause-${ad.id}`}
+                        >
+                          {ad.status === "active" ? <Pause className="w-3 h-3" /> : <Play className="w-3 h-3" />}
+                        </Button>
+                        <Button
+                          variant="outline" size="icon" className="h-7 w-7 hover:border-destructive hover:text-destructive"
+                          onClick={() => cancelMut.mutate(ad.id)}
+                          disabled={cancelMut.isPending}
+                          title="Cancel ad"
+                          data-testid={`button-cancel-ad-${ad.id}`}
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </Button>
+                      </>
+                    )}
+                  </div>
                 </div>
-                <TimeAgo date={ad.created_at ?? ad.createdAt} />
               </div>
-              <div className="flex flex-col items-end gap-2 shrink-0">
-                <StatusBadge status={ad.status} />
-                <div className="flex gap-1.5">
-                  {(ad.status === "active" || ad.status === "paused") && (
-                    <>
-                      <Button
-                        variant="outline" size="icon" className="h-7 w-7"
-                        onClick={() => pauseMut.mutate(ad.id)}
-                        disabled={pauseMut.isPending}
-                        title={ad.status === "active" ? "Pause" : "Resume"}
-                        data-testid={`button-pause-${ad.id}`}
-                      >
-                        {ad.status === "active" ? <Pause className="w-3 h-3" /> : <Play className="w-3 h-3" />}
-                      </Button>
-                      <Button
-                        variant="outline" size="icon" className="h-7 w-7 hover:border-destructive hover:text-destructive"
-                        onClick={() => cancelMut.mutate(ad.id)}
-                        disabled={cancelMut.isPending}
-                        title="Cancel ad"
-                        data-testid={`button-cancel-ad-${ad.id}`}
-                      >
-                        <Trash2 className="w-3 h-3" />
-                      </Button>
-                    </>
-                  )}
-                </div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      ))}
+            </CardContent>
+          </Card>
+        );
+      })}
     </div>
   );
 }
@@ -574,8 +644,16 @@ function TradeDialog({ open, order, currentUserId, onClose }: { open: boolean; o
   const [releaseChecked, setReleaseChecked] = useState(false);
   const [disputeReason, setDisputeReason] = useState("");
   const [showDispute, setShowDispute] = useState(false);
+  // PIN modal state
+  const [showPinModal, setShowPinModal] = useState(false);
+  const [pin, setPin] = useState("");
+  const [pinError, setPinError] = useState("");
+  const [pinLocked, setPinLocked] = useState(false);
+  const [pinLockedUntil, setPinLockedUntil] = useState<Date | null>(null);
+  const [attemptsRemaining, setAttemptsRemaining] = useState(5);
   const chatBottomRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const pinInputRef = useRef<HTMLInputElement>(null);
 
   const isBuyer = (order.buyer_id ?? order.buyerId) === currentUserId;
   const isSeller = (order.seller_id ?? order.sellerId) === currentUserId;
@@ -591,6 +669,12 @@ function TradeDialog({ open, order, currentUserId, onClose }: { open: boolean; o
 
   useEffect(() => { chatBottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [chat]);
 
+  // Focus PIN input when modal opens
+  useEffect(() => {
+    if (showPinModal) { setTimeout(() => pinInputRef.current?.focus(), 100); }
+    if (!showPinModal) { setPin(""); setPinError(""); }
+  }, [showPinModal]);
+
   const sendMsg = useMutation({
     mutationFn: (body: any) => apiRequest("POST", `/api/p2p/orders/${orderId}/chat`, body),
     onSuccess: () => { setChatMsg(""); refetchChat(); },
@@ -603,11 +687,41 @@ function TradeDialog({ open, order, currentUserId, onClose }: { open: boolean; o
     onError: (e: any) => toast({ title: "Error", description: e?.message, variant: "destructive" }),
   });
 
-  const releaseMut = useMutation({
-    mutationFn: () => apiRequest("POST", `/api/p2p/orders/${orderId}/release`, { confirmedReceipt: true }),
-    onSuccess: () => { toast({ title: "Funds released!", description: "Trade complete." }); qc.invalidateQueries({ queryKey: ["/api/p2p/orders"] }); onClose(); },
-    onError: (e: any) => toast({ title: "Error", description: e?.message, variant: "destructive" }),
+  const releasePinMut = useMutation({
+    mutationFn: (body: any) => apiRequest("POST", `/api/p2p/orders/${orderId}/release-pin`, body),
+    onSuccess: () => {
+      toast({ title: "✅ Funds released!", description: "USDT sent to buyer. Trade complete." });
+      qc.invalidateQueries({ queryKey: ["/api/p2p/orders"] });
+      setShowPinModal(false);
+      onClose();
+    },
+    onError: (e: any) => {
+      // apiRequest throws Error("status: {json}") — parse the JSON payload
+      let data: any = {};
+      try {
+        const raw = e?.message ?? "";
+        const jsonStr = raw.replace(/^\d+:\s*/, "");
+        data = JSON.parse(jsonStr);
+      } catch {
+        data = { message: e?.message ?? "PIN verification failed." };
+      }
+      setPinError(data?.message ?? "PIN verification failed.");
+      if (data?.locked) {
+        setPinLocked(true);
+        if (data?.lockedUntil) setPinLockedUntil(new Date(data.lockedUntil));
+      } else if (data?.attemptsRemaining !== undefined) {
+        setAttemptsRemaining(data.attemptsRemaining);
+      }
+      setPin("");
+      pinInputRef.current?.focus();
+    },
   });
+
+  const submitPin = () => {
+    if (pin.length !== 6) { setPinError("Enter your 6-digit withdrawal PIN."); return; }
+    setPinError("");
+    releasePinMut.mutate({ pin });
+  };
 
   const cancelMut = useMutation({
     mutationFn: () => apiRequest("POST", `/api/p2p/orders/${orderId}/cancel`),
@@ -800,7 +914,7 @@ function TradeDialog({ open, order, currentUserId, onClose }: { open: boolean; o
           {isSeller && order.status === "pending" && (
             <p className="text-xs text-center text-muted-foreground py-1">Waiting for buyer to send payment…</p>
           )}
-          {/* Seller: paid — release flow */}
+          {/* Seller: paid — release flow with PIN */}
           {isSeller && order.status === "paid" && (
             <div className="space-y-2">
               <div className="flex items-start gap-2.5 bg-muted/30 rounded-lg p-2.5">
@@ -811,8 +925,13 @@ function TradeDialog({ open, order, currentUserId, onClose }: { open: boolean; o
                   in my <strong className="text-foreground">{order.payment_method ?? order.paymentMethod}</strong> account.
                 </label>
               </div>
-              <Button className="w-full" onClick={() => releaseMut.mutate()} disabled={!releaseChecked || releaseMut.isPending} data-testid="button-release-funds">
-                {releaseMut.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-1.5" /> : <CheckCircle2 className="w-4 h-4 mr-1.5" />}
+              <Button
+                className="w-full gap-2"
+                onClick={() => setShowPinModal(true)}
+                disabled={!releaseChecked}
+                data-testid="button-release-funds"
+              >
+                <Lock className="w-4 h-4" />
                 Release USDT to Buyer
               </Button>
             </div>
@@ -846,6 +965,75 @@ function TradeDialog({ open, order, currentUserId, onClose }: { open: boolean; o
             </div>
           )}
         </div>
+
+        {/* PIN verification overlay */}
+        {showPinModal && (
+          <div className="absolute inset-0 bg-background/98 backdrop-blur-sm rounded-lg flex flex-col items-center justify-center p-6 gap-5 z-20">
+            <div className="flex flex-col items-center gap-2 text-center">
+              {pinLocked ? (
+                <>
+                  <div className="w-14 h-14 rounded-full bg-red-500/10 flex items-center justify-center mb-1">
+                    <Lock className="w-7 h-7 text-red-400" />
+                  </div>
+                  <h4 className="font-semibold text-base">Release Locked</h4>
+                  <p className="text-xs text-muted-foreground max-w-[240px]">
+                    Too many failed attempts. Release is locked for 30 minutes for security.
+                    {pinLockedUntil && (
+                      <span className="block mt-1 text-red-400">
+                        Unlocks at {new Date(pinLockedUntil).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                      </span>
+                    )}
+                  </p>
+                  <Button variant="outline" className="mt-2" onClick={() => setShowPinModal(false)}>Close</Button>
+                </>
+              ) : (
+                <>
+                  <div className="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center mb-1">
+                    <KeyRound className="w-7 h-7 text-primary" />
+                  </div>
+                  <h4 className="font-semibold text-base">Enter Withdrawal PIN</h4>
+                  <p className="text-xs text-muted-foreground max-w-[240px]">
+                    Enter your 6-digit withdrawal PIN to release <strong>{parseFloat(order.amount_usdt ?? 0).toFixed(2)} USDT</strong> to the buyer.
+                  </p>
+                  <div className="w-full mt-1">
+                    <Input
+                      ref={pinInputRef}
+                      type="password"
+                      inputMode="numeric"
+                      maxLength={6}
+                      value={pin}
+                      onChange={e => { setPin(e.target.value.replace(/\D/g, "").slice(0, 6)); setPinError(""); }}
+                      onKeyDown={e => { if (e.key === "Enter") submitPin(); }}
+                      placeholder="••••••"
+                      className="text-center text-2xl tracking-[0.5em] h-12 font-mono"
+                      data-testid="input-release-pin"
+                    />
+                    {pinError && (
+                      <p className="text-xs text-red-400 mt-1.5 text-center">{pinError}</p>
+                    )}
+                    {attemptsRemaining < 5 && !pinLocked && (
+                      <p className="text-[10px] text-yellow-500 mt-1 text-center">
+                        {attemptsRemaining} attempt{attemptsRemaining !== 1 ? "s" : ""} remaining before lockout
+                      </p>
+                    )}
+                  </div>
+                  <div className="flex gap-3 w-full mt-1">
+                    <Button variant="outline" className="flex-1" onClick={() => setShowPinModal(false)}>Cancel</Button>
+                    <Button
+                      className="flex-1 gap-2"
+                      onClick={submitPin}
+                      disabled={pin.length !== 6 || releasePinMut.isPending}
+                      data-testid="button-confirm-pin-release"
+                    >
+                      {releasePinMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+                      Confirm Release
+                    </Button>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Dispute overlay */}
         {showDispute && (

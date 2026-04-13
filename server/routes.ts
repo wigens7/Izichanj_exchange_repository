@@ -5209,6 +5209,151 @@ export async function registerRoutes(
     next();
   };
 
+  // ── In-memory PIN lockout tracker (keyed by profileId) ──────────────────
+  const pinLockout = new Map<number, { attempts: number; lockedUntil: Date | null }>();
+
+  function getPinState(profileId: number) {
+    if (!pinLockout.has(profileId)) pinLockout.set(profileId, { attempts: 0, lockedUntil: null });
+    return pinLockout.get(profileId)!;
+  }
+
+  // GET /api/p2p/settings — seller's P2P settings (welcome message + PIN status)
+  app.get("/api/p2p/settings", isAuthenticated, async (req: any, res) => {
+    try {
+      const profileId = req.session.profileId;
+      const rows = await db.execute(sql`SELECT p2p_welcome_message, withdrawal_pin_hash FROM profiles WHERE id = ${profileId}`);
+      const row = rows.rows[0] as any;
+      const pinState = getPinState(profileId);
+      const isLocked = pinState.lockedUntil && pinState.lockedUntil > new Date();
+      res.json({
+        welcomeMessage: row?.p2p_welcome_message ?? "",
+        hasPin: !!(row?.withdrawal_pin_hash),
+        pinLocked: !!isLocked,
+        pinLockedUntil: isLocked ? pinState.lockedUntil : null,
+        pinAttempts: pinState.attempts,
+      });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // PUT /api/p2p/settings — update seller's welcome message
+  app.put("/api/p2p/settings", isAuthenticated, async (req: any, res) => {
+    try {
+      const profileId = req.session.profileId;
+      const { welcomeMessage } = req.body;
+      const msg = typeof welcomeMessage === "string" ? welcomeMessage.trim().slice(0, 500) : "";
+      await db.execute(sql`UPDATE profiles SET p2p_welcome_message = ${msg || null} WHERE id = ${profileId}`);
+      res.json({ success: true, welcomeMessage: msg });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // POST /api/p2p/orders/:id/release-pin — verify PIN then release USDT to buyer
+  app.post("/api/p2p/orders/:id/release-pin", isAuthenticated, async (req: any, res) => {
+    const profileId = req.session.profileId;
+    const orderId = Number(req.params.id);
+    const { pin } = req.body;
+
+    try {
+      // 1. Check lockout
+      const state = getPinState(profileId);
+      if (state.lockedUntil && state.lockedUntil > new Date()) {
+        return res.status(429).json({
+          message: "Too many failed attempts. For security reasons, the release feature is locked for 30 minutes. Please try again later.",
+          locked: true,
+          lockedUntil: state.lockedUntil,
+        });
+      }
+      // Reset lockout if expired
+      if (state.lockedUntil && state.lockedUntil <= new Date()) {
+        state.attempts = 0;
+        state.lockedUntil = null;
+      }
+
+      if (!pin) return res.status(400).json({ message: "PIN is required" });
+
+      // 2. Get order and verify seller
+      const rows = await db.execute(sql`SELECT * FROM p2p_orders WHERE id = ${orderId} AND seller_id = ${profileId}`);
+      const order = rows.rows[0] as any;
+      if (!order) return res.status(404).json({ message: "Order not found" });
+      if (order.status !== "paid") return res.status(400).json({ message: "Order must be in 'paid' status to release" });
+
+      // 3. Get seller PIN hash
+      const pinRows = await db.execute(sql`SELECT withdrawal_pin_hash, full_name FROM profiles WHERE id = ${profileId}`);
+      const seller = pinRows.rows[0] as any;
+      if (!seller?.withdrawal_pin_hash) {
+        return res.status(403).json({ message: "You must set a withdrawal PIN before releasing funds. Go to Security settings." });
+      }
+
+      // 4. Verify PIN
+      const bcryptLib = await import("bcrypt");
+      const valid = await bcryptLib.compare(String(pin), seller.withdrawal_pin_hash);
+      if (!valid) {
+        state.attempts += 1;
+        const remaining = 5 - state.attempts;
+        // Log failed attempt
+        await db.execute(sql`
+          INSERT INTO security_events (profile_id, event_type, details, ip_address, status)
+          VALUES (${profileId}, 'p2p_release_pin_fail', ${'Failed P2P release PIN attempt. Order: ' + orderId + '. Attempts: ' + state.attempts}, '', 'failed')
+        `).catch(() => {});
+        if (state.attempts >= 5) {
+          state.lockedUntil = new Date(Date.now() + 30 * 60 * 1000);
+          await db.execute(sql`
+            INSERT INTO security_events (profile_id, event_type, details, ip_address, status)
+            VALUES (${profileId}, 'p2p_release_pin_lockout', ${'P2P release locked for 30 min after 5 failed PIN attempts. Order: ' + orderId}, '', 'blocked')
+          `).catch(() => {});
+          return res.status(429).json({
+            message: "Too many failed attempts. For security reasons, the release feature is locked for 30 minutes. Please try again later.",
+            locked: true,
+            lockedUntil: state.lockedUntil,
+          });
+        }
+        return res.status(401).json({
+          message: `Incorrect PIN. ${remaining} attempt${remaining !== 1 ? "s" : ""} remaining before lockout.`,
+          attemptsRemaining: remaining,
+        });
+      }
+
+      // 5. PIN correct — reset counter
+      state.attempts = 0;
+      state.lockedUntil = null;
+
+      // 6. Release funds to buyer
+      const amount = parseFloat(order.amount_usdt);
+      const buyerRows = await db.execute(sql`SELECT balance FROM profiles WHERE id = ${order.buyer_id}`);
+      const prevBuyerBal = parseFloat((buyerRows.rows[0] as any)?.balance || "0");
+      await db.execute(sql`UPDATE profiles SET balance = balance + ${amount} WHERE id = ${order.buyer_id}`);
+      await db.execute(sql`INSERT INTO balance_logs (profile_id, previous_balance, new_balance, change, action, reference_id) VALUES (${order.buyer_id}, ${prevBuyerBal}, ${prevBuyerBal + amount}, ${amount}, 'p2p_received', ${String(orderId)})`);
+      await db.execute(sql`UPDATE p2p_orders SET status = 'released', released_at = NOW(), seller_confirmed_receipt = true WHERE id = ${orderId}`);
+      await db.execute(sql`INSERT INTO p2p_chat_messages (order_id, sender_id, message) VALUES (${orderId}, ${profileId}, ${'✅ Seller has released USDT to buyer. Trade complete!'})`);
+      await db.execute(sql`INSERT INTO notifications (profile_id, type, title, message) VALUES (${order.buyer_id}, 'custom_message', 'P2P Trade Complete', 'Your USDT has been released. Funds added to your balance.')`).catch(() => {});
+
+      // Log success
+      await db.execute(sql`
+        INSERT INTO security_events (profile_id, event_type, details, ip_address, status)
+        VALUES (${profileId}, 'p2p_release_success', ${'P2P release successful. Order: ' + orderId + ', Amount: ' + amount + ' USDT'}, '', 'success')
+      `).catch(() => {});
+
+      res.json({ success: true });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // POST /api/p2p/pin-lockout-status — check current lockout for logged in seller
+  app.get("/api/p2p/pin-lockout", isAuthenticated, async (req: any, res) => {
+    const profileId = req.session.profileId;
+    const state = getPinState(profileId);
+    const isLocked = state.lockedUntil && state.lockedUntil > new Date();
+    res.json({
+      locked: !!isLocked,
+      lockedUntil: isLocked ? state.lockedUntil : null,
+      attempts: state.attempts,
+    });
+  });
+
   // POST /api/p2p/upload-url — get presigned upload URL for P2P chat image
   app.post("/api/p2p/upload-url", isAuthenticated, async (req: any, res) => {
     try {
@@ -5473,6 +5618,16 @@ export async function registerRoutes(
         RETURNING *, amount_local as total_htg, rate as rate_htg
       `);
       const order = orderRows.rows[0] as any;
+
+      // Auto-post seller welcome message if set
+      const welcomeRows = await db.execute(sql`SELECT p2p_welcome_message, full_name FROM profiles WHERE id = ${order.seller_id}`);
+      const sellerWelcome = (welcomeRows.rows[0] as any)?.p2p_welcome_message;
+      if (sellerWelcome?.trim()) {
+        await db.execute(sql`
+          INSERT INTO p2p_chat_messages (order_id, sender_id, message)
+          VALUES (${order.id}, ${order.seller_id}, ${sellerWelcome.trim()})
+        `);
+      }
 
       // Notify seller via WhatsApp
       const buyerRows = await db.execute(sql`SELECT full_name FROM profiles WHERE id = ${buyerId}`);
