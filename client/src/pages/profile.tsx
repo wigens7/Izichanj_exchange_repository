@@ -10,7 +10,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { StatusBadge } from "@/components/status-badge";
-import { Loader2, UploadCloud, CheckCircle2, Globe, Clock, User, UserCheck, Copy, Check, FileText, MapPin, LogOut, Users, DollarSign, Share2 } from "lucide-react";
+import { Loader2, UploadCloud, CheckCircle2, Globe, Clock, User, UserCheck, Copy, Check, FileText, MapPin, LogOut, Users, DollarSign, Share2, HelpCircle } from "lucide-react";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { useToast } from "@/hooks/use-toast";
 import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
@@ -551,6 +552,34 @@ export default function ProfilePage() {
           </CardContent>
         </Card>
       )}
+
+      {/* ── FAQ Section ── */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <HelpCircle className="w-4 h-4 text-primary" /> Frequently Asked Questions
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <Accordion type="single" collapsible className="space-y-1" data-testid="faq-accordion">
+            {[
+              { q: "How do I deposit USDT?", a: "Go to the Deposit page, choose TRC20 or BEP20, enter the amount, and send USDT to the generated address. Your balance is credited automatically after confirmation." },
+              { q: "What are the deposit fees?", a: "TRC20: $2.50 fee, minimum $5.00. BEP20: $0.25 fee, minimum $1.00." },
+              { q: "How do I withdraw USDT?", a: "Go to Withdraw, enter a TRC20 wallet address, amount (min $10, max $10,000/day), and your 6-digit withdrawal PIN. A fixed $2.50 fee applies." },
+              { q: "What is KYC and why is it required?", a: "KYC (Know Your Customer) verifies your identity. It is required to unlock all platform features including withdrawals and virtual cards. Upload your ID, selfie, and personal details on the Profile page." },
+              { q: "How does the P2P Market work?", a: "Sellers post USDT listings with their preferred payment method and rate. Buyers place orders, send payment via the listed method, then mark it paid. The seller confirms receipt and releases USDT from escrow to the buyer." },
+              { q: "How do virtual cards work?", a: "Apply for a virtual Visa card on the Virtual Cards page. Once approved, fund it with USDT and use it for online payments worldwide." },
+              { q: "How do I send funds to another user?", a: "Use the Send Funds page and enter the recipient's reference ID, email, or phone number. Funds are transferred instantly." },
+              { q: "What happens if I dispute a P2P trade?", a: "Either party can open a dispute. An admin will review the trade chat and evidence, then resolve the order. Funds remain in escrow during the dispute." },
+            ].map((item, i) => (
+              <AccordionItem key={i} value={`faq-${i}`} className="border border-border rounded-md px-3" data-testid={`faq-item-${i}`}>
+                <AccordionTrigger className="text-sm font-medium py-3 hover:no-underline">{item.q}</AccordionTrigger>
+                <AccordionContent className="text-sm text-muted-foreground pb-3">{item.a}</AccordionContent>
+              </AccordionItem>
+            ))}
+          </Accordion>
+        </CardContent>
+      </Card>
 
       <div className="flex justify-start pt-2">
         <Button

@@ -17,8 +17,8 @@ import WithdrawPage from "@/pages/withdraw";
 import ProfilePage from "@/pages/profile";
 import SecurityPage from "@/pages/security";
 import AdminPage from "@/pages/admin";
-import FAQPage from "@/pages/faq";
 import VirtualCardsPage from "@/pages/virtual-cards";
+import P2PMarketPage from "@/pages/p2p-market";
 import SendFundsPage from "@/pages/send-funds";
 import TopUpPage from "@/pages/top-up";
 import ReportPage from "@/pages/report";
@@ -114,7 +114,10 @@ function Router() {
         <ProtectedRoute component={AdminPage} adminOnly />
       </Route>
       <Route path="/faq">
-        <ProtectedRoute component={FAQPage} />
+        <Redirect to="/profile" />
+      </Route>
+      <Route path="/p2p">
+        <ProtectedRoute component={P2PMarketPage} />
       </Route>
       <Route path="/send-funds">
         <ProtectedRoute component={SendFundsPage} />

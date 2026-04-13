@@ -413,6 +413,85 @@ app.use((req, res, next) => {
     console.warn("[startup migration] referral system skipped:", (e as Error).message);
   }
 
+  // P2P Market tables
+  try {
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS p2p_ads (
+        id SERIAL PRIMARY KEY,
+        seller_id INTEGER NOT NULL REFERENCES profiles(id),
+        amount_usdt DECIMAL(10,2) NOT NULL,
+        available_usdt DECIMAL(10,2) NOT NULL,
+        rate_htg DECIMAL(10,4),
+        margin_pct DECIMAL(5,2),
+        currency TEXT NOT NULL DEFAULT 'HTG',
+        country TEXT NOT NULL DEFAULT 'HT',
+        payment_methods TEXT[] NOT NULL DEFAULT '{}',
+        min_order_usdt DECIMAL(10,2) NOT NULL DEFAULT 10,
+        max_order_usdt DECIMAL(10,2),
+        status TEXT NOT NULL DEFAULT 'active',
+        terms_note TEXT,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    `);
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS p2p_orders (
+        id SERIAL PRIMARY KEY,
+        order_id VARCHAR(20) UNIQUE,
+        ad_id INTEGER NOT NULL REFERENCES p2p_ads(id),
+        buyer_id INTEGER NOT NULL REFERENCES profiles(id),
+        seller_id INTEGER NOT NULL REFERENCES profiles(id),
+        amount_usdt DECIMAL(10,2) NOT NULL,
+        amount_local DECIMAL(12,2) NOT NULL,
+        rate DECIMAL(10,4) NOT NULL,
+        currency TEXT NOT NULL DEFAULT 'HTG',
+        payment_method TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending',
+        cancelled_by TEXT,
+        cancellation_reason TEXT,
+        dispute_reason TEXT,
+        seller_confirmed_receipt BOOLEAN NOT NULL DEFAULT false,
+        paid_at TIMESTAMP,
+        released_at TIMESTAMP,
+        cancelled_at TIMESTAMP,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    `);
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS p2p_chat_messages (
+        id SERIAL PRIMARY KEY,
+        order_id INTEGER NOT NULL REFERENCES p2p_orders(id),
+        sender_id INTEGER NOT NULL REFERENCES profiles(id),
+        message TEXT,
+        file_url TEXT,
+        file_name TEXT,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    `);
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS p2p_cancellations (
+        id SERIAL PRIMARY KEY,
+        profile_id INTEGER NOT NULL REFERENCES profiles(id),
+        order_id INTEGER NOT NULL REFERENCES p2p_orders(id),
+        role TEXT NOT NULL,
+        reason TEXT NOT NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    `);
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS p2p_bans (
+        id SERIAL PRIMARY KEY,
+        profile_id INTEGER NOT NULL REFERENCES profiles(id),
+        banned_until TIMESTAMP NOT NULL,
+        reason TEXT NOT NULL DEFAULT '3 cancellations within 24 hours',
+        created_at TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    `);
+    console.log("[startup migration] P2P market tables ensured");
+  } catch (e) {
+    console.warn("[startup migration] P2P market tables skipped:", (e as Error).message);
+  }
+
   await registerRoutes(httpServer, app);
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {

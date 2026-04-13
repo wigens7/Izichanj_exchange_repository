@@ -388,3 +388,76 @@ export const profileInfoSchema = z.object({
 });
 
 export type ProfileInfoInput = z.infer<typeof profileInfoSchema>;
+
+// ── P2P Market ──────────────────────────────────────────────────────────────
+export const p2pAds = pgTable("p2p_ads", {
+  id: serial("id").primaryKey(),
+  sellerId: integer("seller_id").references(() => profiles.id).notNull(),
+  amountUsdt: decimal("amount_usdt", { precision: 10, scale: 2 }).notNull(),
+  availableUsdt: decimal("available_usdt", { precision: 10, scale: 2 }).notNull(),
+  rateHtg: decimal("rate_htg", { precision: 10, scale: 4 }),
+  marginPct: decimal("margin_pct", { precision: 5, scale: 2 }),
+  currency: text("currency").default("HTG").notNull(),
+  country: text("country").default("HT").notNull(),
+  paymentMethods: text("payment_methods").array().notNull(),
+  minOrderUsdt: decimal("min_order_usdt", { precision: 10, scale: 2 }).default("10").notNull(),
+  maxOrderUsdt: decimal("max_order_usdt", { precision: 10, scale: 2 }),
+  status: text("status").default("active").notNull(), // active | paused | completed | cancelled
+  termsNote: text("terms_note"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+export type P2PAd = typeof p2pAds.$inferSelect;
+
+export const p2pOrders = pgTable("p2p_orders", {
+  id: serial("id").primaryKey(),
+  orderId: varchar("order_id", { length: 20 }).unique(),
+  adId: integer("ad_id").references(() => p2pAds.id).notNull(),
+  buyerId: integer("buyer_id").references(() => profiles.id).notNull(),
+  sellerId: integer("seller_id").references(() => profiles.id).notNull(),
+  amountUsdt: decimal("amount_usdt", { precision: 10, scale: 2 }).notNull(),
+  amountLocal: decimal("amount_local", { precision: 12, scale: 2 }).notNull(),
+  rate: decimal("rate", { precision: 10, scale: 4 }).notNull(),
+  currency: text("currency").default("HTG").notNull(),
+  paymentMethod: text("payment_method").notNull(),
+  status: text("status").default("pending").notNull(), // pending | paid | released | cancelled | disputed
+  cancelledBy: text("cancelled_by"),
+  cancellationReason: text("cancellation_reason"),
+  disputeReason: text("dispute_reason"),
+  sellerConfirmedReceipt: boolean("seller_confirmed_receipt").default(false).notNull(),
+  paidAt: timestamp("paid_at"),
+  releasedAt: timestamp("released_at"),
+  cancelledAt: timestamp("cancelled_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+export type P2POrder = typeof p2pOrders.$inferSelect;
+
+export const p2pChatMessages = pgTable("p2p_chat_messages", {
+  id: serial("id").primaryKey(),
+  orderId: integer("order_id").references(() => p2pOrders.id).notNull(),
+  senderId: integer("sender_id").references(() => profiles.id).notNull(),
+  message: text("message"),
+  fileUrl: text("file_url"),
+  fileName: text("file_name"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+export type P2PChatMessage = typeof p2pChatMessages.$inferSelect;
+
+export const p2pCancellations = pgTable("p2p_cancellations", {
+  id: serial("id").primaryKey(),
+  profileId: integer("profile_id").references(() => profiles.id).notNull(),
+  orderId: integer("order_id").references(() => p2pOrders.id).notNull(),
+  role: text("role").notNull(), // "buyer" | "seller"
+  reason: text("reason").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+export type P2PCancellation = typeof p2pCancellations.$inferSelect;
+
+export const p2pBans = pgTable("p2p_bans", {
+  id: serial("id").primaryKey(),
+  profileId: integer("profile_id").references(() => profiles.id).notNull(),
+  bannedUntil: timestamp("banned_until").notNull(),
+  reason: text("reason").default("3 cancellations within 24 hours").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+export type P2PBan = typeof p2pBans.$inferSelect;
