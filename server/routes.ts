@@ -5457,16 +5457,17 @@ export async function registerRoutes(
     return pinLockout.get(profileId)!;
   }
 
-  // GET /api/p2p/settings — seller's P2P settings (welcome message + PIN status)
+  // GET /api/p2p/settings — seller's P2P settings (welcome message, merchant name, PIN status)
   app.get("/api/p2p/settings", isAuthenticated, async (req: any, res) => {
     try {
       const profileId = req.session.profileId;
-      const rows = await db.execute(sql`SELECT p2p_welcome_message, withdrawal_pin_hash FROM profiles WHERE id = ${profileId}`);
+      const rows = await db.execute(sql`SELECT p2p_welcome_message, p2p_merchant_name, withdrawal_pin_hash FROM profiles WHERE id = ${profileId}`);
       const row = rows.rows[0] as any;
       const pinState = getPinState(profileId);
       const isLocked = pinState.lockedUntil && pinState.lockedUntil > new Date();
       res.json({
         welcomeMessage: row?.p2p_welcome_message ?? "",
+        merchantName: row?.p2p_merchant_name ?? null,
         hasPin: !!(row?.withdrawal_pin_hash),
         pinLocked: !!isLocked,
         pinLockedUntil: isLocked ? pinState.lockedUntil : null,
@@ -5485,6 +5486,24 @@ export async function registerRoutes(
       const msg = typeof welcomeMessage === "string" ? welcomeMessage.trim().slice(0, 500) : "";
       await db.execute(sql`UPDATE profiles SET p2p_welcome_message = ${msg || null} WHERE id = ${profileId}`);
       res.json({ success: true, welcomeMessage: msg });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // POST /api/p2p/merchant-name — set merchant display name (one-time, immutable)
+  app.post("/api/p2p/merchant-name", isAuthenticated, async (req: any, res) => {
+    try {
+      const profileId = req.session.profileId;
+      const { merchantName } = req.body;
+      const name = typeof merchantName === "string" ? merchantName.trim().slice(0, 60) : "";
+      if (!name) return res.status(400).json({ message: "Merchant name cannot be empty." });
+      // Check if already set — immutable once chosen
+      const rows = await db.execute(sql`SELECT p2p_merchant_name FROM profiles WHERE id = ${profileId}`);
+      const existing = (rows.rows[0] as any)?.p2p_merchant_name;
+      if (existing) return res.status(409).json({ message: "Merchant name is already set and cannot be changed." });
+      await db.execute(sql`UPDATE profiles SET p2p_merchant_name = ${name} WHERE id = ${profileId}`);
+      res.json({ success: true, merchantName: name });
     } catch (e: any) {
       res.status(500).json({ message: e.message });
     }
@@ -5654,7 +5673,9 @@ export async function registerRoutes(
       const buyerGroup = getCountryGroup(buyer?.country || "default");
       // Filter to same market: HT users see HTG ads, US users see USD ads, others see all
       const ads = await db.execute(sql`
-        SELECT a.*, p.full_name as seller_name, p.country as seller_country,
+        SELECT a.*,
+               COALESCE(p.p2p_merchant_name, 'Anonymous') as seller_name,
+               p.country as seller_country,
                p.kyc_status as seller_kyc
         FROM p2p_ads a
         JOIN profiles p ON a.seller_id = p.id
@@ -5906,7 +5927,7 @@ export async function registerRoutes(
           o.amount_local as total_htg,
           o.rate as rate_htg,
           bp.full_name as buyer_name,
-          sp.full_name as seller_name,
+          COALESCE(sp.p2p_merchant_name, 'Anonymous') as seller_name,
           a.rate_htg as ad_rate_htg, a.currency as ad_currency
         FROM p2p_orders o
         JOIN profiles bp ON o.buyer_id = bp.id
@@ -5935,7 +5956,7 @@ export async function registerRoutes(
       const rows = await db.execute(sql`
         SELECT o.*,
           bp.full_name as buyer_name, bp.phone as buyer_phone,
-          sp.full_name as seller_name, sp.phone as seller_phone,
+          COALESCE(sp.p2p_merchant_name, 'Anonymous') as seller_name, sp.phone as seller_phone,
           a.payment_methods as ad_payment_methods, a.terms_note
         FROM p2p_orders o
         JOIN profiles bp ON o.buyer_id = bp.id

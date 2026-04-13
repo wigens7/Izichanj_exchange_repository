@@ -514,6 +514,8 @@ app.use((req, res, next) => {
     `);
     // Cancellation flow — buyer confirmed no payment checkbox log
     await db.execute(sql`ALTER TABLE p2p_cancellations ADD COLUMN IF NOT EXISTS buyer_confirmed_no_payment BOOLEAN DEFAULT FALSE`);
+    // Merchant name — one-time immutable seller display name for buyers
+    await db.execute(sql`ALTER TABLE profiles ADD COLUMN IF NOT EXISTS p2p_merchant_name TEXT`);
     console.log("[startup migration] P2P market tables ensured");
   } catch (e) {
     console.warn("[startup migration] P2P market tables skipped:", (e as Error).message);

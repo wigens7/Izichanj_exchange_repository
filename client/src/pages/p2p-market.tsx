@@ -258,9 +258,14 @@ function AdCard({ ad, onBuy, isMine }: { ad: any; onBuy: (ad: any) => void; isMi
 // ─── Seller Settings Panel ─────────────────────────────────────────────────
 function SellerSettingsPanel() {
   const { toast } = useToast();
+  const qc = useQueryClient();
   const { data: settings, isLoading } = useQuery<any>({ queryKey: ["/api/p2p/settings"] });
   const [msg, setMsg] = useState("");
   const [open, setOpen] = useState(false);
+  // Merchant name state
+  const [merchantInput, setMerchantInput] = useState("");
+  const [merchantAgreed, setMerchantAgreed] = useState(false);
+  const [showMerchantForm, setShowMerchantForm] = useState(false);
 
   useEffect(() => {
     if (settings?.welcomeMessage !== undefined) setMsg(settings.welcomeMessage);
@@ -270,6 +275,18 @@ function SellerSettingsPanel() {
     mutationFn: () => apiRequest("PUT", "/api/p2p/settings", { welcomeMessage: msg }),
     onSuccess: () => { toast({ title: "Settings saved", description: "Welcome message updated." }); setOpen(false); },
     onError: () => toast({ title: "Error", description: "Failed to save settings.", variant: "destructive" }),
+  });
+
+  const merchantMut = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/p2p/merchant-name", { merchantName: merchantInput }),
+    onSuccess: () => {
+      toast({ title: "Merchant name set!", description: `"${merchantInput}" is now your permanent display name.` });
+      qc.invalidateQueries({ queryKey: ["/api/p2p/settings"] });
+      setShowMerchantForm(false);
+      setMerchantInput("");
+      setMerchantAgreed(false);
+    },
+    onError: (e: any) => toast({ title: "Error", description: e?.message ?? "Failed to set merchant name.", variant: "destructive" }),
   });
 
   if (!open) {
@@ -291,26 +308,104 @@ function SellerSettingsPanel() {
 
   return (
     <Card className="border-primary/20 bg-primary/5">
-      <CardContent className="p-4 space-y-3">
-        <div className="flex items-center gap-2">
-          <MessageCircle className="w-4 h-4 text-primary" />
-          <span className="text-sm font-medium">Seller Welcome Message</span>
+      <CardContent className="p-4 space-y-4">
+
+        {/* Merchant Display Name */}
+        <div className="space-y-2">
+          <div className="flex items-center gap-2">
+            <Store className="w-4 h-4 text-primary" />
+            <span className="text-sm font-medium">Merchant Display Name</span>
+            {settings?.merchantName && (
+              <Badge className="text-[10px] py-0 px-1.5 bg-emerald-500/20 text-emerald-400 border-emerald-500/30 ml-auto">
+                <Lock className="w-2.5 h-2.5 mr-1" /> Locked
+              </Badge>
+            )}
+          </div>
+
+          {settings?.merchantName ? (
+            <div className="flex items-center gap-2 bg-muted/30 border border-border rounded-lg px-3 py-2.5">
+              <Store className="w-4 h-4 text-muted-foreground shrink-0" />
+              <span className="text-sm font-semibold text-foreground">{settings.merchantName}</span>
+              <span className="text-[10px] text-muted-foreground ml-auto">Visible to buyers only</span>
+            </div>
+          ) : showMerchantForm ? (
+            <div className="space-y-2.5">
+              <Input
+                value={merchantInput}
+                onChange={e => setMerchantInput(e.target.value.slice(0, 60))}
+                placeholder="e.g. CryptoExchange HT, MoneyFast, etc."
+                maxLength={60}
+                className="text-sm"
+                data-testid="input-merchant-name"
+              />
+              <p className="text-[10px] text-muted-foreground">{merchantInput.length}/60 characters — buyers will see this instead of your real name.</p>
+              <div className="border border-red-500/30 bg-red-500/10 rounded-lg p-3 space-y-2">
+                <p className="text-[11px] font-semibold text-red-300 uppercase tracking-wider">Important — Read Before Saving</p>
+                <div className="flex items-start gap-2.5">
+                  <Checkbox
+                    id="merchant-agree"
+                    checked={merchantAgreed}
+                    onCheckedChange={(v) => setMerchantAgreed(!!v)}
+                    className="mt-0.5 shrink-0 border-red-400 data-[state=checked]:bg-red-500 data-[state=checked]:border-red-500"
+                    data-testid="checkbox-merchant-agree"
+                  />
+                  <label htmlFor="merchant-agree" className="text-xs text-red-100/90 leading-relaxed cursor-pointer select-none">
+                    I understand that this merchant name is <strong>permanent and cannot be changed</strong> after saving. I agree to this condition.
+                  </label>
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" className="flex-1" onClick={() => { setShowMerchantForm(false); setMerchantInput(""); setMerchantAgreed(false); }}>
+                  Cancel
+                </Button>
+                <Button
+                  size="sm"
+                  className="flex-1 gap-1.5"
+                  onClick={() => merchantMut.mutate()}
+                  disabled={!merchantInput.trim() || !merchantAgreed || merchantMut.isPending}
+                  data-testid="button-save-merchant-name"
+                >
+                  {merchantMut.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                  Save Permanently
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <button
+              onClick={() => setShowMerchantForm(true)}
+              className="w-full text-left text-xs px-3 py-2.5 rounded-lg border border-dashed border-border text-muted-foreground hover:border-primary/40 hover:text-foreground transition-colors"
+              data-testid="button-set-merchant-name"
+            >
+              + Add a merchant name (optional — shown to buyers instead of your KYC name)
+            </button>
+          )}
         </div>
-        <Textarea
-          value={msg}
-          onChange={e => setMsg(e.target.value)}
-          placeholder="e.g. Welcome! Please transfer to MonCash 509-XXXX-XXXX. Send screenshot once done."
-          rows={3}
-          maxLength={500}
-          className="text-sm resize-none"
-          data-testid="input-welcome-message"
-        />
-        <p className="text-[10px] text-muted-foreground">This message is auto-sent as the first message in every new trade. {msg.length}/500</p>
+
+        <div className="border-t border-border" />
+
+        {/* Welcome Message */}
+        <div className="space-y-2">
+          <div className="flex items-center gap-2">
+            <MessageCircle className="w-4 h-4 text-primary" />
+            <span className="text-sm font-medium">Buyer Welcome Message</span>
+          </div>
+          <Textarea
+            value={msg}
+            onChange={e => setMsg(e.target.value)}
+            placeholder="e.g. Welcome! Please transfer to MonCash 509-XXXX-XXXX. Send screenshot once done."
+            rows={3}
+            maxLength={500}
+            className="text-sm resize-none"
+            data-testid="input-welcome-message"
+          />
+          <p className="text-[10px] text-muted-foreground">Auto-sent as the first message in every new trade. {msg.length}/500</p>
+        </div>
+
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" className="flex-1" onClick={() => { setOpen(false); setMsg(settings?.welcomeMessage ?? ""); }}>Cancel</Button>
+          <Button variant="outline" size="sm" className="flex-1" onClick={() => { setOpen(false); setMsg(settings?.welcomeMessage ?? ""); }}>Close</Button>
           <Button size="sm" className="flex-1 gap-1.5" onClick={() => saveMut.mutate()} disabled={saveMut.isPending} data-testid="button-save-welcome">
             {saveMut.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
-            Save
+            Save Message
           </Button>
         </div>
       </CardContent>
