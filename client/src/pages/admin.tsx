@@ -120,60 +120,62 @@ export default function AdminPage() {
       </div>
 
       <Tabs defaultValue="users" className="w-full">
-        <TabsList className="mb-4 grid w-full grid-cols-12 gap-1">
-          <TabsTrigger value="users" className="gap-2" data-testid="tab-admin-users">
-            <Users className="w-4 h-4" />
-            <span className="hidden sm:inline">Users</span>
-          </TabsTrigger>
-          <TabsTrigger value="deposits" className="gap-2" data-testid="tab-admin-deposits">
-            <ArrowDownCircle className="w-4 h-4" />
-            <span className="hidden sm:inline">Deposits</span>
-          </TabsTrigger>
-          <TabsTrigger value="withdrawals" className="gap-2" data-testid="tab-admin-withdrawals">
-            <ArrowUpCircle className="w-4 h-4" />
-            <span className="hidden sm:inline">Withdrawals</span>
-          </TabsTrigger>
-          <TabsTrigger value="kyc" className="gap-2" data-testid="tab-admin-kyc">
-            <ShieldCheck className="w-4 h-4" />
-            <span className="hidden sm:inline">KYC</span>
-          </TabsTrigger>
-          <TabsTrigger value="cards" className="gap-2" data-testid="tab-admin-cards">
-            <CreditCard className="w-4 h-4" />
-            <span className="hidden sm:inline">Cards</span>
-          </TabsTrigger>
-          <TabsTrigger value="messages" className="gap-2" data-testid="tab-admin-messages">
-            <MessageSquare className="w-4 h-4" />
-            <span className="hidden sm:inline">Messages</span>
-          </TabsTrigger>
-          <TabsTrigger value="support" className="gap-2" data-testid="tab-admin-support">
-            <Headphones className="w-4 h-4" />
-            <span className="hidden sm:inline">Support</span>
-          </TabsTrigger>
-          <TabsTrigger value="activity" className="gap-2" data-testid="tab-admin-activity">
-            <Activity className="w-4 h-4" />
-            <span className="hidden sm:inline">Activity</span>
-          </TabsTrigger>
-          <TabsTrigger value="settings" className="gap-2" data-testid="tab-admin-settings">
-            <TrendingUp className="w-4 h-4" />
-            <span className="hidden sm:inline">Rates</span>
-          </TabsTrigger>
-          <TabsTrigger value="audit" className="gap-2" data-testid="tab-admin-audit">
-            <ShieldCheck className="w-4 h-4" />
-            <span className="hidden sm:inline">Audit</span>
-          </TabsTrigger>
-          <TabsTrigger value="reports" className="gap-2" data-testid="tab-admin-reports">
-            <Flag className="w-4 h-4" />
-            <span className="hidden sm:inline">Reports</span>
-          </TabsTrigger>
-          <TabsTrigger value="referral-payouts" className="gap-2" data-testid="tab-admin-referral-payouts">
-            <Share2 className="w-4 h-4" />
-            <span className="hidden sm:inline">Referrals</span>
-          </TabsTrigger>
-          <TabsTrigger value="p2p-disputes" className="gap-2 relative" data-testid="tab-admin-p2p-disputes">
-            <ShieldAlert className="w-4 h-4" />
-            <span className="hidden sm:inline">Disputes</span>
-          </TabsTrigger>
-        </TabsList>
+        <div className="mb-4 overflow-x-auto">
+          <TabsList className="flex w-max min-w-full h-auto gap-1 p-1">
+            <TabsTrigger value="users" className="flex-col items-center gap-1 shrink-0 min-w-[60px] h-auto py-2.5 px-2 text-[10px] font-medium" data-testid="tab-admin-users">
+              <Users className="w-5 h-5" />
+              <span>Users</span>
+            </TabsTrigger>
+            <TabsTrigger value="deposits" className="flex-col items-center gap-1 shrink-0 min-w-[60px] h-auto py-2.5 px-2 text-[10px] font-medium" data-testid="tab-admin-deposits">
+              <ArrowDownCircle className="w-5 h-5" />
+              <span>Deposits</span>
+            </TabsTrigger>
+            <TabsTrigger value="withdrawals" className="flex-col items-center gap-1 shrink-0 min-w-[60px] h-auto py-2.5 px-2 text-[10px] font-medium" data-testid="tab-admin-withdrawals">
+              <ArrowUpCircle className="w-5 h-5" />
+              <span>Withdrawals</span>
+            </TabsTrigger>
+            <TabsTrigger value="kyc" className="flex-col items-center gap-1 shrink-0 min-w-[60px] h-auto py-2.5 px-2 text-[10px] font-medium" data-testid="tab-admin-kyc">
+              <ShieldCheck className="w-5 h-5" />
+              <span>KYC</span>
+            </TabsTrigger>
+            <TabsTrigger value="cards" className="flex-col items-center gap-1 shrink-0 min-w-[60px] h-auto py-2.5 px-2 text-[10px] font-medium" data-testid="tab-admin-cards">
+              <CreditCard className="w-5 h-5" />
+              <span>Cards</span>
+            </TabsTrigger>
+            <TabsTrigger value="messages" className="flex-col items-center gap-1 shrink-0 min-w-[60px] h-auto py-2.5 px-2 text-[10px] font-medium" data-testid="tab-admin-messages">
+              <MessageSquare className="w-5 h-5" />
+              <span>Messages</span>
+            </TabsTrigger>
+            <TabsTrigger value="support" className="flex-col items-center gap-1 shrink-0 min-w-[60px] h-auto py-2.5 px-2 text-[10px] font-medium" data-testid="tab-admin-support">
+              <Headphones className="w-5 h-5" />
+              <span>Support</span>
+            </TabsTrigger>
+            <TabsTrigger value="activity" className="flex-col items-center gap-1 shrink-0 min-w-[60px] h-auto py-2.5 px-2 text-[10px] font-medium" data-testid="tab-admin-activity">
+              <Activity className="w-5 h-5" />
+              <span>Activity</span>
+            </TabsTrigger>
+            <TabsTrigger value="settings" className="flex-col items-center gap-1 shrink-0 min-w-[60px] h-auto py-2.5 px-2 text-[10px] font-medium" data-testid="tab-admin-settings">
+              <TrendingUp className="w-5 h-5" />
+              <span>Rates</span>
+            </TabsTrigger>
+            <TabsTrigger value="audit" className="flex-col items-center gap-1 shrink-0 min-w-[60px] h-auto py-2.5 px-2 text-[10px] font-medium" data-testid="tab-admin-audit">
+              <ShieldCheck className="w-5 h-5" />
+              <span>Audit</span>
+            </TabsTrigger>
+            <TabsTrigger value="reports" className="flex-col items-center gap-1 shrink-0 min-w-[60px] h-auto py-2.5 px-2 text-[10px] font-medium" data-testid="tab-admin-reports">
+              <Flag className="w-5 h-5" />
+              <span>Reports</span>
+            </TabsTrigger>
+            <TabsTrigger value="referral-payouts" className="flex-col items-center gap-1 shrink-0 min-w-[60px] h-auto py-2.5 px-2 text-[10px] font-medium" data-testid="tab-admin-referral-payouts">
+              <Share2 className="w-5 h-5" />
+              <span>Referrals</span>
+            </TabsTrigger>
+            <TabsTrigger value="p2p-disputes" className="flex-col items-center gap-1 shrink-0 min-w-[60px] h-auto py-2.5 px-2 text-[10px] font-medium relative" data-testid="tab-admin-p2p-disputes">
+              <ShieldAlert className="w-5 h-5" />
+              <span>Disputes</span>
+            </TabsTrigger>
+          </TabsList>
+        </div>
 
         <TabsContent value="users">
           <UsersTab />
