@@ -5083,6 +5083,23 @@ export async function registerRoutes(
         await storage.generateReferralCode(profileId);
       }
       const updated = await storage.getProfile(profileId);
+      // Send WhatsApp notification
+      if (profile.phone) {
+        if (newValue) {
+          const code = updated?.referralCode ?? "";
+          sendWhatsAppNotification(
+            profile.phone,
+            `*Izichanj*\n\n🎉 Félicitations! Your *Affiliate Program* is now *ACTIVE*!\n\nYour unique referral code: *${code}*\n\n📍 Find it in your *Profile page* → scroll to the *Affiliate Program* section.\n\n💸 *Commission structure:*\n• $0.05 – When a friend verifies their email\n• $0.25 – When a friend's KYC is approved\n• $2.00 – When a friend makes their first deposit of $50+\n\nShare your code and start earning today! 🚀\n\nhttps://izichanj.com`,
+            profile.fullName
+          );
+        } else {
+          sendWhatsAppNotification(
+            profile.phone,
+            `*Izichanj*\n\nℹ️ *Affiliate Program Update*\n\nYour affiliate/ambassador status has been *deactivated*. You will no longer earn referral commissions.\n\nIf you believe this is a mistake, please contact our support team.\n\nhttps://izichanj.com`,
+            profile.fullName
+          );
+        }
+      }
       res.json({ affiliateEnabled: updated?.affiliateEnabled, referralCode: updated?.referralCode });
     } catch (e: any) {
       res.status(500).json({ message: e.message || "Internal Error" });
