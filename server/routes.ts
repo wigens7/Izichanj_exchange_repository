@@ -5202,14 +5202,14 @@ export async function registerRoutes(
 
       // Fetch recent login IPs for both parties
       const buyerLogins = await db.execute(sql`
-        SELECT ip_address, device_info, created_at FROM login_logs
+        SELECT ip_address, device_info, login_at AS created_at FROM login_logs
         WHERE profile_id = ${order.buyer_id}
-        ORDER BY created_at DESC LIMIT 5
+        ORDER BY login_at DESC LIMIT 5
       `);
       const sellerLogins = await db.execute(sql`
-        SELECT ip_address, device_info, created_at FROM login_logs
+        SELECT ip_address, device_info, login_at AS created_at FROM login_logs
         WHERE profile_id = ${order.seller_id}
-        ORDER BY created_at DESC LIMIT 5
+        ORDER BY login_at DESC LIMIT 5
       `);
 
       // Fetch past admin actions for this order
