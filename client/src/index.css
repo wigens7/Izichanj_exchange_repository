@@ -225,3 +225,140 @@
   opacity: 0 !important;
   pointer-events: none !important;
 }
+
+/* ── Auth page: Bybit-style dark theme ─────────────────────────────────── */
+.auth-dark-panel {
+  background-color: #121212 !important;
+
+  --background: 0 0% 7%;
+  --foreground: 0 0% 100%;
+
+  --card: 220 10% 13%;
+  --card-foreground: 0 0% 100%;
+
+  --popover: 220 10% 13%;
+  --popover-foreground: 0 0% 100%;
+
+  --primary: 38 100% 48%;
+  --primary-foreground: 0 0% 0%;
+
+  --secondary: 220 9% 20%;
+  --secondary-foreground: 0 0% 100%;
+
+  --muted: 220 9% 18%;
+  --muted-foreground: 220 8% 56%;
+
+  --accent: 220 9% 18%;
+  --accent-foreground: 0 0% 100%;
+
+  --border: 220 7% 24%;
+  --input: 220 7% 24%;
+  --ring: 38 100% 48%;
+}
+
+.auth-dark-panel input:not([type="checkbox"]),
+.auth-dark-panel .phone-input-wrapper .PhoneInput {
+  background-color: #1f2226 !important;
+  border: 1px solid #363a3f !important;
+  color: #ffffff !important;
+  border-radius: 8px !important;
+}
+
+.auth-dark-panel input::placeholder,
+.auth-dark-panel .phone-input-wrapper .PhoneInputInput::placeholder {
+  color: #5c636b !important;
+}
+
+.auth-dark-panel .phone-input-wrapper .PhoneInputInput {
+  background-color: transparent !important;
+  color: #ffffff !important;
+}
+
+.auth-dark-panel .phone-input-wrapper .PhoneInputCountry {
+  border-color: #363a3f !important;
+}
+
+/* Card dark surface */
+.auth-dark-panel [class*="Card"],
+.auth-dark-panel .border {
+  border-color: #363a3f !important;
+}
+
+/* Headings */
+.auth-dark-panel h1,
+.auth-dark-panel h2,
+.auth-dark-panel h3 {
+  color: #ffffff !important;
+}
+
+/* ── Primary / submit buttons → yellow ──────────────── */
+.auth-dark-panel .primary-gradient {
+  background: #f7a600 !important;
+  background-image: none !important;
+  color: #000000 !important;
+  font-weight: 700 !important;
+  box-shadow: 0 4px 20px rgba(247, 166, 0, 0.25) !important;
+}
+.auth-dark-panel .primary-gradient:hover:not(:disabled) {
+  background: #d99200 !important;
+  box-shadow: 0 4px 20px rgba(247, 166, 0, 0.4) !important;
+}
+.auth-dark-panel .primary-gradient:disabled {
+  background: #3a3a3a !important;
+  color: #666 !important;
+  box-shadow: none !important;
+}
+
+/* ── Tabs ──────────────────────────────────────────── */
+.auth-dark-panel [role="tablist"] {
+  background-color: #1f2226 !important;
+  border: 1px solid #363a3f !important;
+  border-radius: 10px !important;
+}
+.auth-dark-panel [role="tab"][data-state="active"] {
+  background-color: #f7a600 !important;
+  color: #000000 !important;
+  font-weight: 700 !important;
+  border-radius: 8px !important;
+  box-shadow: none !important;
+}
+.auth-dark-panel [role="tab"][data-state="inactive"] {
+  color: #6b7280 !important;
+}
+.auth-dark-panel [role="tab"][data-state="inactive"]:hover {
+  color: #c4cdd5 !important;
+}
+
+/* ── Ghost / outline buttons ───────────────────────── */
+.auth-dark-panel button[data-variant="ghost"],
+.auth-dark-panel [class*="ghost"] {
+  color: #6b7280 !important;
+}
+.auth-dark-panel [class*="ghost"]:hover {
+  background-color: #1f2226 !important;
+  color: #c4cdd5 !important;
+}
+
+/* Fingerprint button */
+.auth-dark-panel button.w-full.h-11 {
+  border-color: #363a3f !important;
+}
+
+/* Small link text (forgot pin, etc.) */
+.auth-dark-panel .text-primary {
+  color: #f7a600 !important;
+}
+.auth-dark-panel a.text-primary,
+.auth-dark-panel button.text-xs.text-primary {
+  color: #f7a600 !important;
+}
+
+/* Form labels */
+.auth-dark-panel label {
+  color: #a0aab4 !important;
+}
+
+/* Loading spinner bg */
+.auth-dark-loading {
+  background-color: #121212 !important;
+}

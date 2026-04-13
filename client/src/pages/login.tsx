@@ -798,8 +798,8 @@ export default function LoginPage() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <Loader2 className="w-8 h-8 animate-spin text-primary" data-testid="loader-auth" />
+      <div className="auth-dark-loading min-h-screen flex items-center justify-center bg-[#121212]">
+        <Loader2 className="w-8 h-8 animate-spin text-[#f7a600]" data-testid="loader-auth" />
       </div>
     );
   }
@@ -839,7 +839,7 @@ export default function LoginPage() {
         </div>
       </div>
 
-      <div className="flex-1 flex items-center justify-center p-6 bg-background">
+      <div className="auth-dark-panel flex-1 flex items-center justify-center p-6">
         <div className="w-full max-w-[420px]">
           <div className="lg:hidden text-center mb-8">
             <div className="flex items-center justify-center gap-2.5 mb-2">
