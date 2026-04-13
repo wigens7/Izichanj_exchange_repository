@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useUser } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -18,7 +18,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
   Store, ShieldOff, AlertTriangle, Ban, Plus, Pause, Play, Trash2,
   Send, Paperclip, MessageSquare, AlertCircle, CheckCircle2, ChevronRight,
-  ShieldCheck, Loader2, RefreshCcw, X, Image as ImageIcon
+  ShieldCheck, Loader2, RefreshCcw, X, Image as ImageIcon, Clock, Check
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 
@@ -43,6 +43,28 @@ function StatusBadge({ status }: { status: string }) {
 
 function TimeAgo({ date }: { date: string }) {
   return <span className="text-xs text-muted-foreground">{formatDistanceToNow(new Date(date), { addSuffix: true })}</span>;
+}
+
+function ExpiryCountdown({ expiresAt }: { expiresAt: string }) {
+  const [remaining, setRemaining] = useState<number>(0);
+  useEffect(() => {
+    const update = () => {
+      const diff = new Date(expiresAt).getTime() - Date.now();
+      setRemaining(Math.max(0, Math.floor(diff / 1000)));
+    };
+    update();
+    const t = setInterval(update, 1000);
+    return () => clearInterval(t);
+  }, [expiresAt]);
+  const m = Math.floor(remaining / 60);
+  const s = remaining % 60;
+  const urgent = remaining < 300;
+  return (
+    <span className={`inline-flex items-center gap-1 text-xs font-medium ${urgent ? "text-red-400" : "text-yellow-400"}`}>
+      <Clock className="w-3 h-3" />
+      {remaining > 0 ? `${m}:${String(s).padStart(2, "0")} left` : "Expired"}
+    </span>
+  );
 }
 
 export default function P2PMarketPage() {
@@ -139,7 +161,7 @@ export default function P2PMarketPage() {
         <PostAdDialog
           open={showPostAd}
           onClose={() => setShowPostAd(false)}
-          paymentMethods={paymentMethods?.methods ?? []}
+          paymentMethodsData={paymentMethods ?? { methods: ["MonCash", "NatCash"], currency: "HTG", group: "HT" }}
           userBalance={parseFloat(user?.balance ?? "0")}
         />
       )}
@@ -194,6 +216,7 @@ function AdCard({ ad, onBuy, isMine }: { ad: any; onBuy: (ad: any) => void; isMi
   const methods: string[] = ad.payment_methods ?? ad.paymentMethods ?? [];
   const sellerName = ad.seller_name ?? ad.sellerName ?? "Seller";
   const termsNote = ad.terms_note ?? ad.terms;
+  const currency = ad.currency ?? "HTG";
 
   return (
     <Card className="border-border hover:border-primary/40 transition-colors" data-testid={`ad-card-${ad.id}`}>
@@ -204,7 +227,7 @@ function AdCard({ ad, onBuy, isMine }: { ad: any; onBuy: (ad: any) => void; isMi
               <span className="font-semibold text-sm truncate">{sellerName}</span>
               {isMine && <Badge variant="outline" className="text-[10px] py-0">You</Badge>}
             </div>
-            <div className="text-2xl font-bold text-primary">{rate.toFixed(2)} <span className="text-sm font-normal text-muted-foreground">HTG/USDT</span></div>
+            <div className="text-2xl font-bold text-primary">{rate.toFixed(2)} <span className="text-sm font-normal text-muted-foreground">{currency}/USDT</span></div>
             <div className="text-xs text-muted-foreground mt-1">
               Available: <span className="text-foreground font-medium">{avail.toFixed(2)} USDT</span>
               {" · "}Min: <span className="text-foreground">{minOrd.toFixed(0)}</span>
@@ -317,6 +340,9 @@ function MyOrdersTab({ onOpen, currentUserId }: { onOpen: (order: any) => void; 
     <div className="space-y-3 mt-2">
       {orders.map((order) => {
         const isBuyer = (order.buyer_id ?? order.buyerId) === currentUserId;
+        const currency = order.currency ?? "HTG";
+        const expiresAt = order.expires_at ?? order.expiresAt;
+        const isPending = order.status === "pending";
         return (
           <Card key={order.id} className="border-border hover:border-primary/30 transition-colors cursor-pointer" onClick={() => onOpen(order)} data-testid={`order-card-${order.id}`}>
             <CardContent className="p-4">
@@ -327,10 +353,11 @@ function MyOrdersTab({ onOpen, currentUserId }: { onOpen: (order: any) => void; 
                     <Badge variant="outline" className="text-[10px] py-0">{isBuyer ? "Buying" : "Selling"}</Badge>
                   </div>
                   <div className="text-xs text-muted-foreground">
-                    Rate: {parseFloat(order.rate_htg ?? order.rateHtg ?? 0).toFixed(2)} HTG · Total: {parseFloat(order.total_htg ?? order.totalHtg ?? 0).toFixed(2)} HTG
+                    Rate: {parseFloat(order.rate_htg ?? order.rateHtg ?? 0).toFixed(2)} {currency} · Total: {parseFloat(order.total_htg ?? order.totalHtg ?? 0).toFixed(2)} {currency}
                   </div>
                   <div className="text-xs text-muted-foreground">via {order.payment_method ?? order.paymentMethod}</div>
-                  <TimeAgo date={order.created_at ?? order.createdAt} />
+                  {isPending && expiresAt && <ExpiryCountdown expiresAt={expiresAt} />}
+                  {!isPending && <TimeAgo date={order.created_at ?? order.createdAt} />}
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                   <StatusBadge status={order.status} />
@@ -346,8 +373,10 @@ function MyOrdersTab({ onOpen, currentUserId }: { onOpen: (order: any) => void; 
 }
 
 // ─── Post Ad Dialog ─────────────────────────────────────────────────────────
-function PostAdDialog({ open, onClose, paymentMethods, userBalance }: {
-  open: boolean; onClose: () => void; paymentMethods: string[]; userBalance: number;
+function PostAdDialog({ open, onClose, paymentMethodsData, userBalance }: {
+  open: boolean; onClose: () => void;
+  paymentMethodsData: { methods: string[]; currency: string; group: string };
+  userBalance: number;
 }) {
   const qc = useQueryClient();
   const { toast } = useToast();
@@ -358,7 +387,10 @@ function PostAdDialog({ open, onClose, paymentMethods, userBalance }: {
   const [selectedMethods, setSelectedMethods] = useState<string[]>([]);
   const [terms, setTerms] = useState("");
 
-  const methods = paymentMethods.length ? paymentMethods : ["MonCash", "NatCash", "PayPal", "Bank Transfer"];
+  const methods = paymentMethodsData.methods.length ? paymentMethodsData.methods : ["MonCash", "NatCash"];
+  const currency = paymentMethodsData.currency ?? "HTG";
+  const group = paymentMethodsData.group ?? "HT";
+  const isHaiti = group === "HT";
 
   const createMut = useMutation({
     mutationFn: (body: any) => apiRequest("POST", "/api/p2p/ads", body),
@@ -382,7 +414,8 @@ function PostAdDialog({ open, onClose, paymentMethods, userBalance }: {
     const max = parseFloat(maxOrder);
     if (!amt || amt <= 0) return toast({ title: "Enter a valid amount.", variant: "destructive" });
     if (amt > userBalance) return toast({ title: "Insufficient balance.", description: `You have ${userBalance.toFixed(2)} USDT.`, variant: "destructive" });
-    if (!rate || rate < 130 || rate > 145) return toast({ title: "Rate must be 130–145 HTG.", variant: "destructive" });
+    if (isHaiti && (!rate || rate < 130 || rate > 145)) return toast({ title: "Rate must be 130–145 HTG/USDT for Haiti.", variant: "destructive" });
+    if (!isHaiti && !rate) return toast({ title: "Enter a rate.", variant: "destructive" });
     if (!selectedMethods.length) return toast({ title: "Select at least one payment method.", variant: "destructive" });
     if (!min || !max || min >= max) return toast({ title: "Min must be less than max.", variant: "destructive" });
     createMut.mutate({ rateHtg: rate, amountUsdt: amt, minOrderUsdt: min, maxOrderUsdt: max, paymentMethods: selectedMethods, termsNote: terms });
@@ -393,16 +426,18 @@ function PostAdDialog({ open, onClose, paymentMethods, userBalance }: {
       <DialogContent className="max-w-sm max-h-[90vh] overflow-y-auto" data-testid="dialog-post-ad">
         <DialogHeader>
           <DialogTitle>Post Sell Ad</DialogTitle>
-          <DialogDescription>Lock USDT and sell at your preferred rate.</DialogDescription>
+          <DialogDescription>Lock USDT and sell at your preferred rate. Currency: {currency}.</DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
-          <Alert className="border-yellow-500/30 bg-yellow-500/5">
-            <AlertCircle className="w-4 h-4 text-yellow-500" />
-            <AlertDescription className="text-xs">Rate must be between 130–145 HTG/USDT.</AlertDescription>
-          </Alert>
+          {isHaiti && (
+            <Alert className="border-yellow-500/30 bg-yellow-500/5">
+              <AlertCircle className="w-4 h-4 text-yellow-500" />
+              <AlertDescription className="text-xs">Rate must be between 130–145 HTG/USDT for Haiti market.</AlertDescription>
+            </Alert>
+          )}
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
-              <Label className="text-xs">Rate (HTG/USDT)</Label>
+              <Label className="text-xs">Rate ({currency}/USDT)</Label>
               <Input type="number" value={rateHtg} onChange={e => setRateHtg(e.target.value)} step="0.01" data-testid="input-rate-htg" />
             </div>
             <div className="space-y-1.5">
@@ -419,7 +454,7 @@ function PostAdDialog({ open, onClose, paymentMethods, userBalance }: {
             </div>
           </div>
           <div className="space-y-2">
-            <Label className="text-xs">Payment Methods</Label>
+            <Label className="text-xs">Payment Methods <span className="text-muted-foreground font-normal">(for {currency} market)</span></Label>
             <div className="flex flex-wrap gap-2">
               {methods.map((m) => (
                 <button
@@ -464,6 +499,7 @@ function PlaceOrderDialog({ open, ad, onClose, onPlaced }: { open: boolean; ad: 
   const [amount, setAmount] = useState(String(minOrd));
   const [method, setMethod] = useState(methods[0] ?? "");
 
+  const currency = ad.currency ?? "HTG";
   const amtNum = parseFloat(amount) || 0;
   const totalHtg = (amtNum * rate).toFixed(2);
   const min = minOrd;
@@ -500,7 +536,7 @@ function PlaceOrderDialog({ open, ad, onClose, onPlaced }: { open: boolean; ad: 
             <p className="text-xs text-muted-foreground">Range: {min} – {max} USDT</p>
           </div>
           <div className="rounded-lg border border-border p-3 space-y-1.5">
-            <div className="flex justify-between text-sm"><span className="text-muted-foreground">You pay</span><span className="font-semibold text-primary">{totalHtg} HTG</span></div>
+            <div className="flex justify-between text-sm"><span className="text-muted-foreground">You pay</span><span className="font-semibold text-primary">{totalHtg} {currency}</span></div>
             <div className="flex justify-between text-sm"><span className="text-muted-foreground">You receive</span><span className="font-semibold">{amtNum.toFixed(2)} USDT</span></div>
           </div>
           <div className="space-y-1.5">
@@ -544,6 +580,8 @@ function TradeDialog({ open, order, currentUserId, onClose }: { open: boolean; o
   const isBuyer = (order.buyer_id ?? order.buyerId) === currentUserId;
   const isSeller = (order.seller_id ?? order.sellerId) === currentUserId;
   const orderId = order.id;
+  const currency = order.currency ?? "HTG";
+  const expiresAt = order.expires_at ?? order.expiresAt;
 
   const { data: chat, refetch: refetchChat } = useQuery<any[]>({
     queryKey: ["/api/p2p/orders", orderId, "chat"],
@@ -566,7 +604,7 @@ function TradeDialog({ open, order, currentUserId, onClose }: { open: boolean; o
   });
 
   const releaseMut = useMutation({
-    mutationFn: () => apiRequest("POST", `/api/p2p/orders/${orderId}/release`),
+    mutationFn: () => apiRequest("POST", `/api/p2p/orders/${orderId}/release`, { confirmedReceipt: true }),
     onSuccess: () => { toast({ title: "Funds released!", description: "Trade complete." }); qc.invalidateQueries({ queryKey: ["/api/p2p/orders"] }); onClose(); },
     onError: (e: any) => toast({ title: "Error", description: e?.message, variant: "destructive" }),
   });
@@ -634,10 +672,15 @@ function TradeDialog({ open, order, currentUserId, onClose }: { open: boolean; o
             </div>
             <div>
               <p className="text-xs text-muted-foreground">Total</p>
-              <p className="font-semibold text-sm text-primary">{parseFloat(order.total_htg ?? order.totalHtg ?? 0).toFixed(2)} HTG</p>
+              <p className="font-semibold text-sm text-primary">{parseFloat(order.total_htg ?? order.totalHtg ?? order.amount_local ?? 0).toFixed(2)} {currency}</p>
             </div>
           </div>
           <p className="text-xs text-center text-muted-foreground mt-1">via {order.payment_method ?? order.paymentMethod}</p>
+          {order.status === "pending" && expiresAt && (
+            <div className="flex justify-center mt-1.5">
+              <ExpiryCountdown expiresAt={expiresAt} />
+            </div>
+          )}
         </div>
 
         {/* Chat */}
@@ -650,6 +693,7 @@ function TradeDialog({ open, order, currentUserId, onClose }: { open: boolean; o
               const isMe = (msg.sender_id ?? msg.senderId) === currentUserId;
               const fileUrl = msg.file_url ?? msg.fileUrl;
               const msgDate = msg.created_at ?? msg.createdAt;
+              const readAt = msg.read_at ?? msg.readAt;
               return (
                 <div key={msg.id} className={`flex ${isMe ? "justify-end" : "justify-start"}`}>
                   <div className={`max-w-[80%] rounded-lg px-3 py-2 text-sm ${isMe ? "bg-primary text-primary-foreground" : "bg-muted"}`}>
@@ -659,9 +703,18 @@ function TradeDialog({ open, order, currentUserId, onClose }: { open: boolean; o
                         <ImageIcon className="w-3 h-3" /> View attachment
                       </a>
                     )}
-                    <p className={`text-[10px] mt-1 ${isMe ? "text-primary-foreground/70" : "text-muted-foreground"}`}>
-                      {msgDate ? formatDistanceToNow(new Date(msgDate), { addSuffix: true }) : ""}
-                    </p>
+                    <div className={`flex items-center gap-1 mt-1 ${isMe ? "justify-end" : "justify-start"}`}>
+                      <span className={`text-[10px] ${isMe ? "text-primary-foreground/70" : "text-muted-foreground"}`}>
+                        {msgDate ? formatDistanceToNow(new Date(msgDate), { addSuffix: true }) : ""}
+                      </span>
+                      {isMe && (
+                        readAt
+                          ? <span className="inline-flex text-[10px] text-primary-foreground/80" title={`Read ${formatDistanceToNow(new Date(readAt), { addSuffix: true })}`}>
+                              <Check className="w-2.5 h-2.5" /><Check className="w-2.5 h-2.5 -ml-1.5" />
+                            </span>
+                          : <Check className="w-2.5 h-2.5 text-primary-foreground/50" />
+                      )}
+                    </div>
                   </div>
                 </div>
               );
@@ -712,8 +765,8 @@ function TradeDialog({ open, order, currentUserId, onClose }: { open: boolean; o
             <div className="space-y-2">
               <div className="flex items-start gap-2">
                 <Checkbox id="release-confirm" checked={releaseChecked} onCheckedChange={(v) => setReleaseChecked(!!v)} data-testid="checkbox-release" />
-                <label htmlFor="release-confirm" className="text-xs text-muted-foreground cursor-pointer">
-                  I confirm I received the payment of <strong>{parseFloat(order.total_htg ?? order.totalHtg ?? 0).toFixed(2)} HTG</strong> via {order.payment_method ?? order.paymentMethod}.
+                <label htmlFor="release-confirm" className="text-xs text-muted-foreground cursor-pointer leading-relaxed">
+                  I confirm that I have manually verified the receipt of <strong>{parseFloat(order.total_htg ?? order.totalHtg ?? order.amount_local ?? 0).toFixed(2)} {currency}</strong> in my <strong>{order.payment_method ?? order.paymentMethod}</strong> account.
                 </label>
               </div>
               <Button className="w-full" onClick={() => releaseMut.mutate()} disabled={!releaseChecked || releaseMut.isPending} data-testid="button-release-funds">

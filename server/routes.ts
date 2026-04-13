@@ -5158,11 +5158,43 @@ export async function registerRoutes(
     return P2P_PAYMENT_METHODS[country] || P2P_PAYMENT_METHODS.default;
   }
 
+  // Returns "HT" for Haiti, "US" for USA, "default" for others
+  function getCountryGroup(country: string): string {
+    if (!country) return "default";
+    const c = country.toUpperCase();
+    if (c === "HT" || c === "HAITI") return "HT";
+    if (c === "US" || c === "USA" || c === "UNITED STATES") return "US";
+    return "default";
+  }
+
+  // Returns the currency code for a country group
+  function getCountryCurrency(country: string): string {
+    const g = getCountryGroup(country);
+    if (g === "HT") return "HTG";
+    if (g === "US") return "USD";
+    return "USD";
+  }
+
   function generateOrderId(): string {
     const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
     let result = "P2P-";
     for (let i = 0; i < 8; i++) result += chars[Math.floor(Math.random() * chars.length)];
     return result;
+  }
+
+  // Auto-cancel expired orders and return funds to seller
+  async function autoExpireOrders(): Promise<void> {
+    try {
+      const expired = await db.execute(sql`
+        SELECT id, seller_id, amount_usdt, ad_id FROM p2p_orders
+        WHERE status = 'pending' AND expires_at IS NOT NULL AND expires_at < NOW()
+      `);
+      for (const row of expired.rows as any[]) {
+        await db.execute(sql`UPDATE p2p_orders SET status = 'cancelled', cancelled_by = 'system', cancellation_reason = 'Trade expired after 60 minutes', cancelled_at = NOW() WHERE id = ${row.id}`);
+        await db.execute(sql`UPDATE p2p_ads SET available_usdt = available_usdt + ${row.amount_usdt}, updated_at = NOW() WHERE id = ${row.ad_id}`);
+        await db.execute(sql`INSERT INTO p2p_chat_messages (order_id, sender_id, message) VALUES (${row.id}, ${row.seller_id}, ${'⏰ This order has been automatically cancelled after 60 minutes of inactivity. USDT has been returned to the ad.'})`);
+      }
+    } catch (_) { /* silent */ }
   }
 
   // Check if KYC verified middleware for P2P
@@ -5183,7 +5215,9 @@ export async function registerRoutes(
       const profileId = req.session.profileId;
       const rows = await db.execute(sql`SELECT country FROM profiles WHERE id = ${profileId}`);
       const country = (rows.rows[0] as any)?.country || "default";
-      res.json({ methods: getP2PPaymentMethods(country), country });
+      const group = getCountryGroup(country);
+      const currency = getCountryCurrency(country);
+      res.json({ methods: getP2PPaymentMethods(group), country, group, currency });
     } catch (e: any) {
       res.status(500).json({ message: e.message });
     }
@@ -5207,9 +5241,15 @@ export async function registerRoutes(
     }
   });
 
-  // GET /api/p2p/ads — marketplace listing (all active ads)
+  // GET /api/p2p/ads — marketplace listing (filtered by buyer's country group)
   app.get("/api/p2p/ads", isAuthenticated, isKycVerified, async (req: any, res) => {
     try {
+      await autoExpireOrders();
+      const profileId = req.session.profileId;
+      const buyerRows = await db.execute(sql`SELECT country, id FROM profiles WHERE id = ${profileId}`);
+      const buyer = buyerRows.rows[0] as any;
+      const buyerGroup = getCountryGroup(buyer?.country || "default");
+      // Filter to same market: HT users see HTG ads, US users see USD ads, others see all
       const ads = await db.execute(sql`
         SELECT a.*, p.full_name as seller_name, p.country as seller_country,
                p.kyc_status as seller_kyc
@@ -5217,7 +5257,14 @@ export async function registerRoutes(
         JOIN profiles p ON a.seller_id = p.id
         WHERE a.status = 'active'
           AND a.available_usdt > 0
-        ORDER BY a.created_at DESC
+          AND a.seller_id != ${profileId}
+          AND (
+            ${buyerGroup === "default"} = true
+            OR a.country = ${buyer?.country || "default"}
+            OR (${buyerGroup} = 'HT' AND a.currency = 'HTG')
+            OR (${buyerGroup} = 'US' AND a.currency = 'USD')
+          )
+        ORDER BY a.rate_htg ASC
         LIMIT 100
       `);
       res.json(ads.rows);
@@ -5262,28 +5309,34 @@ export async function registerRoutes(
       const amount = parseFloat(amountUsdt);
       if (balance < amount) return res.status(400).json({ message: "Insufficient balance" });
 
-      // Validate Haiti rate restriction
       const country = seller.country || "HT";
-      if (country === "HT" || country === "Haiti") {
-        if (!rateHtg) return res.status(400).json({ message: "Rate is required for Haiti" });
+      const countryGroup = getCountryGroup(country);
+      const allowedMethods = getP2PPaymentMethods(countryGroup);
+      const adCurrency = getCountryCurrency(country);
+
+      // Validate payment methods strictly against country-allowed list
+      const methodsArray = Array.isArray(paymentMethods) ? paymentMethods : [paymentMethods];
+      const invalidMethods = methodsArray.filter((m: string) => !allowedMethods.includes(m));
+      if (invalidMethods.length > 0) {
+        return res.status(400).json({ message: `${invalidMethods.join(", ")} not allowed for sellers in ${country}. Allowed: ${allowedMethods.join(", ")}` });
+      }
+
+      // Validate Haiti rate restriction
+      if (countryGroup === "HT") {
+        if (!rateHtg) return res.status(400).json({ message: "Rate (HTG/USDT) is required for Haiti sellers" });
         const rate = parseFloat(rateHtg);
         if (rate < HAITI_RATE_MIN || rate > HAITI_RATE_MAX) {
           return res.status(400).json({ message: `Rate must be between ${HAITI_RATE_MIN} and ${HAITI_RATE_MAX} HTG/USDT for Haiti` });
         }
-        // Check payment methods — blocked for Haiti sellers
-        const blocked = ["Zelle", "CashApp"];
-        const invalid = paymentMethods.filter((m: string) => blocked.includes(m));
-        if (invalid.length > 0) return res.status(400).json({ message: `${invalid.join(", ")} not allowed for Haiti sellers` });
       }
 
       // Lock funds: deduct from seller balance
       await db.execute(sql`UPDATE profiles SET balance = balance - ${amount} WHERE id = ${profileId}`);
 
-      const methodsArray = Array.isArray(paymentMethods) ? paymentMethods : [paymentMethods];
       const methodsPgLiteral = '{' + methodsArray.map((m: string) => `"${m.replace(/"/g, '\\"')}"`).join(',') + '}';
       const ad = await db.execute(sql`
         INSERT INTO p2p_ads (seller_id, amount_usdt, available_usdt, rate_htg, margin_pct, currency, country, payment_methods, min_order_usdt, max_order_usdt, status, terms_note)
-        VALUES (${profileId}, ${amount}, ${amount}, ${rateHtg || null}, ${marginPct || null}, ${currency || "HTG"}, ${country}, ${methodsPgLiteral}::text[], ${minOrderUsdt || 10}, ${maxOrderUsdt || null}, 'active', ${termsNote || null})
+        VALUES (${profileId}, ${amount}, ${amount}, ${rateHtg || null}, ${marginPct || null}, ${adCurrency}, ${country}, ${methodsPgLiteral}::text[], ${minOrderUsdt || 10}, ${maxOrderUsdt || null}, 'active', ${termsNote || null})
         RETURNING *
       `);
 
@@ -5393,12 +5446,13 @@ export async function registerRoutes(
       // Reserve USDT on the ad
       await db.execute(sql`UPDATE p2p_ads SET available_usdt = available_usdt - ${amount}, updated_at = NOW() WHERE id = ${adId}`);
 
-      // Create order
+      // Create order with 60-minute expiry
       const orderId = generateOrderId();
+      const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
       const orderRows = await db.execute(sql`
-        INSERT INTO p2p_orders (order_id, ad_id, buyer_id, seller_id, amount_usdt, amount_local, rate, currency, payment_method, status)
-        VALUES (${orderId}, ${adId}, ${buyerId}, ${ad.seller_id}, ${amount}, ${amountLocal}, ${rate}, ${ad.currency || "HTG"}, ${paymentMethod}, 'pending')
-        RETURNING *
+        INSERT INTO p2p_orders (order_id, ad_id, buyer_id, seller_id, amount_usdt, amount_local, rate, currency, payment_method, status, expires_at)
+        VALUES (${orderId}, ${adId}, ${buyerId}, ${ad.seller_id}, ${amount}, ${amountLocal}, ${rate}, ${ad.currency || "HTG"}, ${paymentMethod}, 'pending', ${expiresAt})
+        RETURNING *, amount_local as total_htg, rate as rate_htg
       `);
       const order = orderRows.rows[0] as any;
 
@@ -5428,15 +5482,18 @@ export async function registerRoutes(
     }
   });
 
-  // GET /api/p2p/orders/my — buyer and seller orders
-  app.get("/api/p2p/orders/my", isAuthenticated, async (req: any, res) => {
+  // Handler for listing user's orders (buyer & seller)
+  const getMyOrders = async (req: any, res: any) => {
     try {
+      await autoExpireOrders();
       const profileId = req.session.profileId;
       const orders = await db.execute(sql`
         SELECT o.*,
+          o.amount_local as total_htg,
+          o.rate as rate_htg,
           bp.full_name as buyer_name,
           sp.full_name as seller_name,
-          a.rate_htg, a.currency as ad_currency
+          a.rate_htg as ad_rate_htg, a.currency as ad_currency
         FROM p2p_orders o
         JOIN profiles bp ON o.buyer_id = bp.id
         JOIN profiles sp ON o.seller_id = sp.id
@@ -5448,7 +5505,13 @@ export async function registerRoutes(
     } catch (e: any) {
       res.status(500).json({ message: e.message });
     }
-  });
+  };
+
+  // GET /api/p2p/orders — alias (frontend uses this)
+  app.get("/api/p2p/orders", isAuthenticated, getMyOrders);
+
+  // GET /api/p2p/orders/my — buyer and seller orders
+  app.get("/api/p2p/orders/my", isAuthenticated, getMyOrders);
 
   // GET /api/p2p/orders/:id — order detail
   app.get("/api/p2p/orders/:id", isAuthenticated, async (req: any, res) => {
@@ -5676,6 +5739,170 @@ export async function registerRoutes(
     } catch (e: any) {
       res.status(500).json({ message: e.message });
     }
+  });
+
+  // GET /api/p2p/orders/:id/chat — alias for /messages (frontend uses this path)
+  app.get("/api/p2p/orders/:id/chat", isAuthenticated, async (req: any, res) => {
+    try {
+      const profileId = req.session.profileId;
+      const orderId = Number(req.params.id);
+      const orderCheck = await db.execute(sql`SELECT buyer_id, seller_id FROM p2p_orders WHERE id = ${orderId}`);
+      const order = orderCheck.rows[0] as any;
+      if (!order || (order.buyer_id !== profileId && order.seller_id !== profileId)) {
+        return res.status(403).json({ message: "Not authorized" });
+      }
+      // Mark messages from other party as read
+      await db.execute(sql`
+        UPDATE p2p_chat_messages SET read_at = NOW()
+        WHERE order_id = ${orderId} AND sender_id != ${profileId} AND read_at IS NULL
+      `);
+      const messages = await db.execute(sql`
+        SELECT m.*, p.full_name as sender_name
+        FROM p2p_chat_messages m
+        JOIN profiles p ON m.sender_id = p.id
+        WHERE m.order_id = ${orderId}
+        ORDER BY m.created_at ASC
+      `);
+      res.json(messages.rows);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // POST /api/p2p/orders/:id/chat — alias for /messages (frontend uses this path)
+  app.post("/api/p2p/orders/:id/chat", isAuthenticated, async (req: any, res) => {
+    try {
+      const profileId = req.session.profileId;
+      const orderId = Number(req.params.id);
+      const { message, fileUrl, fileName } = req.body;
+      if (!message && !fileUrl) return res.status(400).json({ message: "Message or file required" });
+      const orderCheck = await db.execute(sql`SELECT buyer_id, seller_id, status FROM p2p_orders WHERE id = ${orderId}`);
+      const order = orderCheck.rows[0] as any;
+      if (!order || (order.buyer_id !== profileId && order.seller_id !== profileId)) {
+        return res.status(403).json({ message: "Not authorized" });
+      }
+      if (["released", "cancelled"].includes(order.status)) {
+        return res.status(400).json({ message: "Trade is closed, chat disabled" });
+      }
+      const msg = await db.execute(sql`
+        INSERT INTO p2p_chat_messages (order_id, sender_id, message, file_url, file_name)
+        VALUES (${orderId}, ${profileId}, ${message || null}, ${fileUrl || null}, ${fileName || null})
+        RETURNING *
+      `);
+      const nameRows = await db.execute(sql`SELECT full_name FROM profiles WHERE id = ${profileId}`);
+      res.json({ ...(msg.rows[0] as any), sender_name: (nameRows.rows[0] as any)?.full_name });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // POST /api/p2p/orders/:id/pay — POST alias for PATCH pay route
+  app.post("/api/p2p/orders/:id/pay", isAuthenticated, async (req: any, res) => {
+    req.method = "PATCH";
+    const profileId = req.session.profileId;
+    const orderId = Number(req.params.id);
+    try {
+      const rows = await db.execute(sql`SELECT * FROM p2p_orders WHERE id = ${orderId} AND buyer_id = ${profileId}`);
+      const order = rows.rows[0] as any;
+      if (!order) return res.status(404).json({ message: "Order not found" });
+      if (order.status !== "pending") return res.status(400).json({ message: `Order is already ${order.status}` });
+      await db.execute(sql`UPDATE p2p_orders SET status = 'paid', paid_at = NOW() WHERE id = ${orderId}`);
+      await db.execute(sql`INSERT INTO p2p_chat_messages (order_id, sender_id, message) VALUES (${orderId}, ${profileId}, ${'💰 Buyer has marked this order as PAID. Seller: please verify payment and release crypto.'})`);
+      const sellerRows = await db.execute(sql`SELECT full_name, phone FROM profiles WHERE id = ${order.seller_id}`);
+      const seller = sellerRows.rows[0] as any;
+      if (seller?.phone) {
+        sendWhatsAppNotification(seller.phone, `*Izichanj P2P Market*\n\n✅ Payment Confirmed!\n\nOrder: ${order.order_id}\nBuyer says they have paid ${order.amount_local} ${order.currency}.\n\nPlease verify and release crypto if payment received.`, seller.full_name);
+      }
+      res.json({ success: true });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // POST /api/p2p/orders/:id/release — POST alias for PATCH release route
+  app.post("/api/p2p/orders/:id/release", isAuthenticated, async (req: any, res) => {
+    const profileId = req.session.profileId;
+    const orderId = Number(req.params.id);
+    const { confirmedReceipt } = req.body;
+    try {
+      if (!confirmedReceipt) return res.status(400).json({ message: "You must confirm you have received the funds before releasing crypto." });
+      const rows = await db.execute(sql`SELECT * FROM p2p_orders WHERE id = ${orderId} AND seller_id = ${profileId}`);
+      const order = rows.rows[0] as any;
+      if (!order) return res.status(404).json({ message: "Order not found" });
+      if (order.status !== "paid") return res.status(400).json({ message: "Order must be in 'paid' status to release" });
+      const amount = parseFloat(order.amount_usdt);
+      const buyerRows = await db.execute(sql`SELECT balance FROM profiles WHERE id = ${order.buyer_id}`);
+      const prevBuyerBal = parseFloat((buyerRows.rows[0] as any)?.balance || "0");
+      await db.execute(sql`UPDATE profiles SET balance = balance + ${amount} WHERE id = ${order.buyer_id}`);
+      await db.execute(sql`INSERT INTO balance_logs (profile_id, previous_balance, new_balance, change, action, reference_id) VALUES (${order.buyer_id}, ${prevBuyerBal}, ${prevBuyerBal + amount}, ${amount}, 'p2p_received', ${String(orderId)})`);
+      await db.execute(sql`UPDATE p2p_orders SET status = 'released', released_at = NOW(), seller_confirmed_receipt = true WHERE id = ${orderId}`);
+      await db.execute(sql`INSERT INTO p2p_chat_messages (order_id, sender_id, message) VALUES (${orderId}, ${profileId}, ${'✅ Seller has released USDT to buyer. Trade complete!'})`);
+      await db.execute(sql`INSERT INTO notifications (profile_id, type, title, message) VALUES (${order.buyer_id}, 'custom_message', 'P2P Trade Complete', 'Your USDT has been released by the seller. Funds added to your balance.')`).catch(() => {});
+      res.json({ success: true });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // POST /api/p2p/orders/:id/cancel — POST alias for PATCH cancel route
+  app.post("/api/p2p/orders/:id/cancel", isAuthenticated, async (req: any, res) => {
+    const profileId = req.session.profileId;
+    const orderId = Number(req.params.id);
+    const { reason } = req.body;
+    try {
+      const rows = await db.execute(sql`SELECT * FROM p2p_orders WHERE id = ${orderId} AND (buyer_id = ${profileId} OR seller_id = ${profileId})`);
+      const order = rows.rows[0] as any;
+      if (!order) return res.status(404).json({ message: "Order not found" });
+      if (!["pending", "paid"].includes(order.status)) return res.status(400).json({ message: `Cannot cancel a ${order.status} order` });
+      const role = order.buyer_id === profileId ? "buyer" : "seller";
+      await db.execute(sql`UPDATE p2p_orders SET status = 'cancelled', cancelled_by = ${role}, cancellation_reason = ${reason || "No reason given"}, cancelled_at = NOW() WHERE id = ${orderId}`);
+      await db.execute(sql`UPDATE p2p_ads SET available_usdt = available_usdt + ${order.amount_usdt}, updated_at = NOW() WHERE id = ${order.ad_id}`);
+      await db.execute(sql`INSERT INTO p2p_chat_messages (order_id, sender_id, message) VALUES (${orderId}, ${profileId}, ${`❌ Order cancelled by ${role}. USDT returned to seller's ad.`})`);
+      await db.execute(sql`INSERT INTO p2p_cancellations (profile_id, order_id, role, reason) VALUES (${profileId}, ${orderId}, ${role}, ${reason || "No reason given"})`);
+      if (role === "buyer") {
+        const cancelCount = await db.execute(sql`SELECT COUNT(*) as cnt FROM p2p_cancellations WHERE profile_id = ${profileId} AND role = 'buyer' AND created_at > NOW() - INTERVAL '24 hours'`);
+        const cnt = parseInt((cancelCount.rows[0] as any)?.cnt || "0");
+        if (cnt >= P2P_CANCEL_LIMIT) {
+          const bannedUntil = new Date(Date.now() + P2P_BAN_HOURS * 3600 * 1000).toISOString();
+          await db.execute(sql`DELETE FROM p2p_bans WHERE profile_id = ${profileId}`);
+          await db.execute(sql`INSERT INTO p2p_bans (profile_id, banned_until, reason) VALUES (${profileId}, ${bannedUntil}, '3 cancellations within 24 hours')`);
+        }
+      }
+      res.json({ success: true });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // POST /api/p2p/orders/:id/dispute — POST alias for PATCH dispute route
+  app.post("/api/p2p/orders/:id/dispute", isAuthenticated, async (req: any, res) => {
+    const profileId = req.session.profileId;
+    const orderId = Number(req.params.id);
+    const { reason } = req.body;
+    try {
+      if (!reason?.trim()) return res.status(400).json({ message: "Dispute reason required" });
+      const rows = await db.execute(sql`SELECT * FROM p2p_orders WHERE id = ${orderId} AND (buyer_id = ${profileId} OR seller_id = ${profileId})`);
+      const order = rows.rows[0] as any;
+      if (!order) return res.status(404).json({ message: "Order not found" });
+      if (!["pending", "paid"].includes(order.status)) return res.status(400).json({ message: "Can only dispute pending or paid orders" });
+      await db.execute(sql`UPDATE p2p_orders SET status = 'disputed', dispute_reason = ${reason} WHERE id = ${orderId}`);
+      await db.execute(sql`INSERT INTO p2p_chat_messages (order_id, sender_id, message) VALUES (${orderId}, ${profileId}, ${`⚠️ Dispute opened: ${reason}`})`);
+      const [buyerR, sellerR] = await Promise.all([
+        db.execute(sql`SELECT full_name FROM profiles WHERE id = ${order.buyer_id}`),
+        db.execute(sql`SELECT full_name FROM profiles WHERE id = ${order.seller_id}`)
+      ]);
+      const buyer = (buyerR.rows[0] as any)?.full_name;
+      const seller = (sellerR.rows[0] as any)?.full_name;
+      sendTelegramMessage(`⚠️ <b>P2P Dispute Opened</b>\n\nOrder: ${order.order_id}\nBuyer: ${buyer}\nSeller: ${seller}\nAmount: ${order.amount_usdt} USDT\nReason: ${reason}`).catch(() => {});
+      res.json({ success: true });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // POST /api/p2p/orders/:id/chat/read — mark messages as read
+  app.post("/api/p2p/orders/:id/chat/read", isAuthenticated, async (req: any, res) => {
+    try {
+      const profileId = req.session.profileId;
+      const orderId = Number(req.params.id);
+      await db.execute(sql`
+        UPDATE p2p_chat_messages SET read_at = NOW()
+        WHERE order_id = ${orderId} AND sender_id != ${profileId} AND read_at IS NULL
+      `);
+      res.json({ success: true });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 
   // GET /api/p2p/orders/:id/messages — get chat messages

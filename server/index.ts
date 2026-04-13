@@ -487,6 +487,12 @@ app.use((req, res, next) => {
         created_at TIMESTAMP NOT NULL DEFAULT NOW()
       )
     `);
+    // Add expires_at to p2p_orders if missing
+    await db.execute(sql`ALTER TABLE p2p_orders ADD COLUMN IF NOT EXISTS expires_at TIMESTAMP`);
+    // Add read_at to p2p_chat_messages if missing
+    await db.execute(sql`ALTER TABLE p2p_chat_messages ADD COLUMN IF NOT EXISTS read_at TIMESTAMP`);
+    // Add total_htg computed alias column (stored as amount_local alias)
+    // No column needed - handled at query level
     console.log("[startup migration] P2P market tables ensured");
   } catch (e) {
     console.warn("[startup migration] P2P market tables skipped:", (e as Error).message);
