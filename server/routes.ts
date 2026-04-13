@@ -15,7 +15,7 @@ import { generateReceiptPDF, generateAdjustmentReceiptPDF } from "./receipt";
 import { ensureKycImageSize } from "./image-compress";
 import { deposits, profiles, virtualCards } from "@shared/schema";
 import { db } from "./db";
-import { eq, and } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import * as otplibModule from "otplib";
 import QRCode from "qrcode";
 import {
@@ -5077,7 +5077,7 @@ export async function registerRoutes(
       const profile = await storage.getProfile(profileId);
       if (!profile) return res.status(404).json({ message: "User not found" });
       const newValue = !profile.affiliateEnabled;
-      await db.execute(sql`UPDATE profiles SET affiliate_enabled = ${newValue} WHERE id = ${profileId}`);
+      await db.update(profiles).set({ affiliateEnabled: newValue }).where(eq(profiles.id, profileId));
       // Auto-generate referral code when enabling
       if (newValue && !profile.referralCode) {
         await storage.generateReferralCode(profileId);
