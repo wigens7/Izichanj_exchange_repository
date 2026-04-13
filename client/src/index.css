@@ -4,185 +4,281 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ══════════════════════════════════════════════════════════════════
+   IZICHANJ — Global Design System (Bybit-style dark theme)
+   Brand tokens and Shadcn/Tailwind CSS variables unified below.
+   To retheme, edit the variables in :root only.
+   ══════════════════════════════════════════════════════════════════ */
 :root {
-  --background: 220 20% 97%;
-  --foreground: 224 40% 10%;
+  /* ── Izichanj brand tokens (exposed for direct use via var()) ─── */
+  --iz-bg:         #121212;   /* main page background            */
+  --iz-accent:     #f7a600;   /* primary CTA / yellow            */
+  --iz-accent-hover: #d99200; /* yellow hover / pressed          */
+  --iz-surface:    #1f2226;   /* cards, inputs, table rows       */
+  --iz-surface-2:  #16191d;   /* slightly deeper surface         */
+  --iz-text:       #ffffff;   /* headings, primary labels        */
+  --iz-text-muted: #9ca3af;   /* secondary text, placeholders    */
+  --iz-border:     #363a3f;   /* all borders                     */
 
-  --primary: 230 75% 57%;
-  --primary-foreground: 0 0% 100%;
+  /* ── Shadcn / Tailwind semantic tokens ─────────────────────────
+     All values use H S% L% (space-separated, no hsl() wrapper)
+     so Tailwind can compose opacity variants: bg-primary/20 etc.
+     ─────────────────────────────────────────────────────────────── */
 
-  --secondary: 160 84% 39%;
-  --secondary-foreground: 0 0% 100%;
+  /* Page background */
+  --background:             0 0% 7%;          /* #121212 */
+  --foreground:             0 0% 100%;         /* #ffffff */
 
-  --card: 0 0% 100%;
-  --card-foreground: 224 40% 10%;
+  /* Primary action (yellow) */
+  --primary:                38 100% 48%;       /* #f7a600 */
+  --primary-foreground:     0 0% 0%;           /* #000000 */
 
-  --popover: 0 0% 100%;
-  --popover-foreground: 224 40% 10%;
+  /* Secondary (dark neutral) */
+  --secondary:              216 10% 18%;       /* #262d34 */
+  --secondary-foreground:   0 0% 90%;
 
-  --muted: 220 20% 95%;
-  --muted-foreground: 220 10% 46%;
+  /* Cards / panels */
+  --card:                   216 10% 14%;       /* #1f2226 */
+  --card-foreground:        0 0% 100%;
 
-  --accent: 220 20% 95%;
-  --accent-foreground: 224 40% 10%;
+  /* Popovers / dropdowns */
+  --popover:                216 10% 12%;
+  --popover-foreground:     0 0% 100%;
 
-  --destructive: 0 72% 51%;
+  /* Muted / disabled */
+  --muted:                  216 10% 17%;
+  --muted-foreground:       218 11% 65%;       /* #9ca3af */
+
+  /* Accent (hover surfaces) */
+  --accent:                 216 10% 18%;
+  --accent-foreground:      0 0% 90%;
+
+  /* Danger (keep red) */
+  --destructive:            0 72% 51%;
   --destructive-foreground: 0 0% 100%;
 
-  --border: 220 13% 91%;
-  --input: 220 13% 91%;
-  --ring: 230 75% 57%;
+  /* Borders & inputs */
+  --border:                 213 8% 23%;        /* #363a3f */
+  --input:                  213 8% 23%;
+  --ring:                   38 100% 48%;       /* yellow focus ring */
 
-  --card-border: 220 13% 91%;
-  --popover-border: 220 13% 91%;
-  --primary-border: 230 75% 47%;
-  --secondary-border: 160 84% 29%;
-  --muted-border: 220 13% 91%;
-  --accent-border: 220 13% 91%;
-  --destructive-border: 0 72% 41%;
-  --sidebar-primary-border: 230 75% 50%;
-  --sidebar-accent-border: 228 25% 22%;
+  /* Border variant tokens */
+  --card-border:            213 8% 23%;
+  --popover-border:         213 8% 23%;
+  --primary-border:         38 100% 38%;
+  --secondary-border:       216 10% 26%;
+  --muted-border:           213 8% 23%;
+  --accent-border:          213 8% 23%;
+  --destructive-border:     0 72% 40%;
+  --sidebar-primary-border: 38 100% 38%;
+  --sidebar-accent-border:  216 10% 20%;
 
-  --chart-1: 230 75% 57%;
-  --chart-2: 160 84% 39%;
-  --chart-3: 38 92% 50%;
-  --chart-4: 280 65% 60%;
-  --chart-5: 340 75% 55%;
+  /* Charts — yellow/amber/orange palette, keep purple & red for variety */
+  --chart-1:   38 100% 48%;  /* yellow  */
+  --chart-2:   32 100% 50%;  /* amber   */
+  --chart-3:   22 100% 52%;  /* orange  */
+  --chart-4:  280  65% 60%;  /* purple  */
+  --chart-5:    0  72% 55%;  /* red     */
 
   --radius: 0.5rem;
 
-  --sidebar: 228 33% 12%;
-  --sidebar-foreground: 220 20% 90%;
-  --sidebar-border: 228 25% 18%;
-  --sidebar-primary: 230 75% 60%;
-  --sidebar-primary-foreground: 0 0% 100%;
-  --sidebar-accent: 228 25% 18%;
-  --sidebar-accent-foreground: 220 20% 90%;
-  --sidebar-ring: 230 75% 57%;
+  /* ── Sidebar ─────────────────────────────────────────────────── */
+  --sidebar:                   0 0% 6%;         /* #0f0f0f — slightly darker than page */
+  --sidebar-foreground:       218 11% 72%;
+  --sidebar-border:           213  8% 18%;
+  --sidebar-primary:           38 100% 48%;      /* yellow active */
+  --sidebar-primary-foreground: 0   0%  0%;
+  --sidebar-accent:           216 10% 15%;
+  --sidebar-accent-foreground: 0   0% 88%;
+  --sidebar-ring:              38 100% 48%;
 
-  --font-sans: 'Inter', system-ui, sans-serif;
+  --font-sans:    'Inter', system-ui, sans-serif;
   --font-display: 'Outfit', system-ui, sans-serif;
 }
 
+/* .dark mirrors :root so dark-mode toggling stays consistent */
 .dark {
-  --background: 228 25% 8%;
-  --foreground: 220 20% 95%;
-
-  --primary: 230 80% 65%;
-  --primary-foreground: 228 25% 8%;
-
-  --secondary: 160 70% 45%;
-  --secondary-foreground: 228 25% 8%;
-
-  --card: 228 25% 11%;
-  --card-foreground: 220 20% 95%;
-
-  --popover: 228 25% 11%;
-  --popover-foreground: 220 20% 95%;
-
-  --muted: 228 20% 15%;
-  --muted-foreground: 220 15% 55%;
-
-  --accent: 228 20% 15%;
-  --accent-foreground: 220 20% 95%;
-
-  --destructive: 0 62% 40%;
+  --background:             0 0% 7%;
+  --foreground:             0 0% 100%;
+  --primary:                38 100% 48%;
+  --primary-foreground:     0 0% 0%;
+  --secondary:              216 10% 18%;
+  --secondary-foreground:   0 0% 90%;
+  --card:                   216 10% 14%;
+  --card-foreground:        0 0% 100%;
+  --popover:                216 10% 12%;
+  --popover-foreground:     0 0% 100%;
+  --muted:                  216 10% 17%;
+  --muted-foreground:       218 11% 65%;
+  --accent:                 216 10% 18%;
+  --accent-foreground:      0 0% 90%;
+  --destructive:            0 72% 51%;
   --destructive-foreground: 0 0% 100%;
-
-  --border: 228 20% 18%;
-  --input: 228 20% 18%;
-  --ring: 230 80% 65%;
-
-  --card-border: 228 20% 18%;
-  --popover-border: 228 20% 18%;
-  --primary-border: 230 80% 55%;
-  --secondary-border: 160 70% 35%;
-  --muted-border: 228 20% 18%;
-  --accent-border: 228 20% 18%;
-  --destructive-border: 0 62% 30%;
-  --sidebar-primary-border: 230 80% 55%;
-  --sidebar-accent-border: 228 25% 16%;
-
-  --chart-1: 230 80% 65%;
-  --chart-2: 160 70% 45%;
-  --chart-3: 38 92% 55%;
-  --chart-4: 280 65% 65%;
-  --chart-5: 340 75% 60%;
-
-  --sidebar: 228 33% 7%;
-  --sidebar-foreground: 220 20% 85%;
-  --sidebar-border: 228 25% 12%;
-  --sidebar-primary: 230 80% 65%;
-  --sidebar-primary-foreground: 0 0% 100%;
-  --sidebar-accent: 228 25% 12%;
-  --sidebar-accent-foreground: 220 20% 90%;
-  --sidebar-ring: 230 80% 65%;
+  --border:                 213 8% 23%;
+  --input:                  213 8% 23%;
+  --ring:                   38 100% 48%;
+  --card-border:            213 8% 23%;
+  --popover-border:         213 8% 23%;
+  --primary-border:         38 100% 38%;
+  --secondary-border:       216 10% 26%;
+  --muted-border:           213 8% 23%;
+  --accent-border:          213 8% 23%;
+  --destructive-border:     0 72% 40%;
+  --sidebar-primary-border: 38 100% 38%;
+  --sidebar-accent-border:  216 10% 20%;
+  --chart-1:   38 100% 48%;
+  --chart-2:   32 100% 50%;
+  --chart-3:   22 100% 52%;
+  --chart-4:  280  65% 60%;
+  --chart-5:    0  72% 55%;
+  --sidebar:                   0 0% 6%;
+  --sidebar-foreground:       218 11% 72%;
+  --sidebar-border:           213  8% 18%;
+  --sidebar-primary:           38 100% 48%;
+  --sidebar-primary-foreground: 0   0%  0%;
+  --sidebar-accent:           216 10% 15%;
+  --sidebar-accent-foreground: 0   0% 88%;
+  --sidebar-ring:              38 100% 48%;
 }
 
 @layer base {
   body {
     @apply bg-background text-foreground antialiased selection:bg-primary/20;
     font-family: var(--font-sans);
+    background-color: var(--iz-bg);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
 
   h1, h2, h3, h4, h5, h6 {
     font-family: var(--font-display);
-    @apply font-bold tracking-tight text-foreground;
+    @apply font-bold tracking-tight;
+    color: var(--iz-text);
   }
 
   * {
     @apply border-border;
   }
+
+  /* Global input dark style */
+  input:not([type="checkbox"]):not([type="radio"]),
+  textarea,
+  select {
+    background-color: var(--iz-surface) !important;
+    border-color: var(--iz-border) !important;
+    color: var(--iz-text) !important;
+    border-radius: 8px !important;
+  }
+
+  input::placeholder,
+  textarea::placeholder {
+    color: var(--iz-text-muted) !important;
+    opacity: 1;
+  }
+
+  input:not([type="checkbox"]):not([type="radio"]):focus-visible,
+  textarea:focus-visible,
+  select:focus-visible {
+    outline: none !important;
+    box-shadow: 0 0 0 2px rgba(247, 166, 0, 0.28) !important;
+    border-color: var(--iz-accent) !important;
+  }
 }
 
 @layer components {
+  /* ── Glass card (hero/promo panels) ──────────────────── */
   .glass-card {
-    @apply bg-white/80 dark:bg-white/5 backdrop-blur-xl border border-white/30 dark:border-white/10 shadow-xl;
+    background: rgba(31, 34, 38, 0.85);
+    backdrop-filter: blur(20px);
+    border: 1px solid var(--iz-border);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
   }
 
+  /* ── Primary action button — flat yellow ─────────────── */
   .primary-gradient {
-    @apply bg-gradient-to-r from-[hsl(230,75%,57%)] to-[hsl(260,70%,60%)] text-white shadow-lg shadow-[hsl(230,75%,57%)]/20 transition-all duration-200;
+    background: var(--iz-accent) !important;
+    background-image: none !important;
+    color: #000000 !important;
+    font-weight: 700 !important;
+    box-shadow: 0 4px 20px rgba(247, 166, 0, 0.2) !important;
+    transition: background 0.18s ease, box-shadow 0.18s ease !important;
+  }
+  .primary-gradient:hover:not(:disabled) {
+    background: var(--iz-accent-hover) !important;
+    box-shadow: 0 4px 24px rgba(247, 166, 0, 0.38) !important;
+  }
+  .primary-gradient:disabled {
+    background: hsl(216, 10%, 20%) !important;
+    color: hsl(218, 11%, 40%) !important;
+    box-shadow: none !important;
+    cursor: not-allowed !important;
   }
 
+  /* ── Secondary action button — neutral dark ──────────── */
   .secondary-gradient {
-    @apply bg-gradient-to-r from-[hsl(160,84%,39%)] to-[hsl(170,70%,42%)] text-white shadow-lg shadow-[hsl(160,84%,39%)]/20 transition-all duration-200;
+    background: hsl(216, 10%, 20%) !important;
+    background-image: none !important;
+    color: #ffffff !important;
+    border: 1px solid var(--iz-border) !important;
+    font-weight: 600 !important;
+    transition: background 0.18s ease !important;
+    box-shadow: none !important;
+  }
+  .secondary-gradient:hover:not(:disabled) {
+    background: hsl(216, 10%, 25%) !important;
   }
 
+  /* ── Sidebar nav items ───────────────────────────────── */
   .nav-item {
-    @apply flex items-center gap-3 px-3 py-2.5 rounded-md transition-all duration-150 text-sidebar-foreground/70 font-medium text-sm;
+    @apply flex items-center gap-3 px-3 py-2.5 rounded-md transition-all duration-150 font-medium text-sm;
+    color: hsl(218 11% 65%);
   }
-
   .nav-item:hover {
-    @apply bg-sidebar-accent text-sidebar-foreground;
+    background: var(--iz-surface);
+    color: var(--iz-text);
   }
-
   .nav-item.active {
-    @apply bg-sidebar-primary/15 text-sidebar-primary font-semibold;
+    background: rgba(247, 166, 0, 0.12);
+    color: var(--iz-accent);
+    font-weight: 600;
+  }
+  .nav-item.active svg,
+  .nav-item.active .lucide {
+    color: var(--iz-accent);
   }
 
+  /* ── Stat card subtle glow ───────────────────────────── */
   .stat-card {
     @apply relative overflow-hidden;
   }
-
   .stat-card::before {
     content: '';
     @apply absolute inset-0 opacity-[0.03];
     background: radial-gradient(circle at top right, currentColor, transparent 70%);
   }
 
+  /* ── Input focus ring ────────────────────────────────── */
   .fintech-input {
-    @apply transition-all duration-200 focus-visible:ring-2 focus-visible:ring-primary/30 focus-visible:border-primary;
+    transition: all 0.2s;
+  }
+  .fintech-input:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(247, 166, 0, 0.3);
+    border-color: var(--iz-accent) !important;
   }
 
-  /* ── International Phone Input ─────────────────────────────── */
+  /* ── International Phone Input ───────────────────────── */
   .phone-input-wrapper .PhoneInput {
-    @apply flex items-center gap-0 h-9 w-full rounded-md border border-input bg-transparent text-sm shadow-sm transition-colors;
+    @apply flex items-center gap-0 h-9 w-full rounded-md border text-sm shadow-sm transition-colors;
+    background-color: var(--iz-surface);
+    border-color: var(--iz-border);
+    color: var(--iz-text);
+    border-radius: 8px;
   }
 
   .phone-input-wrapper .PhoneInputCountry {
-    @apply relative flex items-center gap-1 pl-3 pr-2 border-r border-input shrink-0 h-full cursor-pointer select-none;
+    @apply relative flex items-center gap-1 pl-3 pr-2 shrink-0 h-full cursor-pointer select-none;
+    border-right: 1px solid var(--iz-border);
   }
 
   .phone-input-wrapper .PhoneInputCountrySelect {
@@ -202,21 +298,117 @@
   }
 
   .phone-input-wrapper .PhoneInputInput {
-    @apply flex-1 h-full bg-transparent px-3 text-sm outline-none placeholder:text-muted-foreground text-foreground;
+    @apply flex-1 h-full px-3 text-sm outline-none;
+    background: transparent;
+    color: var(--iz-text);
     border: none;
   }
 
-  .phone-input-wrapper:focus-within .PhoneInput {
-    @apply ring-1 ring-ring border-ring;
+  .phone-input-wrapper .PhoneInputInput::placeholder {
+    color: var(--iz-text-muted);
   }
+
+  .phone-input-wrapper:focus-within .PhoneInput {
+    box-shadow: 0 0 0 1px var(--iz-accent);
+    border-color: var(--iz-accent);
+  }
+
+  /* ── Tables ──────────────────────────────────────────── */
+  .data-table-row {
+    border-bottom: 1px solid var(--iz-border);
+    transition: background 0.15s;
+  }
+  .data-table-row:hover {
+    background: var(--iz-surface);
+  }
+
+  /* ── Badge overrides — keep success green & error red ── */
+  /* (Shadcn badge uses bg-primary by default, which is now yellow;
+      status badges that use variant="default" will be yellow.
+      Explicit green/red variants are preserved via destructive.) */
 }
 
 @layer utilities {
   .text-balance {
     text-wrap: balance;
   }
+  /* Accent color utility shortcuts */
+  .text-accent   { color: var(--iz-accent); }
+  .bg-surface    { background-color: var(--iz-surface); }
+  .bg-surface-2  { background-color: var(--iz-surface-2); }
+  .border-accent { border-color: var(--iz-border); }
 }
 
+/* ── Auth page right panel (inherits global dark, minor extras) ── */
+.auth-dark-panel {
+  background-color: var(--iz-bg);
+}
+
+/* Tabs in auth page — yellow active indicator */
+.auth-dark-panel [role="tablist"] {
+  background-color: var(--iz-surface);
+  border: 1px solid var(--iz-border);
+  border-radius: 10px;
+}
+.auth-dark-panel [role="tab"][data-state="active"] {
+  background-color: var(--iz-accent) !important;
+  color: #000000 !important;
+  font-weight: 700 !important;
+  border-radius: 8px !important;
+  box-shadow: none !important;
+}
+.auth-dark-panel [role="tab"][data-state="inactive"] {
+  color: var(--iz-text-muted) !important;
+}
+.auth-dark-panel [role="tab"][data-state="inactive"]:hover {
+  color: var(--iz-text) !important;
+}
+
+/* Small accent links on auth page */
+.auth-dark-panel .text-primary,
+.auth-dark-panel a.text-primary {
+  color: var(--iz-accent) !important;
+}
+
+/* Loading state */
+.auth-dark-loading {
+  background-color: var(--iz-bg);
+}
+
+/* ── Shadcn Tabs used globally — yellow active tab ─────────────── */
+[role="tablist"] {
+  background-color: var(--iz-surface);
+  border: 1px solid var(--iz-border);
+}
+[role="tab"][data-state="active"] {
+  background-color: var(--iz-accent) !important;
+  color: #000000 !important;
+  font-weight: 700 !important;
+}
+[role="tab"][data-state="inactive"] {
+  color: var(--iz-text-muted);
+}
+
+/* ── Select / dropdown content ─────────────────────────────────── */
+[role="listbox"],
+[data-radix-popper-content-wrapper] > div {
+  background-color: var(--iz-surface-2) !important;
+  border-color: var(--iz-border) !important;
+}
+[role="option"]:focus,
+[role="option"][data-highlighted],
+[role="option"][data-state="checked"] {
+  background-color: rgba(247, 166, 0, 0.12) !important;
+  color: var(--iz-accent) !important;
+}
+
+/* ── Scrollbar styling ──────────────────────────────────────────── */
+::-webkit-scrollbar              { width: 6px; height: 6px; }
+::-webkit-scrollbar-track        { background: var(--iz-bg); }
+::-webkit-scrollbar-thumb        { background: var(--iz-border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover  { background: #4e5358; }
+
+/* ── Hide Replit badge ──────────────────────────────────────────── */
 #replit-badge-container,
 [data-replit-badge],
 .replit-badge {
@@ -224,141 +416,4 @@
   visibility: hidden !important;
   opacity: 0 !important;
   pointer-events: none !important;
-}
-
-/* ── Auth page: Bybit-style dark theme ─────────────────────────────────── */
-.auth-dark-panel {
-  background-color: #121212 !important;
-
-  --background: 0 0% 7%;
-  --foreground: 0 0% 100%;
-
-  --card: 220 10% 13%;
-  --card-foreground: 0 0% 100%;
-
-  --popover: 220 10% 13%;
-  --popover-foreground: 0 0% 100%;
-
-  --primary: 38 100% 48%;
-  --primary-foreground: 0 0% 0%;
-
-  --secondary: 220 9% 20%;
-  --secondary-foreground: 0 0% 100%;
-
-  --muted: 220 9% 18%;
-  --muted-foreground: 220 8% 56%;
-
-  --accent: 220 9% 18%;
-  --accent-foreground: 0 0% 100%;
-
-  --border: 220 7% 24%;
-  --input: 220 7% 24%;
-  --ring: 38 100% 48%;
-}
-
-.auth-dark-panel input:not([type="checkbox"]),
-.auth-dark-panel .phone-input-wrapper .PhoneInput {
-  background-color: #1f2226 !important;
-  border: 1px solid #363a3f !important;
-  color: #ffffff !important;
-  border-radius: 8px !important;
-}
-
-.auth-dark-panel input::placeholder,
-.auth-dark-panel .phone-input-wrapper .PhoneInputInput::placeholder {
-  color: #5c636b !important;
-}
-
-.auth-dark-panel .phone-input-wrapper .PhoneInputInput {
-  background-color: transparent !important;
-  color: #ffffff !important;
-}
-
-.auth-dark-panel .phone-input-wrapper .PhoneInputCountry {
-  border-color: #363a3f !important;
-}
-
-/* Card dark surface */
-.auth-dark-panel [class*="Card"],
-.auth-dark-panel .border {
-  border-color: #363a3f !important;
-}
-
-/* Headings */
-.auth-dark-panel h1,
-.auth-dark-panel h2,
-.auth-dark-panel h3 {
-  color: #ffffff !important;
-}
-
-/* ── Primary / submit buttons → yellow ──────────────── */
-.auth-dark-panel .primary-gradient {
-  background: #f7a600 !important;
-  background-image: none !important;
-  color: #000000 !important;
-  font-weight: 700 !important;
-  box-shadow: 0 4px 20px rgba(247, 166, 0, 0.25) !important;
-}
-.auth-dark-panel .primary-gradient:hover:not(:disabled) {
-  background: #d99200 !important;
-  box-shadow: 0 4px 20px rgba(247, 166, 0, 0.4) !important;
-}
-.auth-dark-panel .primary-gradient:disabled {
-  background: #3a3a3a !important;
-  color: #666 !important;
-  box-shadow: none !important;
-}
-
-/* ── Tabs ──────────────────────────────────────────── */
-.auth-dark-panel [role="tablist"] {
-  background-color: #1f2226 !important;
-  border: 1px solid #363a3f !important;
-  border-radius: 10px !important;
-}
-.auth-dark-panel [role="tab"][data-state="active"] {
-  background-color: #f7a600 !important;
-  color: #000000 !important;
-  font-weight: 700 !important;
-  border-radius: 8px !important;
-  box-shadow: none !important;
-}
-.auth-dark-panel [role="tab"][data-state="inactive"] {
-  color: #6b7280 !important;
-}
-.auth-dark-panel [role="tab"][data-state="inactive"]:hover {
-  color: #c4cdd5 !important;
-}
-
-/* ── Ghost / outline buttons ───────────────────────── */
-.auth-dark-panel button[data-variant="ghost"],
-.auth-dark-panel [class*="ghost"] {
-  color: #6b7280 !important;
-}
-.auth-dark-panel [class*="ghost"]:hover {
-  background-color: #1f2226 !important;
-  color: #c4cdd5 !important;
-}
-
-/* Fingerprint button */
-.auth-dark-panel button.w-full.h-11 {
-  border-color: #363a3f !important;
-}
-
-/* Small link text (forgot pin, etc.) */
-.auth-dark-panel .text-primary {
-  color: #f7a600 !important;
-}
-.auth-dark-panel a.text-primary,
-.auth-dark-panel button.text-xs.text-primary {
-  color: #f7a600 !important;
-}
-
-/* Form labels */
-.auth-dark-panel label {
-  color: #a0aab4 !important;
-}
-
-/* Loading spinner bg */
-.auth-dark-loading {
-  background-color: #121212 !important;
 }
