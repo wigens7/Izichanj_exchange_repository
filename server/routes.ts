@@ -5163,7 +5163,7 @@ export async function registerRoutes(
         JOIN profiles b ON b.id = o.buyer_id
         JOIN profiles s ON s.id = o.seller_id
         WHERE o.status = 'disputed'
-        ORDER BY o.updated_at DESC
+        ORDER BY COALESCE(o.updated_at, o.created_at) DESC
       `);
       res.json(rows.rows);
     } catch (e: any) { res.status(500).json({ message: e.message }); }
@@ -6110,7 +6110,7 @@ export async function registerRoutes(
       if (!order) return res.status(404).json({ message: "Order not found" });
       if (order.buyer_id !== profileId && order.seller_id !== profileId) return res.status(403).json({ message: "Not authorized" });
 
-      await db.execute(sql`UPDATE p2p_orders SET status = 'disputed', dispute_reason = ${reason} WHERE id = ${orderId}`);
+      await db.execute(sql`UPDATE p2p_orders SET status = 'disputed', dispute_reason = ${reason}, updated_at = NOW() WHERE id = ${orderId}`);
 
       // Notify admin via Telegram
       const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
@@ -6276,7 +6276,7 @@ export async function registerRoutes(
       const order = rows.rows[0] as any;
       if (!order) return res.status(404).json({ message: "Order not found" });
       if (!["pending", "paid"].includes(order.status)) return res.status(400).json({ message: "Can only dispute pending or paid orders" });
-      await db.execute(sql`UPDATE p2p_orders SET status = 'disputed', dispute_reason = ${reason} WHERE id = ${orderId}`);
+      await db.execute(sql`UPDATE p2p_orders SET status = 'disputed', dispute_reason = ${reason}, updated_at = NOW() WHERE id = ${orderId}`);
       await db.execute(sql`INSERT INTO p2p_chat_messages (order_id, sender_id, message) VALUES (${orderId}, ${profileId}, ${`⚠️ Dispute opened: ${reason}`})`);
       const [buyerR, sellerR] = await Promise.all([
         db.execute(sql`SELECT full_name FROM profiles WHERE id = ${order.buyer_id}`),

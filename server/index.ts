@@ -497,6 +497,7 @@ app.use((req, res, next) => {
     await db.execute(sql`ALTER TABLE p2p_orders ADD COLUMN IF NOT EXISTS seller_confirmed_receipt BOOLEAN DEFAULT false`);
     // P2P seller restriction + flagging
     await db.execute(sql`ALTER TABLE p2p_orders ADD COLUMN IF NOT EXISTS dispute_reason TEXT`);
+    await db.execute(sql`ALTER TABLE p2p_orders ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW()`);
     await db.execute(sql`ALTER TABLE profiles ADD COLUMN IF NOT EXISTS p2p_seller_restricted BOOLEAN DEFAULT false`);
     await db.execute(sql`ALTER TABLE profiles ADD COLUMN IF NOT EXISTS p2p_flagged_as TEXT`);
     // Dispute action log table
