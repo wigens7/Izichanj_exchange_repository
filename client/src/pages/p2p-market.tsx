@@ -627,28 +627,50 @@ function TradeDialog({ open, order, currentUserId, onClose }: { open: boolean; o
     sendMsg.mutate({ message: msg });
   };
 
+  const [uploading, setUploading] = useState(false);
+
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const formData = new FormData();
-    formData.append("file", file);
+    setUploading(true);
     try {
-      const res = await fetch("/api/upload", { method: "POST", body: formData, credentials: "include" });
-      const data = await res.json();
-      if (data.url) sendMsg.mutate({ message: "", fileUrl: data.url });
-    } catch {
-      toast({ title: "Upload failed.", variant: "destructive" });
+      // Step 1: Get presigned upload URL
+      const urlRes = await fetch("/api/p2p/upload-url", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ name: file.name, size: file.size, contentType: file.type }),
+      });
+      if (!urlRes.ok) throw new Error("Failed to get upload URL");
+      const { uploadURL, objectPath } = await urlRes.json();
+      // Step 2: Upload file directly to object storage
+      const putRes = await fetch(uploadURL, {
+        method: "PUT",
+        headers: { "Content-Type": file.type },
+        body: file,
+      });
+      if (!putRes.ok) throw new Error("Upload failed");
+      // Step 3: Send message with the stored path as URL
+      sendMsg.mutate({ message: "", fileUrl: objectPath, fileName: file.name });
+    } catch (err: any) {
+      toast({ title: "Upload failed.", description: err?.message ?? "Please try again.", variant: "destructive" });
+    } finally {
+      setUploading(false);
+      e.target.value = "";
     }
-    e.target.value = "";
   };
 
   const isActive = ["pending", "paid"].includes(order.status);
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-w-sm max-h-[90vh] flex flex-col p-0" data-testid="dialog-trade">
-        {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b border-border">
+      {/* Full-height dialog with proper flex column so chat area grows */}
+      <DialogContent
+        className="max-w-sm w-full h-[88vh] max-h-[88vh] flex flex-col p-0 gap-0 overflow-hidden"
+        data-testid="dialog-trade"
+      >
+        {/* Header — shadcn adds its own X button; no custom one needed */}
+        <div className="flex items-center justify-between px-4 pt-4 pb-3 border-b border-border shrink-0">
           <div>
             <h3 className="font-semibold text-sm">Trade #{order.id}</h3>
             <div className="flex items-center gap-2 mt-0.5">
@@ -656,121 +678,141 @@ function TradeDialog({ open, order, currentUserId, onClose }: { open: boolean; o
               <span className="text-xs text-muted-foreground">{isBuyer ? "Buying" : "Selling"}</span>
             </div>
           </div>
-          <Button variant="ghost" size="icon" onClick={onClose}><X className="w-4 h-4" /></Button>
         </div>
 
-        {/* Trade details */}
-        <div className="px-4 py-2 bg-muted/20 border-b border-border">
+        {/* Trade summary — compact */}
+        <div className="px-4 py-3 bg-muted/20 border-b border-border shrink-0">
           <div className="grid grid-cols-3 gap-2 text-center">
             <div>
-              <p className="text-xs text-muted-foreground">Amount</p>
-              <p className="font-semibold text-sm">{parseFloat(order.amount_usdt ?? order.amountUsdt ?? 0).toFixed(2)} USDT</p>
+              <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Amount</p>
+              <p className="font-semibold text-sm mt-0.5">{parseFloat(order.amount_usdt ?? order.amountUsdt ?? 0).toFixed(2)} USDT</p>
             </div>
             <div>
-              <p className="text-xs text-muted-foreground">Rate</p>
-              <p className="font-semibold text-sm">{parseFloat(order.rate_htg ?? order.rateHtg ?? 0).toFixed(2)}</p>
+              <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Rate</p>
+              <p className="font-semibold text-sm mt-0.5">{parseFloat(order.rate_htg ?? order.rateHtg ?? 0).toFixed(2)}</p>
             </div>
             <div>
-              <p className="text-xs text-muted-foreground">Total</p>
-              <p className="font-semibold text-sm text-primary">{parseFloat(order.total_htg ?? order.totalHtg ?? order.amount_local ?? 0).toFixed(2)} {currency}</p>
+              <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Total</p>
+              <p className="font-semibold text-sm mt-0.5 text-primary">{parseFloat(order.total_htg ?? order.totalHtg ?? order.amount_local ?? 0).toFixed(2)} {currency}</p>
             </div>
           </div>
-          <p className="text-xs text-center text-muted-foreground mt-1">via {order.payment_method ?? order.paymentMethod}</p>
-          {order.status === "pending" && expiresAt && (
-            <div className="flex justify-center mt-1.5">
-              <ExpiryCountdown expiresAt={expiresAt} />
-            </div>
-          )}
+          <div className="flex items-center justify-between mt-2">
+            <p className="text-xs text-muted-foreground">via {order.payment_method ?? order.paymentMethod}</p>
+            {order.status === "pending" && expiresAt && <ExpiryCountdown expiresAt={expiresAt} />}
+          </div>
         </div>
 
-        {/* Chat */}
-        <ScrollArea className="flex-1 min-h-0 px-4 py-2" style={{ maxHeight: "240px" }}>
-          <div className="space-y-2">
-            {(!chat || chat.length === 0) && (
-              <p className="text-xs text-center text-muted-foreground py-4">No messages yet. Coordinate your payment here.</p>
-            )}
-            {chat?.map((msg: any) => {
-              const isMe = (msg.sender_id ?? msg.senderId) === currentUserId;
-              const fileUrl = msg.file_url ?? msg.fileUrl;
-              const msgDate = msg.created_at ?? msg.createdAt;
-              const readAt = msg.read_at ?? msg.readAt;
+        {/* Chat area — flex-1 so it fills available space */}
+        <div className="flex-1 min-h-0 overflow-y-auto px-4 py-3 space-y-3">
+          {(!chat || chat.length === 0) && (
+            <p className="text-xs text-center text-muted-foreground py-6">No messages yet. Coordinate your payment here.</p>
+          )}
+          {chat?.map((msg: any) => {
+            const isMe = (msg.sender_id ?? msg.senderId) === currentUserId;
+            const fileUrl = msg.file_url ?? msg.fileUrl;
+            const msgDate = msg.created_at ?? msg.createdAt;
+            const readAt = msg.read_at ?? msg.readAt;
+            // System messages start with status emojis — render as compact centered pills
+            const statusEmojis = ["💰", "✅", "❌", "⏰", "⚠️", "🔒"];
+            const isSystemMsg = !msg.sender_id && !msg.senderId ||
+              (msg.message && statusEmojis.some((e) => msg.message.startsWith(e)));
+            if (isSystemMsg) {
               return (
-                <div key={msg.id} className={`flex ${isMe ? "justify-end" : "justify-start"}`}>
-                  <div className={`max-w-[80%] rounded-lg px-3 py-2 text-sm ${isMe ? "bg-primary text-primary-foreground" : "bg-muted"}`}>
-                    {msg.message && <p className="break-words">{msg.message}</p>}
-                    {fileUrl && (
-                      <a href={fileUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-xs underline mt-1">
-                        <ImageIcon className="w-3 h-3" /> View attachment
-                      </a>
-                    )}
-                    <div className={`flex items-center gap-1 mt-1 ${isMe ? "justify-end" : "justify-start"}`}>
-                      <span className={`text-[10px] ${isMe ? "text-primary-foreground/70" : "text-muted-foreground"}`}>
-                        {msgDate ? formatDistanceToNow(new Date(msgDate), { addSuffix: true }) : ""}
-                      </span>
-                      {isMe && (
-                        readAt
-                          ? <span className="inline-flex text-[10px] text-primary-foreground/80" title={`Read ${formatDistanceToNow(new Date(readAt), { addSuffix: true })}`}>
-                              <Check className="w-2.5 h-2.5" /><Check className="w-2.5 h-2.5 -ml-1.5" />
-                            </span>
-                          : <Check className="w-2.5 h-2.5 text-primary-foreground/50" />
-                      )}
-                    </div>
-                  </div>
+                <div key={msg.id} className="flex justify-center my-1">
+                  <span className="text-[10px] text-muted-foreground bg-muted/40 border border-border/50 rounded-full px-3 py-1 max-w-[90%] text-center leading-relaxed">{msg.message}</span>
                 </div>
               );
-            })}
-            <div ref={chatBottomRef} />
-          </div>
-        </ScrollArea>
+            }
+            return (
+              <div key={msg.id} className={`flex ${isMe ? "justify-end" : "justify-start"}`}>
+                <div className={`max-w-[78%] rounded-2xl px-3 py-2 text-sm ${isMe ? "bg-primary text-primary-foreground rounded-br-sm" : "bg-muted rounded-bl-sm"}`}>
+                  {msg.message && <p className="break-words leading-relaxed">{msg.message}</p>}
+                  {fileUrl && (
+                    <a href={fileUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-xs underline mt-1.5 opacity-80 hover:opacity-100">
+                      <ImageIcon className="w-3 h-3 shrink-0" /> {msg.file_name ?? msg.fileName ?? "View image"}
+                    </a>
+                  )}
+                  <div className={`flex items-center gap-0.5 mt-1 ${isMe ? "justify-end" : "justify-start"}`}>
+                    <span className={`text-[10px] ${isMe ? "text-primary-foreground/60" : "text-muted-foreground"}`}>
+                      {msgDate ? formatDistanceToNow(new Date(msgDate), { addSuffix: true }) : ""}
+                    </span>
+                    {isMe && (
+                      readAt
+                        ? <span className="inline-flex ml-0.5 text-primary-foreground/80" title="Read">
+                            <Check className="w-2.5 h-2.5" /><Check className="w-2.5 h-2.5 -ml-1.5" />
+                          </span>
+                        : <Check className="w-2.5 h-2.5 ml-0.5 text-primary-foreground/40" />
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+          <div ref={chatBottomRef} />
+        </div>
 
         {/* Chat input */}
         {isActive && (
-          <div className="flex gap-2 px-4 py-2 border-t border-border">
-            <input type="file" ref={fileRef} accept="image/*" className="hidden" onChange={handleFileUpload} />
-            <Button variant="ghost" size="icon" className="shrink-0 h-8 w-8" onClick={() => fileRef.current?.click()} data-testid="button-attach-file">
-              <Paperclip className="w-4 h-4 text-muted-foreground" />
+          <div className="flex items-center gap-2 px-3 py-2.5 border-t border-border shrink-0 bg-background">
+            <input type="file" ref={fileRef} accept="image/*,application/pdf" className="hidden" onChange={handleFileUpload} />
+            <Button
+              variant="ghost" size="icon" className="shrink-0 h-9 w-9 text-muted-foreground hover:text-foreground"
+              onClick={() => fileRef.current?.click()}
+              disabled={uploading}
+              data-testid="button-attach-file"
+              title="Attach image"
+            >
+              {uploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Paperclip className="w-4 h-4" />}
             </Button>
             <Input
               value={chatMsg}
               onChange={e => setChatMsg(e.target.value)}
-              onKeyDown={e => e.key === "Enter" && handleSend()}
+              onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
               placeholder="Type a message…"
-              className="h-8 text-sm"
+              className="h-9 text-sm flex-1"
               data-testid="input-chat-message"
             />
-            <Button size="icon" className="h-8 w-8 shrink-0" onClick={handleSend} disabled={sendMsg.isPending} data-testid="button-send-message">
-              {sendMsg.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Send className="w-3 h-3" />}
+            <Button
+              size="icon" className="h-9 w-9 shrink-0"
+              onClick={handleSend}
+              disabled={sendMsg.isPending || !chatMsg.trim()}
+              data-testid="button-send-message"
+            >
+              {sendMsg.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
             </Button>
           </div>
         )}
 
-        {/* Action buttons */}
-        <div className="p-4 border-t border-border space-y-3">
-          {/* Buyer actions */}
+        {/* Action footer */}
+        <div className="px-4 py-3 border-t border-border space-y-2.5 shrink-0 bg-background">
+          {/* Buyer: pending */}
           {isBuyer && order.status === "pending" && (
             <Button className="w-full" onClick={() => markPaidMut.mutate()} disabled={markPaidMut.isPending} data-testid="button-mark-paid">
-              {markPaidMut.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : <CheckCircle2 className="w-4 h-4 mr-1" />}
+              {markPaidMut.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-1.5" /> : <CheckCircle2 className="w-4 h-4 mr-1.5" />}
               I've Sent Payment
             </Button>
           )}
           {isBuyer && order.status === "paid" && (
-            <p className="text-xs text-center text-muted-foreground">Waiting for seller to confirm receipt and release funds…</p>
+            <p className="text-xs text-center text-muted-foreground py-1">Waiting for seller to verify and release funds…</p>
           )}
 
-          {/* Seller actions */}
+          {/* Seller: pending */}
           {isSeller && order.status === "pending" && (
-            <p className="text-xs text-center text-muted-foreground">Waiting for buyer to send payment…</p>
+            <p className="text-xs text-center text-muted-foreground py-1">Waiting for buyer to send payment…</p>
           )}
+          {/* Seller: paid — release flow */}
           {isSeller && order.status === "paid" && (
             <div className="space-y-2">
-              <div className="flex items-start gap-2">
-                <Checkbox id="release-confirm" checked={releaseChecked} onCheckedChange={(v) => setReleaseChecked(!!v)} data-testid="checkbox-release" />
+              <div className="flex items-start gap-2.5 bg-muted/30 rounded-lg p-2.5">
+                <Checkbox id="release-confirm" checked={releaseChecked} onCheckedChange={(v) => setReleaseChecked(!!v)} className="mt-0.5" data-testid="checkbox-release" />
                 <label htmlFor="release-confirm" className="text-xs text-muted-foreground cursor-pointer leading-relaxed">
-                  I confirm that I have manually verified the receipt of <strong>{parseFloat(order.total_htg ?? order.totalHtg ?? order.amount_local ?? 0).toFixed(2)} {currency}</strong> in my <strong>{order.payment_method ?? order.paymentMethod}</strong> account.
+                  I confirm that I have manually verified the receipt of{" "}
+                  <strong className="text-foreground">{parseFloat(order.total_htg ?? order.totalHtg ?? order.amount_local ?? 0).toFixed(2)} {currency}</strong>{" "}
+                  in my <strong className="text-foreground">{order.payment_method ?? order.paymentMethod}</strong> account.
                 </label>
               </div>
               <Button className="w-full" onClick={() => releaseMut.mutate()} disabled={!releaseChecked || releaseMut.isPending} data-testid="button-release-funds">
-                {releaseMut.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : <CheckCircle2 className="w-4 h-4 mr-1" />}
+                {releaseMut.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-1.5" /> : <CheckCircle2 className="w-4 h-4 mr-1.5" />}
                 Release USDT to Buyer
               </Button>
             </div>
@@ -779,53 +821,45 @@ function TradeDialog({ open, order, currentUserId, onClose }: { open: boolean; o
           {/* Cancel + Dispute */}
           {isActive && (
             <div className="flex gap-2">
-              <Button
-                variant="outline" size="sm" className="flex-1 text-xs"
-                onClick={() => cancelMut.mutate()} disabled={cancelMut.isPending}
-                data-testid="button-cancel-order"
-              >
+              <Button variant="outline" size="sm" className="flex-1 h-8 text-xs" onClick={() => cancelMut.mutate()} disabled={cancelMut.isPending} data-testid="button-cancel-order">
                 {cancelMut.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : "Cancel Order"}
               </Button>
-              <Button
-                variant="outline" size="sm" className="flex-1 text-xs border-red-500/30 text-red-400 hover:bg-red-500/10"
-                onClick={() => setShowDispute(true)}
-                data-testid="button-dispute-order"
-              >
+              <Button variant="outline" size="sm" className="flex-1 h-8 text-xs border-red-500/30 text-red-400 hover:bg-red-500/10" onClick={() => setShowDispute(true)} data-testid="button-dispute-order">
                 <AlertTriangle className="w-3 h-3 mr-1" /> Dispute
               </Button>
             </div>
           )}
 
           {order.status === "released" && (
-            <div className="flex items-center justify-center gap-2 text-emerald-400 text-sm">
+            <div className="flex items-center justify-center gap-2 text-emerald-400 text-sm py-1">
               <CheckCircle2 className="w-4 h-4" /> Trade completed
             </div>
           )}
           {order.status === "disputed" && (
-            <div className="flex items-center justify-center gap-2 text-red-400 text-sm">
+            <div className="flex items-center justify-center gap-2 text-red-400 text-sm py-1">
               <AlertTriangle className="w-4 h-4" /> Under dispute – admin reviewing
             </div>
           )}
           {order.status === "cancelled" && (
-            <div className="flex items-center justify-center gap-2 text-muted-foreground text-sm">
+            <div className="flex items-center justify-center gap-2 text-muted-foreground text-sm py-1">
               <X className="w-4 h-4" /> Order cancelled
             </div>
           )}
         </div>
 
-        {/* Dispute sub-dialog (in-place) */}
+        {/* Dispute overlay */}
         {showDispute && (
-          <div className="absolute inset-0 bg-background/95 backdrop-blur-sm rounded-lg flex flex-col p-6 gap-4 z-10">
+          <div className="absolute inset-0 bg-background/97 backdrop-blur-sm rounded-lg flex flex-col p-5 gap-4 z-20">
             <div>
-              <h4 className="font-semibold">Open Dispute</h4>
-              <p className="text-xs text-muted-foreground mt-1">Describe the issue. Admin will review and resolve.</p>
+              <h4 className="font-semibold text-sm">Open Dispute</h4>
+              <p className="text-xs text-muted-foreground mt-1">Describe the issue clearly. Admin will review and resolve.</p>
             </div>
             <Textarea
               value={disputeReason}
               onChange={e => setDisputeReason(e.target.value)}
               placeholder="Explain what went wrong…"
-              rows={4}
-              className="text-sm resize-none"
+              rows={5}
+              className="text-sm resize-none flex-1"
               data-testid="textarea-dispute-reason"
             />
             <div className="flex gap-2">

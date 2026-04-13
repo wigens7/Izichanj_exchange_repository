@@ -5209,6 +5209,24 @@ export async function registerRoutes(
     next();
   };
 
+  // POST /api/p2p/upload-url — get presigned upload URL for P2P chat image
+  app.post("/api/p2p/upload-url", isAuthenticated, async (req: any, res) => {
+    try {
+      const { name, size, contentType } = req.body;
+      if (!name) return res.status(400).json({ message: "File name required" });
+      const maxSize = 10 * 1024 * 1024;
+      if (size && size > maxSize) return res.status(400).json({ message: "File too large (max 10MB)" });
+      const { ObjectStorageService } = await import("./replit_integrations/object_storage");
+      const objectStorage = new ObjectStorageService();
+      const uploadURL = await objectStorage.getObjectEntityUploadURL();
+      const objectPath = objectStorage.normalizeObjectEntityPath(uploadURL);
+      res.json({ uploadURL, objectPath });
+    } catch (e: any) {
+      console.error("P2P upload-url error:", e);
+      res.status(500).json({ message: "Failed to generate upload URL" });
+    }
+  });
+
   // GET /api/p2p/payment-methods — get allowed methods for current user's country
   app.get("/api/p2p/payment-methods", isAuthenticated, async (req: any, res) => {
     try {
