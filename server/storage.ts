@@ -1,4 +1,4 @@
-import { profiles, deposits, withdrawals, kycDocuments, otps, webauthnCredentials, notifications, supportConversations, supportMessages, virtualCards, blacklistedUsers, p2pTransfers, loginLogs, fraudRejections, cardTransactions, topUpTransactions, securityEvents, balanceLogs, userReports, type Profile, type Deposit, type InsertDeposit, type Withdrawal, type InsertWithdrawal, type KycDocument, type WebAuthnCredential, type Notification, type SupportConversation, type SupportMessage, type VirtualCard, type BlacklistedUser, type P2PTransfer, type LoginLog, type FraudRejection, type CardTransaction, type TopUpTransaction, type SecurityEvent, type BalanceLog, type UserReport } from "@shared/schema";
+import { profiles, deposits, withdrawals, kycDocuments, otps, webauthnCredentials, notifications, supportConversations, supportMessages, virtualCards, blacklistedUsers, p2pTransfers, loginLogs, fraudRejections, cardTransactions, topUpTransactions, securityEvents, balanceLogs, userReports, referralEarnings, referralPayoutRequests, type Profile, type Deposit, type InsertDeposit, type Withdrawal, type InsertWithdrawal, type KycDocument, type WebAuthnCredential, type Notification, type SupportConversation, type SupportMessage, type VirtualCard, type BlacklistedUser, type P2PTransfer, type LoginLog, type FraudRejection, type CardTransaction, type TopUpTransaction, type SecurityEvent, type BalanceLog, type UserReport, type ReferralEarning, type ReferralPayoutRequest } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, ne, lt, sql, or, ilike, inArray } from "drizzle-orm";
 import crypto from "crypto";
@@ -122,6 +122,17 @@ export interface IStorage {
 
   // Risk check for a specific withdrawal
   getWithdrawalRiskInfo(withdrawalId: number): Promise<any>;
+
+  // Referral / Affiliate system
+  getProfileByReferralCode(code: string): Promise<Profile | undefined>;
+  generateReferralCode(profileId: number): Promise<string>;
+  createReferralEarning(data: { referrerId: number; refereeId: number; type: "registration" | "kyc" | "deposit"; amount: number; description?: string }): Promise<ReferralEarning>;
+  creditReferralBalance(profileId: number, amount: number): Promise<void>;
+  getReferralStats(profileId: number): Promise<{ referrals: any[]; totalEarned: number; pendingPayout: number }>;
+  createReferralPayoutRequest(profileId: number, amount: number): Promise<ReferralPayoutRequest>;
+  getReferralPayoutRequests(profileId?: number): Promise<any[]>;
+  updateReferralPayoutRequest(id: number, status: "approved" | "rejected", adminNote?: string): Promise<ReferralPayoutRequest | null>;
+  hasPendingReferralPayout(profileId: number): Promise<boolean>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -948,6 +959,103 @@ export class DatabaseStorage implements IStorage {
       .where(eq(userReports.id, id))
       .returning();
     return row ?? null;
+  }
+
+  // ── Referral / Affiliate system ──────────────────────────────────
+
+  async getProfileByReferralCode(code: string): Promise<Profile | undefined> {
+    const [profile] = await db.select().from(profiles).where(eq(profiles.referralCode, code));
+    return profile;
+  }
+
+  async generateReferralCode(profileId: number): Promise<string> {
+    const code = `IZI${profileId}${crypto.randomBytes(3).toString("hex").toUpperCase()}`;
+    await db.update(profiles).set({ referralCode: code }).where(eq(profiles.id, profileId));
+    return code;
+  }
+
+  async createReferralEarning(data: { referrerId: number; refereeId: number; type: "registration" | "kyc" | "deposit"; amount: number; description?: string }): Promise<ReferralEarning> {
+    const [row] = await db.insert(referralEarnings).values({
+      referrerId: data.referrerId,
+      refereeId: data.refereeId,
+      type: data.type,
+      amount: data.amount.toFixed(2),
+      description: data.description ?? null,
+    }).returning();
+    return row;
+  }
+
+  async creditReferralBalance(profileId: number, amount: number): Promise<void> {
+    await db.execute(sql`
+      UPDATE profiles SET referral_balance = COALESCE(referral_balance, 0) + ${amount} WHERE id = ${profileId}
+    `);
+  }
+
+  async getReferralStats(profileId: number): Promise<{ referrals: any[]; totalEarned: number; pendingPayout: number }> {
+    const referrals = await db.execute(sql`
+      SELECT p.id, p.full_name, p.email, p.kyc_status, p.created_at,
+        COALESCE(re.total_earned, 0) as earned_from_this
+      FROM profiles p
+      LEFT JOIN (
+        SELECT referee_id, SUM(amount::numeric) as total_earned
+        FROM referral_earnings WHERE referrer_id = ${profileId}
+        GROUP BY referee_id
+      ) re ON re.referee_id = p.id
+      WHERE p.referred_by_id = ${profileId}
+      ORDER BY p.created_at DESC
+    `);
+
+    const totals = await db.execute(sql`
+      SELECT COALESCE(SUM(amount::numeric), 0) as total
+      FROM referral_earnings WHERE referrer_id = ${profileId}
+    `);
+
+    const pending = await db.execute(sql`
+      SELECT COALESCE(SUM(amount::numeric), 0) as total
+      FROM referral_payout_requests
+      WHERE profile_id = ${profileId} AND status = 'pending'
+    `);
+
+    return {
+      referrals: referrals.rows as any[],
+      totalEarned: Number((totals.rows[0] as any)?.total ?? 0),
+      pendingPayout: Number((pending.rows[0] as any)?.total ?? 0),
+    };
+  }
+
+  async createReferralPayoutRequest(profileId: number, amount: number): Promise<ReferralPayoutRequest> {
+    const [row] = await db.insert(referralPayoutRequests).values({
+      profileId,
+      amount: amount.toFixed(2),
+      status: "pending",
+    }).returning();
+    return row;
+  }
+
+  async getReferralPayoutRequests(profileId?: number): Promise<any[]> {
+    const rows = await db.execute(sql`
+      SELECT rpr.*, p.full_name, p.email, p.referral_balance
+      FROM referral_payout_requests rpr
+      LEFT JOIN profiles p ON p.id = rpr.profile_id
+      ${profileId ? sql`WHERE rpr.profile_id = ${profileId}` : sql``}
+      ORDER BY rpr.created_at DESC
+    `);
+    return rows.rows as any[];
+  }
+
+  async updateReferralPayoutRequest(id: number, status: "approved" | "rejected", adminNote?: string): Promise<ReferralPayoutRequest | null> {
+    const [row] = await db.update(referralPayoutRequests)
+      .set({ status, adminNote: adminNote ?? null, reviewedAt: new Date() })
+      .where(eq(referralPayoutRequests.id, id))
+      .returning();
+    return row ?? null;
+  }
+
+  async hasPendingReferralPayout(profileId: number): Promise<boolean> {
+    const rows = await db.execute(sql`
+      SELECT 1 FROM referral_payout_requests WHERE profile_id = ${profileId} AND status = 'pending' LIMIT 1
+    `);
+    return (rows.rows as any[]).length > 0;
   }
 }
 

@@ -10,13 +10,15 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { StatusBadge } from "@/components/status-badge";
-import { Loader2, UploadCloud, CheckCircle2, Globe, Clock, User, UserCheck, Copy, Check, FileText, MapPin, LogOut } from "lucide-react";
+import { Loader2, UploadCloud, CheckCircle2, Globe, Clock, User, UserCheck, Copy, Check, FileText, MapPin, LogOut, Users, DollarSign, Share2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { profileInfoSchema, type ProfileInfoInput } from "@shared/schema";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { apiRequest } from "@/lib/queryClient";
 
 export default function ProfilePage() {
   const { data: user } = useUser();
@@ -29,6 +31,22 @@ export default function ProfilePage() {
   const { toast } = useToast();
   const { uploadFile, isUploading } = useUpload();
   const [refCopied, setRefCopied] = useState(false);
+  const [codeCopied, setCodeCopied] = useState(false);
+  const qc = useQueryClient();
+
+  const { data: referralStats, isLoading: referralLoading } = useQuery<any>({
+    queryKey: ["/api/referral/stats"],
+    enabled: !!user?.affiliateEnabled,
+  });
+
+  const payoutMutation = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/referral/request-payout"),
+    onSuccess: () => {
+      toast({ title: "Payout Requested", description: "Your referral balance will be transferred after admin review." });
+      qc.invalidateQueries({ queryKey: ["/api/referral/stats"] });
+    },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
   
   const [idUrl, setIdUrl] = useState<string>("");
   const [idBackUrl, setIdBackUrl] = useState<string>("");
@@ -407,6 +425,132 @@ export default function ProfilePage() {
           )}
         </div>
       </div>
+
+      {/* ── Referral / Affiliate Panel ── */}
+      {user.affiliateEnabled && (
+        <Card>
+          <CardHeader className="pb-3">
+            <div className="flex items-center gap-2">
+              <Share2 className="w-5 h-5 text-primary" />
+              <CardTitle className="text-base">Referral Program</CardTitle>
+            </div>
+            <CardDescription className="text-xs">Earn USDT by inviting friends to Izichanj</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {referralLoading ? (
+              <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin text-muted-foreground" /></div>
+            ) : (
+              <div className="space-y-5">
+                {/* Referral code */}
+                <div className="rounded-lg border border-border bg-muted/30 p-4">
+                  <p className="text-xs uppercase tracking-wider text-muted-foreground mb-2">Your Referral Code</p>
+                  <div className="flex items-center gap-2">
+                    <code className="flex-1 font-mono text-lg font-bold tracking-widest" data-testid="text-referral-code">
+                      {referralStats?.referralCode || "—"}
+                    </code>
+                    <Button
+                      variant="ghost" size="icon"
+                      onClick={() => {
+                        if (referralStats?.referralCode) {
+                          navigator.clipboard.writeText(referralStats.referralCode);
+                          setCodeCopied(true);
+                          toast({ title: "Copied!", description: "Referral code copied to clipboard." });
+                          setTimeout(() => setCodeCopied(false), 2000);
+                        }
+                      }}
+                      data-testid="button-copy-referral-code"
+                    >
+                      {codeCopied ? <Check className="w-4 h-4 text-emerald-500" /> : <Copy className="w-4 h-4" />}
+                    </Button>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground mt-1">Share this code with friends. They enter it during registration.</p>
+                </div>
+
+                {/* Stats row */}
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="rounded-lg border border-border bg-muted/20 p-3 text-center">
+                    <Users className="w-4 h-4 text-primary mx-auto mb-1" />
+                    <p className="text-xl font-bold">{referralStats?.referrals?.length ?? 0}</p>
+                    <p className="text-[11px] text-muted-foreground">Referrals</p>
+                  </div>
+                  <div className="rounded-lg border border-border bg-muted/20 p-3 text-center">
+                    <DollarSign className="w-4 h-4 text-emerald-500 mx-auto mb-1" />
+                    <p className="text-xl font-bold">${(referralStats?.totalEarned ?? 0).toFixed(2)}</p>
+                    <p className="text-[11px] text-muted-foreground">Total Earned</p>
+                  </div>
+                  <div className="rounded-lg border border-border bg-muted/20 p-3 text-center">
+                    <DollarSign className="w-4 h-4 text-amber-500 mx-auto mb-1" />
+                    <p className="text-xl font-bold">${(referralStats?.referralBalance ?? 0).toFixed(2)}</p>
+                    <p className="text-[11px] text-muted-foreground">Balance</p>
+                  </div>
+                </div>
+
+                {/* Commission guide */}
+                <div className="rounded-lg border border-border/60 bg-primary/5 p-3 text-xs text-muted-foreground space-y-1">
+                  <p className="font-semibold text-foreground text-sm mb-1.5">Commission Structure</p>
+                  <div className="flex justify-between"><span>Friend registers</span><span className="font-mono font-bold text-foreground">+$0.05</span></div>
+                  <div className="flex justify-between"><span>Friend completes KYC</span><span className="font-mono font-bold text-foreground">+$0.25</span></div>
+                  <div className="flex justify-between"><span>Friend deposits ≥ $50 (first time)</span><span className="font-mono font-bold text-foreground">+$2.00</span></div>
+                </div>
+
+                {/* Payout request */}
+                <div className="flex items-center gap-3">
+                  <Button
+                    className="primary-gradient"
+                    disabled={payoutMutation.isPending || (referralStats?.referralBalance ?? 0) < 1 || (referralStats?.pendingPayout ?? 0) > 0}
+                    onClick={() => payoutMutation.mutate()}
+                    data-testid="button-request-referral-payout"
+                  >
+                    {payoutMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+                    Request Payout
+                  </Button>
+                  <span className="text-xs text-muted-foreground">
+                    {(referralStats?.pendingPayout ?? 0) > 0
+                      ? `Payout pending: $${referralStats.pendingPayout.toFixed(2)}`
+                      : "Min. $1.00 to request"}
+                  </span>
+                </div>
+
+                {/* Referral list */}
+                {referralStats?.referrals?.length > 0 && (
+                  <div>
+                    <p className="text-xs uppercase tracking-wider text-muted-foreground mb-2">Your Referrals</p>
+                    <div className="space-y-1.5">
+                      {referralStats.referrals.map((r: any) => (
+                        <div key={r.id} className="flex items-center justify-between text-sm py-1.5 border-b border-border/50 last:border-0" data-testid={`row-referral-${r.id}`}>
+                          <div>
+                            <span className="font-medium">{r.full_name}</span>
+                            <StatusBadge status={r.kyc_status} className="ml-2 text-[10px]" />
+                          </div>
+                          <span className="font-mono text-emerald-600 dark:text-emerald-400">+${Number(r.earned_from_this).toFixed(2)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Payout history */}
+                {referralStats?.payoutHistory?.length > 0 && (
+                  <div>
+                    <p className="text-xs uppercase tracking-wider text-muted-foreground mb-2">Payout History</p>
+                    <div className="space-y-1.5">
+                      {referralStats.payoutHistory.map((p: any) => (
+                        <div key={p.id} className="flex items-center justify-between text-sm py-1.5 border-b border-border/50 last:border-0" data-testid={`row-payout-${p.id}`}>
+                          <span className="text-muted-foreground">{formatDate(p.created_at)}</span>
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono">${Number(p.amount).toFixed(2)}</span>
+                            <StatusBadge status={p.status} />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       <div className="flex justify-start pt-2">
         <Button

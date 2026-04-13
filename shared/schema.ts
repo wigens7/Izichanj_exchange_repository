@@ -44,6 +44,11 @@ export const profiles = pgTable("profiles", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
   trc20DepositAddress: text("trc20_deposit_address"),
   bep20DepositAddress: text("bep20_deposit_address"),
+  // Affiliate / Referral fields
+  affiliateEnabled: boolean("affiliate_enabled").default(false).notNull(),
+  referralCode: text("referral_code").unique(),
+  referralBalance: decimal("referral_balance", { precision: 10, scale: 2 }).default("0").notNull(),
+  referredById: integer("referred_by_id"),
 });
 
 export const blacklistedUsers = pgTable("blacklisted_users", {
@@ -187,6 +192,7 @@ export const registerSchema = z.object({
   phone: z.string().min(8, "Phone number must be at least 8 digits").regex(/^\+?[0-9]+$/, "Invalid phone number format"),
   password: z.string().min(6, "Password must be at least 6 characters"),
   confirmPassword: z.string(),
+  referralCode: z.string().optional(),
 }).refine((data) => data.password === data.confirmPassword, {
   message: "Passwords do not match",
   path: ["confirmPassword"],
@@ -345,6 +351,32 @@ export const balanceLogs = pgTable("balance_logs", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 export type BalanceLog = typeof balanceLogs.$inferSelect;
+
+// Referral System Tables
+export const referralEarningTypeEnum = pgEnum("referral_earning_type", ["registration", "kyc", "deposit"]);
+export const referralPayoutStatusEnum = pgEnum("referral_payout_status", ["pending", "approved", "rejected"]);
+
+export const referralEarnings = pgTable("referral_earnings", {
+  id: serial("id").primaryKey(),
+  referrerId: integer("referrer_id").references(() => profiles.id).notNull(),
+  refereeId: integer("referee_id").references(() => profiles.id).notNull(),
+  type: referralEarningTypeEnum("type").notNull(),
+  amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
+  description: text("description"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+export type ReferralEarning = typeof referralEarnings.$inferSelect;
+
+export const referralPayoutRequests = pgTable("referral_payout_requests", {
+  id: serial("id").primaryKey(),
+  profileId: integer("profile_id").references(() => profiles.id).notNull(),
+  amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
+  status: referralPayoutStatusEnum("status").default("pending").notNull(),
+  adminNote: text("admin_note"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  reviewedAt: timestamp("reviewed_at"),
+});
+export type ReferralPayoutRequest = typeof referralPayoutRequests.$inferSelect;
 
 export const profileInfoSchema = z.object({
   firstName: z.string().min(1, "First name is required"),

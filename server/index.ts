@@ -366,6 +366,53 @@ app.use((req, res, next) => {
     console.warn("[startup migration] IP cleanup skipped:", (e as Error).message);
   }
 
+  // Referral / Affiliate system migration
+  try {
+    await db.execute(sql`ALTER TABLE profiles ADD COLUMN IF NOT EXISTS affiliate_enabled BOOLEAN NOT NULL DEFAULT false`);
+    await db.execute(sql`ALTER TABLE profiles ADD COLUMN IF NOT EXISTS referral_code TEXT UNIQUE`);
+    await db.execute(sql`ALTER TABLE profiles ADD COLUMN IF NOT EXISTS referral_balance DECIMAL(10,2) NOT NULL DEFAULT 0`);
+    await db.execute(sql`ALTER TABLE profiles ADD COLUMN IF NOT EXISTS referred_by_id INTEGER REFERENCES profiles(id)`);
+    await db.execute(sql`
+      DO $$ BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'referral_earning_type') THEN
+          CREATE TYPE referral_earning_type AS ENUM ('registration', 'kyc', 'deposit');
+        END IF;
+      END $$
+    `);
+    await db.execute(sql`
+      DO $$ BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'referral_payout_status') THEN
+          CREATE TYPE referral_payout_status AS ENUM ('pending', 'approved', 'rejected');
+        END IF;
+      END $$
+    `);
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS referral_earnings (
+        id SERIAL PRIMARY KEY,
+        referrer_id INTEGER NOT NULL REFERENCES profiles(id),
+        referee_id INTEGER NOT NULL REFERENCES profiles(id),
+        type referral_earning_type NOT NULL,
+        amount DECIMAL(10,2) NOT NULL,
+        description TEXT,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    `);
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS referral_payout_requests (
+        id SERIAL PRIMARY KEY,
+        profile_id INTEGER NOT NULL REFERENCES profiles(id),
+        amount DECIMAL(10,2) NOT NULL,
+        status referral_payout_status NOT NULL DEFAULT 'pending',
+        admin_note TEXT,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        reviewed_at TIMESTAMP
+      )
+    `);
+    console.log("[startup migration] referral system tables ensured");
+  } catch (e) {
+    console.warn("[startup migration] referral system skipped:", (e as Error).message);
+  }
+
   await registerRoutes(httpServer, app);
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {

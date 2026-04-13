@@ -784,6 +784,20 @@ export async function registerRoutes(
           const newBalance = currentBalance + creditAmount;
           await storage.updateProfileBalance(deposit.profileId, newBalance);
 
+          // Referral commission: $2.00 for first qualifying crypto deposit >= $50
+          if (profile.referredById && depositAmount >= 50) {
+            try {
+              const referrer = await storage.getProfile(profile.referredById);
+              if (referrer && referrer.affiliateEnabled) {
+                const existingEarning = await db.execute(sql`SELECT 1 FROM referral_earnings WHERE referrer_id = ${referrer.id} AND referee_id = ${deposit.profileId} AND type = 'deposit' LIMIT 1`);
+                if ((existingEarning.rows as any[]).length === 0) {
+                  await storage.createReferralEarning({ referrerId: referrer.id, refereeId: deposit.profileId, type: "deposit", amount: 2.00, description: `First crypto deposit ≥ $50 by ${profile.fullName}` });
+                  await storage.creditReferralBalance(referrer.id, 2.00);
+                }
+              }
+            } catch { /* ignore */ }
+          }
+
           const htgAmount = formatHtg(rateUsdtToHtg(creditAmount));
           await storage.createNotification({
             profileId: deposit.profileId,
@@ -840,6 +854,15 @@ export async function registerRoutes(
       const passwordHash = await bcrypt.hash(input.password, 12);
       const profile = await storage.createProfile(input.fullName, input.email, passwordHash, input.phone);
       const registrationIp = getClientIp(req);
+      // Resolve referral code → store referredById
+      if (input.referralCode) {
+        try {
+          const referrer = await storage.getProfileByReferralCode(input.referralCode.trim().toUpperCase());
+          if (referrer && referrer.affiliateEnabled && referrer.id !== profile.id) {
+            await db.execute(sql`UPDATE profiles SET referred_by_id = ${referrer.id} WHERE id = ${profile.id}`);
+          }
+        } catch { /* ignore */ }
+      }
       db.update(profiles).set({ registrationIp, lastIp: registrationIp }).where(eq(profiles.id, profile.id)).catch(() => {});
       const code = crypto.randomInt(100000, 999999).toString();
       await storage.createOtp(profile.id, code);
@@ -869,6 +892,16 @@ export async function registerRoutes(
       await storage.markEmailVerified(profileId);
       const profile = await storage.getProfile(profileId);
       if (!profile) return res.status(401).json({ message: "Unauthorized" });
+      // Referral commission: $0.05 on registration (email verify)
+      if (profile.referredById) {
+        try {
+          const referrer = await storage.getProfile(profile.referredById);
+          if (referrer && referrer.affiliateEnabled) {
+            await storage.createReferralEarning({ referrerId: referrer.id, refereeId: profileId, type: "registration", amount: 0.05, description: `Registration of ${profile.fullName}` });
+            await storage.creditReferralBalance(referrer.id, 0.05);
+          }
+        } catch { /* ignore */ }
+      }
       const { passwordHash: _, ...safeProfile } = profile;
       res.json(safeProfile);
     } catch (e) {
@@ -1549,6 +1582,23 @@ export async function registerRoutes(
       await storage.updateProfileBalance(deposit.profileId, newBalance);
       storage.createBalanceLog({ profileId: profile.id, previousBalance: currentBalance, newBalance, change: depositAmount, action: "deposit", referenceId: String(deposit.id), adminId: req.session?.profileId }).catch(() => {});
     }
+    // Referral commission: $2.00 when referee makes a deposit >= $50
+    if (profile?.referredById) {
+      try {
+        const depositAmt = parseFloat(deposit.amountUsdt);
+        if (depositAmt >= 50) {
+          const referrer = await storage.getProfile(profile.referredById);
+          if (referrer && referrer.affiliateEnabled) {
+            // Only pay once per referee for first qualifying deposit
+            const existing = await db.execute(sql`SELECT 1 FROM referral_earnings WHERE referrer_id = ${referrer.id} AND referee_id = ${deposit.profileId} AND type = 'deposit' LIMIT 1`);
+            if ((existing.rows as any[]).length === 0) {
+              await storage.createReferralEarning({ referrerId: referrer.id, refereeId: deposit.profileId, type: "deposit", amount: 2.00, description: `First deposit ≥ $50 by ${profile.fullName}` });
+              await storage.creditReferralBalance(referrer.id, 2.00);
+            }
+          }
+        }
+      } catch { /* ignore */ }
+    }
     const htgAmount = formatHtg(rateUsdtToHtg(Number(deposit.amountUsdt)));
     const depositMsg = `Your deposit of ${Number(deposit.amountUsdt).toFixed(2)} USDT (${htgAmount} HTG) has been approved and added to your balance.`;
     await storage.createNotification({
@@ -2064,6 +2114,16 @@ export async function registerRoutes(
     const kycProfile = await storage.getProfile(profileId);
     if (kycProfile?.phone) {
       sendWhatsAppNotification(kycProfile.phone, `*Izichanj*\n\n✅ KYC Verified\n\n${kycApproveMsg}\n\nhttps://izichanj.com`, kycProfile.fullName);
+    }
+    // Referral commission: $0.25 when referee completes KYC
+    if (kycProfile?.referredById) {
+      try {
+        const referrer = await storage.getProfile(kycProfile.referredById);
+        if (referrer && referrer.affiliateEnabled) {
+          await storage.createReferralEarning({ referrerId: referrer.id, refereeId: profileId, type: "kyc", amount: 0.25, description: `KYC verified by ${kycProfile.fullName}` });
+          await storage.creditReferralBalance(referrer.id, 0.25);
+        }
+      } catch { /* ignore */ }
     }
 
     // Auto-register with Strowallet if not yet registered
@@ -4947,6 +5007,133 @@ export async function registerRoutes(
       }
       const updated = await storage.updateUserReportStatus(id, status, adminNote);
       if (!updated) return res.status(404).json({ message: "Report not found" });
+      res.json(updated);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message || "Internal Error" });
+    }
+  });
+
+  // ── Referral / Affiliate System ──────────────────────────────────────────────
+
+  // Get or generate user's referral code
+  app.get("/api/referral/code", isAuthenticated, async (req: any, res) => {
+    try {
+      const profileId = req.session.profileId;
+      const profile = await storage.getProfile(profileId);
+      if (!profile) return res.status(404).json({ message: "Not found" });
+      if (!profile.affiliateEnabled) return res.status(403).json({ message: "Affiliate not enabled for your account" });
+      let code = profile.referralCode;
+      if (!code) {
+        code = await storage.generateReferralCode(profileId);
+      }
+      res.json({ referralCode: code });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message || "Internal Error" });
+    }
+  });
+
+  // Get referral stats for current user
+  app.get("/api/referral/stats", isAuthenticated, async (req: any, res) => {
+    try {
+      const profileId = req.session.profileId;
+      const profile = await storage.getProfile(profileId);
+      if (!profile) return res.status(404).json({ message: "Not found" });
+      if (!profile.affiliateEnabled) return res.status(403).json({ message: "Affiliate not enabled for your account" });
+      const stats = await storage.getReferralStats(profileId);
+      const payouts = await storage.getReferralPayoutRequests(profileId);
+      res.json({
+        referralCode: profile.referralCode,
+        referralBalance: parseFloat(profile.referralBalance || "0"),
+        ...stats,
+        payoutHistory: payouts,
+      });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message || "Internal Error" });
+    }
+  });
+
+  // User: request payout (transfer referralBalance → main balance via admin)
+  app.post("/api/referral/request-payout", isAuthenticated, async (req: any, res) => {
+    try {
+      const profileId = req.session.profileId;
+      const profile = await storage.getProfile(profileId);
+      if (!profile) return res.status(404).json({ message: "Not found" });
+      if (!profile.affiliateEnabled) return res.status(403).json({ message: "Affiliate not enabled" });
+      const balance = parseFloat(profile.referralBalance || "0");
+      if (balance < 1) return res.status(400).json({ message: "Minimum payout is $1.00" });
+      const hasPending = await storage.hasPendingReferralPayout(profileId);
+      if (hasPending) return res.status(400).json({ message: "You already have a pending payout request" });
+      const payout = await storage.createReferralPayoutRequest(profileId, balance);
+      res.json(payout);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message || "Internal Error" });
+    }
+  });
+
+  // Admin: toggle affiliate for a user
+  app.patch("/api/admin/users/:id/toggle-affiliate", isAuthenticated, isAdmin, async (req: any, res) => {
+    try {
+      const profileId = Number(req.params.id);
+      const profile = await storage.getProfile(profileId);
+      if (!profile) return res.status(404).json({ message: "User not found" });
+      const newValue = !profile.affiliateEnabled;
+      await db.execute(sql`UPDATE profiles SET affiliate_enabled = ${newValue} WHERE id = ${profileId}`);
+      // Auto-generate referral code when enabling
+      if (newValue && !profile.referralCode) {
+        await storage.generateReferralCode(profileId);
+      }
+      const updated = await storage.getProfile(profileId);
+      res.json({ affiliateEnabled: updated?.affiliateEnabled, referralCode: updated?.referralCode });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message || "Internal Error" });
+    }
+  });
+
+  // Admin: list all payout requests
+  app.get("/api/admin/referral-payouts", isAuthenticated, isAdmin, async (req: any, res) => {
+    try {
+      const payouts = await storage.getReferralPayoutRequests();
+      res.json(payouts);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message || "Internal Error" });
+    }
+  });
+
+  // Admin: approve payout → move referralBalance to main balance
+  app.patch("/api/admin/referral-payouts/:id/approve", isAuthenticated, isAdmin, async (req: any, res) => {
+    try {
+      const id = Number(req.params.id);
+      const payouts = await storage.getReferralPayoutRequests();
+      const payout = payouts.find((p) => p.id === id);
+      if (!payout) return res.status(404).json({ message: "Payout request not found" });
+      if (payout.status !== "pending") return res.status(400).json({ message: "Already processed" });
+      const amount = parseFloat(payout.amount);
+      const profile = await storage.getProfile(payout.profile_id);
+      if (!profile) return res.status(404).json({ message: "User not found" });
+      // Deduct referral balance, credit main balance
+      await db.execute(sql`UPDATE profiles SET referral_balance = GREATEST(0, COALESCE(referral_balance, 0) - ${amount}) WHERE id = ${payout.profile_id}`);
+      const currentBalance = parseFloat(profile.balance || "0");
+      const newBalance = currentBalance + amount;
+      await storage.updateProfileBalance(payout.profile_id, newBalance);
+      storage.createBalanceLog({ profileId: payout.profile_id, previousBalance: currentBalance, newBalance, change: amount, action: "referral_payout", referenceId: String(id), adminId: req.session?.profileId }).catch(() => {});
+      const updated = await storage.updateReferralPayoutRequest(id, "approved", req.body.adminNote);
+      // Notify user
+      await storage.createNotification({ profileId: payout.profile_id, type: "deposit_approved", title: "Referral Payout Approved", message: `Your referral payout of $${amount.toFixed(2)} has been transferred to your main balance.` });
+      const payoutProfile = await storage.getProfile(payout.profile_id);
+      if (payoutProfile?.phone) sendWhatsAppNotification(payoutProfile.phone, `*Izichanj*\n\n✅ Referral Payout Approved\n\nYour referral balance of $${amount.toFixed(2)} has been transferred to your main balance.\n\nhttps://izichanj.com`, payoutProfile.fullName);
+      res.json(updated);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message || "Internal Error" });
+    }
+  });
+
+  // Admin: reject payout
+  app.patch("/api/admin/referral-payouts/:id/reject", isAuthenticated, isAdmin, async (req: any, res) => {
+    try {
+      const id = Number(req.params.id);
+      const { adminNote } = req.body;
+      const updated = await storage.updateReferralPayoutRequest(id, "rejected", adminNote);
+      if (!updated) return res.status(404).json({ message: "Not found" });
       res.json(updated);
     } catch (e: any) {
       res.status(500).json({ message: e.message || "Internal Error" });

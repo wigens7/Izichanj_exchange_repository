@@ -553,7 +553,7 @@ function SignUpForm() {
 
   const form = useForm<RegisterInput>({
     resolver: zodResolver(registerSchema),
-    defaultValues: { fullName: "", email: "", phone: "", password: "", confirmPassword: "" },
+    defaultValues: { fullName: "", email: "", phone: "", password: "", confirmPassword: "", referralCode: "" },
   });
 
   const onSubmit = (data: RegisterInput) => {
@@ -675,6 +675,26 @@ function SignUpForm() {
                     {showConfirm ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </Button>
                 </div>
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        <FormField
+          control={form.control}
+          name="referralCode"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel className="text-muted-foreground">Referral Code <span className="text-xs font-normal">(optional)</span></FormLabel>
+              <FormControl>
+                <Input
+                  placeholder="e.g. IZI123ABC"
+                  className="uppercase placeholder:normal-case"
+                  data-testid="input-register-referral-code"
+                  {...field}
+                  onChange={(e) => field.onChange(e.target.value.toUpperCase())}
+                />
               </FormControl>
               <FormMessage />
             </FormItem>

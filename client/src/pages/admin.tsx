@@ -81,6 +81,7 @@ import {
   Info,
   Flag,
   Lock,
+  Share2,
 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -118,7 +119,7 @@ export default function AdminPage() {
       </div>
 
       <Tabs defaultValue="users" className="w-full">
-        <TabsList className="mb-4 grid w-full grid-cols-10 gap-1">
+        <TabsList className="mb-4 grid w-full grid-cols-11 gap-1">
           <TabsTrigger value="users" className="gap-2" data-testid="tab-admin-users">
             <Users className="w-4 h-4" />
             <span className="hidden sm:inline">Users</span>
@@ -163,6 +164,10 @@ export default function AdminPage() {
             <Flag className="w-4 h-4" />
             <span className="hidden sm:inline">Reports</span>
           </TabsTrigger>
+          <TabsTrigger value="referral-payouts" className="gap-2" data-testid="tab-admin-referral-payouts">
+            <Share2 className="w-4 h-4" />
+            <span className="hidden sm:inline">Referrals</span>
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="users">
@@ -197,6 +202,9 @@ export default function AdminPage() {
         </TabsContent>
         <TabsContent value="reports">
           <ReportsTab />
+        </TabsContent>
+        <TabsContent value="referral-payouts">
+          <ReferralPayoutsTab />
         </TabsContent>
       </Tabs>
     </div>
@@ -462,6 +470,20 @@ function UserRow({ user, onUpdateBalance, isPending }: { user: any; onUpdateBala
     },
   });
 
+  const toggleAffiliateMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("PATCH", `/api/admin/users/${user.id}/toggle-affiliate`);
+      return res.json();
+    },
+    onSuccess: (data: any) => {
+      toast({ title: data.affiliateEnabled ? "Affiliate Enabled" : "Affiliate Disabled", description: data.affiliateEnabled ? `${user.fullName} can now use the referral system.` : `Affiliate disabled for ${user.fullName}.` });
+      qc.invalidateQueries({ queryKey: ["/api/admin/users"] });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
+  });
+
   return (
     <>
       <TableRow data-testid={`row-user-${user.id}`} className="cursor-pointer" onClick={() => setExpanded(!expanded)}>
@@ -614,6 +636,17 @@ function UserRow({ user, onUpdateBalance, isPending }: { user: any; onUpdateBala
             >
               <CreditCard className="w-3 h-3 mr-1" />
               {user.strowalletCustomerId ? "Update Strowallet" : "Set Strowallet"}
+            </Button>
+            <Button
+              variant={user.affiliateEnabled ? "default" : "outline"}
+              size="sm"
+              onClick={() => toggleAffiliateMutation.mutate()}
+              disabled={toggleAffiliateMutation.isPending}
+              data-testid={`button-toggle-affiliate-${user.id}`}
+              title={user.affiliateEnabled ? "Disable affiliate program" : "Enable affiliate program"}
+            >
+              {toggleAffiliateMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Users className="w-3 h-3 mr-1" />}
+              {user.affiliateEnabled ? "Affiliate ON" : "Affiliate OFF"}
             </Button>
             {!confirmDelete ? (
               <Button variant="destructive" size="sm" onClick={() => setConfirmDelete(true)} disabled={user.role === "admin"} data-testid={`button-delete-user-${user.id}`}>
@@ -3943,6 +3976,134 @@ function ReportsTab() {
           {filtered.length > 0 && (
             <div className="px-4 py-2 border-t text-xs text-muted-foreground">
               Showing {filtered.length} report{filtered.length !== 1 ? "s" : ""}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function ReferralPayoutsTab() {
+  const qc = useQueryClient();
+  const { toast } = useToast();
+  const { data: payouts, isLoading } = useQuery<any[]>({
+    queryKey: ["/api/admin/referral-payouts"],
+  });
+
+  const approveMutation = useMutation({
+    mutationFn: async (id: number) => {
+      const res = await apiRequest("PATCH", `/api/admin/referral-payouts/${id}/approve`);
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Payout Approved", description: "Referral balance transferred to user's main balance." });
+      qc.invalidateQueries({ queryKey: ["/api/admin/referral-payouts"] });
+    },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const rejectMutation = useMutation({
+    mutationFn: async (id: number) => {
+      const res = await apiRequest("PATCH", `/api/admin/referral-payouts/${id}/reject`);
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Payout Rejected" });
+      qc.invalidateQueries({ queryKey: ["/api/admin/referral-payouts"] });
+    },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const pendingPayouts = payouts?.filter((p) => p.status === "pending") || [];
+  const processedPayouts = payouts?.filter((p) => p.status !== "pending") || [];
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader className="pb-3">
+          <div className="flex items-center gap-2">
+            <Share2 className="w-5 h-5 text-primary" />
+            <CardTitle className="text-base">Referral Payout Requests</CardTitle>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {isLoading ? (
+            <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin text-muted-foreground" /></div>
+          ) : (
+            <div className="space-y-6">
+              {/* Pending */}
+              {pendingPayouts.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-4">No pending payout requests.</p>
+              ) : (
+                <div>
+                  <p className="text-xs uppercase tracking-wider text-muted-foreground mb-3">Pending ({pendingPayouts.length})</p>
+                  <div className="space-y-2">
+                    {pendingPayouts.map((p) => (
+                      <div key={p.id} className="flex items-center justify-between rounded-lg border border-border bg-muted/20 p-3" data-testid={`row-referral-payout-${p.id}`}>
+                        <div>
+                          <p className="font-medium text-sm">{p.full_name}</p>
+                          <p className="text-xs text-muted-foreground">{p.email}</p>
+                          <p className="text-xs text-muted-foreground mt-0.5">{formatDateTime(p.created_at)}</p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono font-bold text-base">${Number(p.amount).toFixed(2)}</span>
+                          <Button
+                            size="sm"
+                            className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                            onClick={() => approveMutation.mutate(p.id)}
+                            disabled={approveMutation.isPending}
+                            data-testid={`button-approve-referral-payout-${p.id}`}
+                          >
+                            {approveMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <CheckCircle className="w-3 h-3 mr-1" />}
+                            Approve
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="destructive"
+                            onClick={() => rejectMutation.mutate(p.id)}
+                            disabled={rejectMutation.isPending}
+                            data-testid={`button-reject-referral-payout-${p.id}`}
+                          >
+                            {rejectMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <XCircle className="w-3 h-3 mr-1" />}
+                            Reject
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* History */}
+              {processedPayouts.length > 0 && (
+                <div>
+                  <p className="text-xs uppercase tracking-wider text-muted-foreground mb-3">History</p>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>User</TableHead>
+                        <TableHead>Amount</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead>Date</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {processedPayouts.map((p) => (
+                        <TableRow key={p.id} data-testid={`row-payout-history-${p.id}`}>
+                          <TableCell>
+                            <p className="font-medium text-sm">{p.full_name}</p>
+                            <p className="text-xs text-muted-foreground">{p.email}</p>
+                          </TableCell>
+                          <TableCell className="font-mono">${Number(p.amount).toFixed(2)}</TableCell>
+                          <TableCell><StatusBadge status={p.status} /></TableCell>
+                          <TableCell className="text-xs text-muted-foreground">{formatDateTime(p.reviewed_at || p.created_at)}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
             </div>
           )}
         </CardContent>
