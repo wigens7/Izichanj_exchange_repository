@@ -4375,6 +4375,29 @@ function DisputeDetailPanel({ disputeId, detail, isLoading, onClose, onRefresh, 
           </div>
         )}
 
+        {/* Shared Reason Input — MUST be filled before any action button works */}
+        <div className="space-y-2 bg-muted/20 border border-border rounded-lg p-3">
+          <Label className="text-xs font-semibold uppercase tracking-wider flex items-center gap-1.5">
+            <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
+            <span>Decision / Action Reason</span>
+            <span className="text-red-400 ml-0.5">*</span>
+          </Label>
+          <Textarea
+            value={reason}
+            onChange={e => setReason(e.target.value)}
+            placeholder="Enter your reason here first — this unlocks all action buttons and will be sent as a notification to the concerned parties…"
+            rows={3}
+            className="text-sm resize-none"
+            data-testid="textarea-admin-reason"
+          />
+          {!reason.trim() && (
+            <p className="text-[11px] text-amber-400 flex items-center gap-1.5 font-medium">
+              <AlertTriangle className="w-3 h-3 shrink-0" />
+              Fill in a reason above to unlock all action buttons below.
+            </p>
+          )}
+        </div>
+
         {/* Both parties */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <DisputePartyCard
@@ -4448,22 +4471,6 @@ function DisputeDetailPanel({ disputeId, detail, isLoading, onClose, onRefresh, 
               );
             })}
           </div>
-        </div>
-
-        {/* Shared Reason Input */}
-        <div className="space-y-2">
-          <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-            Decision / Action Reason <span className="text-red-400">*</span>
-          </Label>
-          <Textarea
-            value={reason}
-            onChange={e => setReason(e.target.value)}
-            placeholder="Describe the reason for your decision — this will be sent as a notification to both parties…"
-            rows={3}
-            className="text-sm resize-none"
-            data-testid="textarea-admin-reason"
-          />
-          <p className="text-[10px] text-muted-foreground">Required for all actions — resolution and user management.</p>
         </div>
 
         {/* Resolution Actions */}
