@@ -6424,7 +6424,7 @@ export async function registerRoutes(
   });
 
   // ── APK Download Tracking ──
-  const APK_DRIVE_URL = "https://drive.google.com/file/d/14Jyjou9BpgDuCusGMMykAw7e6RecxenJ/view?usp=drivesdk";
+  const APK_DRIVE_URL = "https://drive.google.com/uc?export=download&id=14Jyjou9BpgDuCusGMMykAw7e6RecxenJ";
 
   app.get("/api/download-app", async (req: any, res) => {
     try {
