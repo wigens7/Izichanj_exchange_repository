@@ -3237,6 +3237,9 @@ function SettingsTab() {
   const [depInput, setDepInput] = useState<string>("");
   const [witInput, setWitInput] = useState<string>("");
   const [initialized, setInitialized] = useState(false);
+  const [moncashInput, setMoncashInput] = useState("");
+  const [natcashInput, setNatcashInput] = useState("");
+  const [phonesInitialized, setPhonesInitialized] = useState(false);
 
   useEffect(() => {
     if (!initialized && depositRate && withdrawalRate) {
@@ -3245,6 +3248,18 @@ function SettingsTab() {
       setInitialized(true);
     }
   }, [depositRate, withdrawalRate, initialized]);
+
+  const { data: paymentInfo } = useQuery<any>({
+    queryKey: ["/api/deposits/manual/payment-info"],
+  });
+
+  useEffect(() => {
+    if (!phonesInitialized && paymentInfo) {
+      setMoncashInput(paymentInfo.moncash || "");
+      setNatcashInput(paymentInfo.natcash || "");
+      setPhonesInitialized(true);
+    }
+  }, [paymentInfo, phonesInitialized]);
 
   const updateRates = useMutation({
     mutationFn: async () => {
@@ -3264,6 +3279,30 @@ function SettingsTab() {
       setDepInput(String(data.depositRate));
       setWitInput(String(data.withdrawalRate));
       toast({ title: "Rates updated", description: `Deposit: 1 USDT = ${data.depositRate} HTG | Withdrawal: 1 USDT = ${data.withdrawalRate} HTG` });
+    },
+    onError: (err: Error) => {
+      toast({ variant: "destructive", title: "Error", description: err.message });
+    },
+  });
+
+  const updatePhones = useMutation({
+    mutationFn: async () => {
+      const res = await fetch("/api/admin/settings/payment-phones", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ moncash: moncashInput, natcash: natcashInput }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.message || "Failed to update phone numbers");
+      }
+      return res.json();
+    },
+    onSuccess: (data: { moncash: string; natcash: string }) => {
+      qc.invalidateQueries({ queryKey: ["/api/deposits/manual/payment-info"] });
+      setMoncashInput(data.moncash);
+      setNatcashInput(data.natcash);
+      toast({ title: "Deposit numbers updated", description: "MonCash and NatCash numbers are now live for users." });
     },
     onError: (err: Error) => {
       toast({ variant: "destructive", title: "Error", description: err.message });
@@ -3343,6 +3382,65 @@ function SettingsTab() {
             <p>Deposit: 100 USDT → <strong>{(100 * previewDep).toLocaleString()} HTG</strong></p>
             <p>Withdrawal: 100 USDT → <strong>{(100 * previewWit).toLocaleString()} HTG</strong></p>
           </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Phone className="w-5 h-5 text-primary" />
+            Deposit Account Numbers
+          </CardTitle>
+          <p className="text-sm text-muted-foreground">
+            The MonCash and NatCash numbers shown to users when making a manual deposit. Changes take effect immediately.
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-5">
+          <div className="space-y-2">
+            <label className="text-sm font-medium flex items-center gap-1.5">
+              <span className="w-3.5 h-3.5 rounded-full bg-red-500 inline-block shrink-0" />
+              MonCash Number
+            </label>
+            <Input
+              type="tel"
+              value={moncashInput}
+              onChange={e => setMoncashInput(e.target.value)}
+              placeholder="e.g. 509-3456-7890"
+              className="font-mono"
+              data-testid="input-moncash-phone"
+            />
+            {paymentInfo?.moncash && (
+              <p className="text-xs text-muted-foreground">Current: <strong>{paymentInfo.moncash}</strong></p>
+            )}
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-sm font-medium flex items-center gap-1.5">
+              <span className="w-3.5 h-3.5 rounded-full bg-blue-500 inline-block shrink-0" />
+              NatCash Number
+            </label>
+            <Input
+              type="tel"
+              value={natcashInput}
+              onChange={e => setNatcashInput(e.target.value)}
+              placeholder="e.g. 509-4567-8901"
+              className="font-mono"
+              data-testid="input-natcash-phone"
+            />
+            {paymentInfo?.natcash && (
+              <p className="text-xs text-muted-foreground">Current: <strong>{paymentInfo.natcash}</strong></p>
+            )}
+          </div>
+
+          <Button
+            onClick={() => updatePhones.mutate()}
+            disabled={updatePhones.isPending || !moncashInput.trim() || !natcashInput.trim()}
+            className="w-full"
+            data-testid="button-save-phones"
+          >
+            {updatePhones.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Save className="w-4 h-4 mr-2" />}
+            Save Deposit Numbers
+          </Button>
         </CardContent>
       </Card>
     </div>

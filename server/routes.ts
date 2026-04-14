@@ -1709,13 +1709,36 @@ export async function registerRoutes(
 
   // GET company payment accounts for manual deposit
   app.get("/api/deposits/manual/payment-info", isAuthenticated, async (_req, res) => {
+    const { appSettings } = await import("@shared/schema");
+    const rows = await db.select().from(appSettings).where(
+      sql`key IN ('moncash_phone', 'natcash_phone')`
+    );
+    const settingsMap = Object.fromEntries(rows.map((r) => [r.key, r.value]));
     res.json({
-      moncash: process.env.COMPANY_MONCASH_PHONE || "509-XXXX-XXXX",
-      natcash: process.env.COMPANY_NATCASH_PHONE || "509-XXXX-XXXX",
+      moncash: settingsMap["moncash_phone"] || process.env.COMPANY_MONCASH_PHONE || "509-XXXX-XXXX",
+      natcash: settingsMap["natcash_phone"] || process.env.COMPANY_NATCASH_PHONE || "509-XXXX-XXXX",
       exchangeRate: getDepositRate(),
       minHtg: MANUAL_DEPOSIT_MIN_HTG,
       minUsdt: MANUAL_DEPOSIT_MIN_USDT,
     });
+  });
+
+  // PATCH admin update MonCash/NatCash deposit phone numbers
+  app.patch("/api/admin/settings/payment-phones", isAuthenticated, isAdmin, async (req: any, res) => {
+    try {
+      const { moncash, natcash } = req.body;
+      if (!moncash?.trim() || !natcash?.trim()) {
+        return res.status(400).json({ message: "Both phone numbers are required" });
+      }
+      const { appSettings } = await import("@shared/schema");
+      await db.insert(appSettings).values({ key: "moncash_phone", value: moncash.trim() })
+        .onConflictDoUpdate({ target: appSettings.key, set: { value: moncash.trim(), updatedAt: new Date() } });
+      await db.insert(appSettings).values({ key: "natcash_phone", value: natcash.trim() })
+        .onConflictDoUpdate({ target: appSettings.key, set: { value: natcash.trim(), updatedAt: new Date() } });
+      res.json({ moncash: moncash.trim(), natcash: natcash.trim() });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
   });
 
   // GET upload URL for proof screenshot
