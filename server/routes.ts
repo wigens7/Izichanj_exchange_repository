@@ -6423,5 +6423,55 @@ export async function registerRoutes(
     }
   });
 
+  // ── APK Download Tracking ──
+  const APK_DRIVE_URL = "https://drive.google.com/file/d/14Jyjou9BpgDuCusGMMykAw7e6RecxenJ/view?usp=drivesdk";
+
+  app.get("/api/download-app", async (req: any, res) => {
+    try {
+      const profileId = req.session?.profileId || null;
+      const ua = req.headers["user-agent"] || "";
+      const ip = (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() || req.socket?.remoteAddress || null;
+      let deviceType = "desktop";
+      if (/android/i.test(ua)) deviceType = "android";
+      else if (/iphone|ipad|ipod/i.test(ua)) deviceType = "ios";
+      else if (/mobile/i.test(ua)) deviceType = "mobile";
+
+      await db.execute(sql`
+        INSERT INTO app_downloads (profile_id, device_type, ip_address, user_agent)
+        VALUES (${profileId}, ${deviceType}, ${ip}, ${ua.slice(0, 500)})
+      `);
+    } catch (e) {
+      console.warn("Download tracking failed:", (e as Error).message);
+    }
+    res.redirect(302, APK_DRIVE_URL);
+  });
+
+  app.get("/api/admin/app-downloads", isAuthenticated, isAdmin, async (_req, res) => {
+    try {
+      const total = await db.execute(sql`SELECT COUNT(*) AS total FROM app_downloads`);
+      const byDevice = await db.execute(sql`
+        SELECT device_type, COUNT(*) AS count FROM app_downloads GROUP BY device_type ORDER BY count DESC
+      `);
+      const recent = await db.execute(sql`
+        SELECT d.id, d.profile_id, d.device_type, d.ip_address, d.created_at,
+               p.full_name, p.email, p.reference_id
+        FROM app_downloads d
+        LEFT JOIN profiles p ON p.id = d.profile_id
+        ORDER BY d.created_at DESC LIMIT 50
+      `);
+      const downloaderIds = await db.execute(sql`
+        SELECT DISTINCT profile_id FROM app_downloads WHERE profile_id IS NOT NULL
+      `);
+      res.json({
+        total: Number((total.rows[0] as any).total),
+        byDevice: byDevice.rows,
+        recent: recent.rows,
+        downloaderIds: (downloaderIds.rows as any[]).map((r) => r.profile_id),
+      });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
   return httpServer;
 }

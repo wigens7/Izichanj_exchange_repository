@@ -19,6 +19,7 @@ import {
   Smartphone,
   Flag,
   Store,
+  Download,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
@@ -94,6 +95,20 @@ export function LayoutShell({ children }: LayoutShellProps) {
           );
         })}
       </nav>
+
+      <div className="px-3 pb-2">
+        <a
+          href="/api/download-app"
+          target="_blank"
+          rel="noopener noreferrer"
+          data-testid="link-download-apk"
+          className="flex items-center gap-2.5 w-full rounded-md px-3 py-2.5 bg-green-600 hover:bg-green-500 active:bg-green-700 transition-colors text-white font-semibold text-sm shadow-md"
+          onClick={() => setIsOpen(false)}
+        >
+          <Download className="w-4 h-4 shrink-0" />
+          <span className="leading-tight">Download Android App (APK)</span>
+        </a>
+      </div>
 
       <div className="px-3 pb-3">
         <SocialLinks compact />

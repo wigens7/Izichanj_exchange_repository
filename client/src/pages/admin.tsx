@@ -83,6 +83,7 @@ import {
   Flag,
   Lock,
   Share2,
+  Smartphone,
 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -244,6 +245,13 @@ function UsersTab() {
     retry: 3,
   });
 
+  const { data: downloadStats } = useQuery<any>({
+    queryKey: ["/api/admin/app-downloads"],
+    refetchInterval: 60000,
+  });
+
+  const downloaderIdSet = new Set<number>((downloadStats?.downloaderIds || []) as number[]);
+
   const activeUsers = users?.filter((u: any) => !u.isDeleted) || [];
   const deletedUsers = users?.filter((u: any) => u.isDeleted) || [];
 
@@ -279,6 +287,32 @@ function UsersTab() {
   }
 
   return (
+    <>
+      {downloadStats && (
+        <Card className="mb-4 border-green-500/30 bg-green-500/5" data-testid="card-app-downloads">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between flex-wrap gap-3">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-lg bg-green-600 flex items-center justify-center shrink-0">
+                  <Smartphone className="w-5 h-5 text-white" />
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Total App Downloads</p>
+                  <p className="text-2xl font-bold text-green-500" data-testid="text-total-downloads">{downloadStats.total}</p>
+                </div>
+              </div>
+              <div className="flex gap-3 flex-wrap">
+                {(downloadStats.byDevice || []).map((d: any) => (
+                  <div key={d.device_type} className="text-center">
+                    <p className="text-xs text-muted-foreground capitalize">{d.device_type}</p>
+                    <p className="text-sm font-semibold">{d.count}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
     <Card>
       <CardHeader className="space-y-3">
         <div className="flex flex-row items-center justify-between gap-2 flex-wrap">
@@ -319,7 +353,7 @@ function UsersTab() {
             </TableHeader>
             <TableBody>
               {activeUsers.map((user: any) => (
-                <UserRow key={user.id} user={user} onUpdateBalance={updateBalance} isPending={isPending} />
+                <UserRow key={user.id} user={user} onUpdateBalance={updateBalance} isPending={isPending} hasDownloaded={downloaderIdSet.has(user.id)} />
               ))}
               {activeUsers.length === 0 && (
                 <TableRow>
@@ -360,6 +394,7 @@ function UsersTab() {
         )}
       </CardContent>
     </Card>
+    </>
   );
 }
 
@@ -375,7 +410,7 @@ const BALANCE_ADJUSTMENT_REASONS = [
   "Other",
 ];
 
-function UserRow({ user, onUpdateBalance, isPending }: { user: any; onUpdateBalance: any; isPending: boolean }) {
+function UserRow({ user, onUpdateBalance, isPending, hasDownloaded }: { user: any; onUpdateBalance: any; isPending: boolean; hasDownloaded?: boolean }) {
   const [balance, setBalance] = useState(user.balance);
   const [reason, setReason] = useState("Administrative Adjustment");
   const [isEditing, setIsEditing] = useState(false);
@@ -508,6 +543,11 @@ function UserRow({ user, onUpdateBalance, isPending }: { user: any; onUpdateBala
             {user.fullName}
             {user.isBanned && (
               <Badge variant="destructive" className="text-[10px] uppercase">Banned</Badge>
+            )}
+            {hasDownloaded && (
+              <Badge className="text-[9px] uppercase bg-green-600 hover:bg-green-600 text-white gap-0.5 px-1 py-0" data-testid={`badge-apk-${user.id}`}>
+                <Smartphone className="w-2.5 h-2.5" />APK
+              </Badge>
             )}
             {expanded ? <ChevronUp className="w-3 h-3 ml-1 text-muted-foreground" /> : <ChevronDown className="w-3 h-3 ml-1 text-muted-foreground" />}
           </div>

@@ -521,6 +521,22 @@ app.use((req, res, next) => {
     console.warn("[startup migration] P2P market tables skipped:", (e as Error).message);
   }
 
+  try {
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS app_downloads (
+        id SERIAL PRIMARY KEY,
+        profile_id INTEGER REFERENCES profiles(id),
+        device_type TEXT,
+        ip_address TEXT,
+        user_agent TEXT,
+        created_at TIMESTAMP DEFAULT NOW() NOT NULL
+      )
+    `);
+    console.log("[startup migration] app_downloads table ensured");
+  } catch (e) {
+    console.warn("[startup migration] app_downloads skipped:", (e as Error).message);
+  }
+
   await registerRoutes(httpServer, app);
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {

@@ -461,3 +461,13 @@ export const p2pBans = pgTable("p2p_bans", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 export type P2PBan = typeof p2pBans.$inferSelect;
+
+export const appDownloads = pgTable("app_downloads", {
+  id: serial("id").primaryKey(),
+  profileId: integer("profile_id").references(() => profiles.id),
+  deviceType: text("device_type"),
+  ipAddress: text("ip_address"),
+  userAgent: text("user_agent"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+export type AppDownload = typeof appDownloads.$inferSelect;
