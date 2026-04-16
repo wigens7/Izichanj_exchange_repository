@@ -84,6 +84,7 @@ import {
   Lock,
   Share2,
   Smartphone,
+  Tv,
 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -175,6 +176,10 @@ export default function AdminPage() {
               <ShieldAlert className="w-5 h-5" />
               <span>Disputes</span>
             </TabsTrigger>
+            <TabsTrigger value="canalplus" className="flex-col items-center gap-1 shrink-0 min-w-[60px] h-auto py-2.5 px-2 text-[10px] font-medium" data-testid="tab-admin-canalplus">
+              <Tv className="w-5 h-5" />
+              <span>Canal+</span>
+            </TabsTrigger>
           </TabsList>
         </div>
 
@@ -216,6 +221,9 @@ export default function AdminPage() {
         </TabsContent>
         <TabsContent value="p2p-disputes">
           <P2PDisputesTab key="p2p-disputes" />
+        </TabsContent>
+        <TabsContent value="canalplus">
+          <CanalplusTab />
         </TabsContent>
       </Tabs>
     </div>
@@ -4831,5 +4839,156 @@ function DisputePartyCard({ role, name, email, phone, refId, country, isBanned, 
         </div>
       </div>
     </div>
+  );
+}
+
+// ── Canal+ Management Tab ──────────────────────────────────────────────────────
+function CanalplusTab() {
+  const qc = useQueryClient();
+  const { toast } = useToast();
+  const [filter, setFilter] = useState<"all" | "pending" | "success" | "failed">("all");
+
+  const { data: subs, isLoading } = useQuery<any[]>({
+    queryKey: ["/api/admin/canalplus"],
+    queryFn: async () => {
+      const res = await fetch("/api/admin/canalplus", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load Canal+ subscriptions");
+      return res.json();
+    },
+  });
+
+  const approveMut = useMutation({
+    mutationFn: async (id: number) => {
+      const res = await apiRequest("PATCH", `/api/admin/canalplus/${id}/approve`);
+      if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.message || "Failed"); }
+    },
+    onSuccess: () => {
+      toast({ title: "Abonnement approuvé ✅", description: "L'utilisateur a été notifié par WhatsApp." });
+      qc.invalidateQueries({ queryKey: ["/api/admin/canalplus"] });
+    },
+    onError: (e: Error) => toast({ title: "Erreur", description: e.message, variant: "destructive" }),
+  });
+
+  const rejectMut = useMutation({
+    mutationFn: async (id: number) => {
+      const res = await apiRequest("PATCH", `/api/admin/canalplus/${id}/reject`);
+      if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.message || "Failed"); }
+    },
+    onSuccess: () => {
+      toast({ title: "Abonnement refusé & remboursé", description: "Le montant USDT a été remboursé." });
+      qc.invalidateQueries({ queryKey: ["/api/admin/canalplus"] });
+    },
+    onError: (e: Error) => toast({ title: "Erreur", description: e.message, variant: "destructive" }),
+  });
+
+  const PLAN_COLORS: Record<string, string> = {
+    "ToutCanal+": "text-yellow-500",
+    "Evasion+":   "text-purple-500",
+    "Evasion":    "text-blue-500",
+    "Acces":      "text-emerald-500",
+  };
+
+  const filtered = (subs || []).filter((s: any) => filter === "all" || s.status === filter);
+  const pending = (subs || []).filter((s: any) => s.status === "pending").length;
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <CardTitle className="flex items-center gap-2">
+            <Tv className="w-5 h-5 text-primary" />
+            Canal+ Gestion
+          </CardTitle>
+          <div className="flex items-center gap-2 flex-wrap">
+            {pending > 0 && <Badge variant="destructive" className="text-xs">{pending} en attente</Badge>}
+            <div className="flex gap-1">
+              {(["all", "pending", "success", "failed"] as const).map((f) => (
+                <Button key={f} size="sm" variant={filter === f ? "default" : "outline"} className="h-7 text-xs px-2" onClick={() => setFilter(f)}>
+                  {f === "all" ? "Tout" : f === "pending" ? "En attente" : f === "success" ? "Activé" : "Refusé"}
+                </Button>
+              ))}
+            </div>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <div className="space-y-2">{[1,2,3].map(i => <Skeleton key={i} className="h-16 w-full" />)}</div>
+        ) : filtered.length === 0 ? (
+          <div className="text-center py-10 text-muted-foreground text-sm">Aucun abonnement Canal+ trouvé</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Ref / User</TableHead>
+                  <TableHead>Carte Canal+</TableHead>
+                  <TableHead>Plan</TableHead>
+                  <TableHead>Montant</TableHead>
+                  <TableHead>Statut</TableHead>
+                  <TableHead>Date</TableHead>
+                  <TableHead>Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filtered.map((sub: any) => (
+                  <TableRow key={sub.id} data-testid={`row-admin-canalplus-${sub.id}`}>
+                    <TableCell>
+                      <div className="text-sm font-medium">{sub.full_name}</div>
+                      <div className="text-xs text-muted-foreground font-mono">{sub.reference_id}</div>
+                      <div className="text-xs text-muted-foreground">{sub.email}</div>
+                    </TableCell>
+                    <TableCell>
+                      <span className="font-mono text-sm tracking-widest">{sub.card_number}</span>
+                    </TableCell>
+                    <TableCell>
+                      <span className={`font-semibold text-sm ${PLAN_COLORS[sub.plan_name] || ""}`}>{sub.plan_name}</span>
+                      {sub.auto_renew && <div className="text-[10px] text-amber-500">Auto-renouvellement</div>}
+                    </TableCell>
+                    <TableCell>
+                      <div className="text-sm font-medium">{formatHtg(Number(sub.plan_price_htg))} HTG</div>
+                      <div className="text-xs text-muted-foreground">{formatUsdt(Number(sub.plan_price_usdt))} USDT</div>
+                    </TableCell>
+                    <TableCell>
+                      {sub.status === "success" && <Badge className="bg-emerald-500/15 text-emerald-600 border-emerald-500/30 text-xs">✅ Activé</Badge>}
+                      {sub.status === "failed"  && <Badge className="bg-red-500/15 text-red-600 border-red-500/30 text-xs">❌ Refusé</Badge>}
+                      {sub.status === "pending" && <Badge className="bg-amber-500/15 text-amber-600 border-amber-500/30 text-xs">⏳ En attente</Badge>}
+                    </TableCell>
+                    <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
+                      {formatDateTime(sub.created_at)}
+                    </TableCell>
+                    <TableCell onClick={(e) => e.stopPropagation()}>
+                      {sub.status === "pending" && (
+                        <div className="flex gap-1.5">
+                          <Button
+                            size="sm"
+                            className="h-7 text-xs px-2.5 bg-emerald-600 hover:bg-emerald-500"
+                            onClick={() => approveMut.mutate(sub.id)}
+                            disabled={approveMut.isPending || rejectMut.isPending}
+                            data-testid={`button-approve-canalplus-${sub.id}`}
+                          >
+                            ✅ Approuver
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="destructive"
+                            className="h-7 text-xs px-2.5"
+                            onClick={() => rejectMut.mutate(sub.id)}
+                            disabled={approveMut.isPending || rejectMut.isPending}
+                            data-testid={`button-reject-canalplus-${sub.id}`}
+                          >
+                            ❌ Refuser
+                          </Button>
+                        </div>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }

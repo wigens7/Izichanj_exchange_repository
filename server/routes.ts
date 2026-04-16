@@ -6446,6 +6446,128 @@ export async function registerRoutes(
     }
   });
 
+  // ── Canal+ Subscriptions ──────────────────────────────────────────────────
+  const CANALPLUS_PLANS = [
+    { name: "ToutCanal+", priceHtg: 3850, channels: 150 },
+    { name: "Evasion+",   priceHtg: 2850, channels: 115 },
+    { name: "Evasion",    priceHtg: 1850, channels: 90  },
+    { name: "Acces",      priceHtg: 790,  channels: 45  },
+  ];
+
+  app.get("/api/canalplus/plans", isAuthenticated, (_req, res) => {
+    const rate = getDepositRate();
+    res.json(CANALPLUS_PLANS.map((p) => ({
+      ...p,
+      priceUsdt: parseFloat((p.priceHtg / rate).toFixed(4)),
+    })));
+  });
+
+  app.post("/api/canalplus/subscribe", isAuthenticated, async (req: any, res) => {
+    try {
+      const { planName, cardNumber, autoRenew } = req.body;
+      const profileId = req.session.profileId;
+      if (!planName || !cardNumber) return res.status(400).json({ message: "Plan and card number are required" });
+      if (!/^\d{14}$/.test(cardNumber)) return res.status(400).json({ message: "Card number must be exactly 14 digits" });
+
+      const plan = CANALPLUS_PLANS.find((p) => p.name === planName);
+      if (!plan) return res.status(400).json({ message: "Invalid plan selected" });
+
+      const rate = getDepositRate();
+      const priceUsdt = parseFloat((plan.priceHtg / rate).toFixed(4));
+
+      const profileRows = await db.execute(sql`SELECT balance FROM profiles WHERE id = ${profileId}`);
+      const balance = parseFloat((profileRows.rows[0] as any)?.balance || "0");
+      if (balance < priceUsdt) {
+        return res.status(400).json({ message: `Insufficient balance. You need ${priceUsdt.toFixed(4)} USDT but have ${balance.toFixed(4)} USDT.` });
+      }
+
+      await db.execute(sql`UPDATE profiles SET balance = balance - ${priceUsdt} WHERE id = ${profileId}`);
+
+      const sub = await db.execute(sql`
+        INSERT INTO canalplus_subscriptions (profile_id, plan_name, plan_price_htg, plan_price_usdt, card_number, auto_renew, status)
+        VALUES (${profileId}, ${plan.name}, ${plan.priceHtg}, ${priceUsdt}, ${cardNumber}, ${autoRenew || false}, 'pending')
+        RETURNING *
+      `);
+
+      res.json({ success: true, subscription: sub.rows[0] });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.get("/api/canalplus/my", isAuthenticated, async (req: any, res) => {
+    try {
+      const profileId = req.session.profileId;
+      const rows = await db.execute(sql`
+        SELECT * FROM canalplus_subscriptions WHERE profile_id = ${profileId} ORDER BY created_at DESC
+      `);
+      res.json(rows.rows);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.get("/api/admin/canalplus", isAuthenticated, isAdmin, async (_req, res) => {
+    try {
+      const rows = await db.execute(sql`
+        SELECT s.*, p.full_name, p.email, p.reference_id, p.phone
+        FROM canalplus_subscriptions s
+        JOIN profiles p ON p.id = s.profile_id
+        ORDER BY s.created_at DESC
+      `);
+      res.json(rows.rows);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.patch("/api/admin/canalplus/:id/approve", isAuthenticated, isAdmin, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const sub = await db.execute(sql`SELECT * FROM canalplus_subscriptions WHERE id = ${id}`);
+      const s = sub.rows[0] as any;
+      if (!s) return res.status(404).json({ message: "Subscription not found" });
+      if (s.status !== "pending") return res.status(400).json({ message: "Already processed" });
+
+      await db.execute(sql`UPDATE canalplus_subscriptions SET status = 'success' WHERE id = ${id}`);
+
+      const profileRows = await db.execute(sql`SELECT phone, full_name FROM profiles WHERE id = ${s.profile_id}`);
+      const profile = profileRows.rows[0] as any;
+      if (profile?.phone) {
+        const msg = `*Izichanj*\n\n✅ Canal+ Activé!\n\nVotre abonnement Canal+ pour la carte *${s.card_number}* a été activement activé.\n\nPlan: *${s.plan_name}*\n\nProfitez de vos programmes! 📺`;
+        sendWhatsAppNotification(profile.phone, msg, profile.full_name);
+      }
+
+      res.json({ success: true });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.patch("/api/admin/canalplus/:id/reject", isAuthenticated, isAdmin, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const sub = await db.execute(sql`SELECT * FROM canalplus_subscriptions WHERE id = ${id}`);
+      const s = sub.rows[0] as any;
+      if (!s) return res.status(404).json({ message: "Subscription not found" });
+      if (s.status !== "pending") return res.status(400).json({ message: "Already processed" });
+
+      await db.execute(sql`UPDATE canalplus_subscriptions SET status = 'failed' WHERE id = ${id}`);
+      await db.execute(sql`UPDATE profiles SET balance = balance + ${s.plan_price_usdt} WHERE id = ${s.profile_id}`);
+
+      const profileRows = await db.execute(sql`SELECT phone, full_name FROM profiles WHERE id = ${s.profile_id}`);
+      const profile = profileRows.rows[0] as any;
+      if (profile?.phone) {
+        const msg = `*Izichanj*\n\n❌ Canal+ Refusé\n\nVotre demande d'abonnement Canal+ pour la carte *${s.card_number}* (Plan: ${s.plan_name}) a été refusée.\n\nMontant remboursé: *${Number(s.plan_price_usdt).toFixed(4)} USDT*\n\nContactez le support pour plus d'informations.`;
+        sendWhatsAppNotification(profile.phone, msg, profile.full_name);
+      }
+
+      res.json({ success: true });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
   // ── APK Download Tracking ──
   const APK_DRIVE_URL = "https://drive.google.com/uc?export=download&id=14Jyjou9BpgDuCusGMMykAw7e6RecxenJ";
 

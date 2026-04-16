@@ -22,6 +22,7 @@ import P2PMarketPage from "@/pages/p2p-market";
 import SendFundsPage from "@/pages/send-funds";
 import TopUpPage from "@/pages/top-up";
 import ReportPage from "@/pages/report";
+import CanalPlusPage from "@/pages/canal-plus";
 import NotFound from "@/pages/not-found";
 import VerifyReceiptPage from "@/pages/verify-receipt";
 import { LayoutShell } from "@/components/layout-shell";
@@ -130,6 +131,9 @@ function Router() {
       </Route>
       <Route path="/report">
         <ProtectedRoute component={ReportPage} />
+      </Route>
+      <Route path="/canal-plus">
+        <ProtectedRoute component={CanalPlusPage} />
       </Route>
 
       <Route path="/verify/:receiptId" component={VerifyReceiptPage} />

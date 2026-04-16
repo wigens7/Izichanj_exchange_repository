@@ -20,6 +20,7 @@ import {
   Flag,
   Store,
   Download,
+  Tv,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
@@ -50,6 +51,7 @@ export function LayoutShell({ children }: LayoutShellProps) {
     { href: "/top-up", label: "Mobile Top-Up", icon: Smartphone },
     { href: "/report", label: "Report a User", icon: Flag },
     { href: "/p2p", label: "P2P Market", icon: Store },
+    { href: "/canal-plus", label: "Canal+", icon: Tv },
   ];
 
   if (user?.role === "admin") {

@@ -471,3 +471,16 @@ export const appDownloads = pgTable("app_downloads", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 export type AppDownload = typeof appDownloads.$inferSelect;
+
+export const canalplusSubscriptions = pgTable("canalplus_subscriptions", {
+  id: serial("id").primaryKey(),
+  profileId: integer("profile_id").references(() => profiles.id).notNull(),
+  planName: text("plan_name").notNull(),
+  planPriceHtg: decimal("plan_price_htg", { precision: 10, scale: 2 }).notNull(),
+  planPriceUsdt: decimal("plan_price_usdt", { precision: 10, scale: 4 }).notNull(),
+  cardNumber: varchar("card_number", { length: 14 }).notNull(),
+  autoRenew: boolean("auto_renew").default(false).notNull(),
+  status: text("status").default("pending").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+export type CanalplusSubscription = typeof canalplusSubscriptions.$inferSelect;

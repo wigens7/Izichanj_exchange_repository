@@ -537,6 +537,25 @@ app.use((req, res, next) => {
     console.warn("[startup migration] app_downloads skipped:", (e as Error).message);
   }
 
+  try {
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS canalplus_subscriptions (
+        id SERIAL PRIMARY KEY,
+        profile_id INTEGER NOT NULL REFERENCES profiles(id),
+        plan_name TEXT NOT NULL,
+        plan_price_htg DECIMAL(10,2) NOT NULL,
+        plan_price_usdt DECIMAL(10,4) NOT NULL,
+        card_number VARCHAR(14) NOT NULL,
+        auto_renew BOOLEAN NOT NULL DEFAULT false,
+        status TEXT NOT NULL DEFAULT 'pending',
+        created_at TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    `);
+    console.log("[startup migration] canalplus_subscriptions table ensured");
+  } catch (e) {
+    console.warn("[startup migration] canalplus_subscriptions skipped:", (e as Error).message);
+  }
+
   await registerRoutes(httpServer, app);
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
