@@ -6489,6 +6489,20 @@ export async function registerRoutes(
         RETURNING *
       `);
 
+      const profileInfo = await db.execute(sql`SELECT full_name, email, reference_id FROM profiles WHERE id = ${profileId}`);
+      const p = profileInfo.rows[0] as any;
+      sendTelegramMessage(
+        `📺 <b>New Canal+ Subscription Request</b>\n\n` +
+        `👤 <b>Name:</b> ${p?.full_name || "Unknown"}\n` +
+        `📧 <b>Email:</b> ${p?.email || "—"}\n` +
+        `🆔 <b>Ref:</b> ${p?.reference_id || profileId}\n` +
+        `📋 <b>Plan:</b> ${plan.name} (${plan.channels} channels)\n` +
+        `💵 <b>Amount:</b> ${plan.priceHtg} HTG = ${priceUsdt.toFixed(4)} USDT\n` +
+        `🎴 <b>Card:</b> <code>${cardNumber}</code>\n` +
+        `🔄 <b>Auto-renew:</b> ${autoRenew ? "Yes" : "No"}\n\n` +
+        `⏳ Awaiting your approval in the Admin Panel → Canal+ tab.`
+      ).catch(() => {});
+
       res.json({ success: true, subscription: sub.rows[0] });
     } catch (e: any) {
       res.status(500).json({ message: e.message });
