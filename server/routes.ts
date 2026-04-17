@@ -5794,6 +5794,23 @@ export async function registerRoutes(
         VALUES (${profileId}, ${balance}, ${balance - amount}, ${-amount}, 'p2p_ad_lock', ${String(ad.rows[0] ? (ad.rows[0] as any).id : "")})
       `);
 
+      // Telegram alert: new P2P ad is now LIVE
+      const newAd = ad.rows[0] as any;
+      const sellerInfo = await db.execute(sql`SELECT full_name, email, reference_id FROM profiles WHERE id = ${profileId}`);
+      const s = sellerInfo.rows[0] as any;
+      sendTelegramMessage(
+        `🆕 <b>New P2P Trade is LIVE!</b>\n\n` +
+        `<b>Ad ID:</b> #${newAd.id}\n` +
+        `<b>Seller:</b> ${s?.full_name || "Unknown"}\n` +
+        `<b>Email:</b> ${s?.email || "—"}\n` +
+        `<b>Ref:</b> ${s?.reference_id || profileId}\n` +
+        `<b>Amount:</b> ${amount} USDT (locked in escrow)\n` +
+        `<b>Rate:</b> ${rateHtg || "—"} ${adCurrency}/USDT\n` +
+        `<b>Order range:</b> ${minOrderUsdt || 10} – ${maxOrderUsdt || "∞"} USDT\n` +
+        `<b>Payment:</b> ${methodsArray.join(", ")}\n` +
+        `<b>Country:</b> ${country}`
+      ).catch(() => {});
+
       res.json(ad.rows[0]);
     } catch (e: any) {
       res.status(500).json({ message: e.message });
