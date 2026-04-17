@@ -5928,6 +5928,17 @@ export async function registerRoutes(
         );
       }
 
+      // Telegram alert to admin for every new P2P order
+      sendTelegramMessage(
+        `🔔 <b>New P2P Order!</b>\n\n` +
+        `<b>Trade ID:</b> #${orderId}\n` +
+        `<b>Buyer:</b> ${buyer?.full_name || "Unknown"}\n` +
+        `<b>Seller:</b> ${seller?.full_name || "Unknown"}\n` +
+        `<b>Amount:</b> ${amount} USDT\n` +
+        `<b>Total:</b> ${amountLocal.toFixed(2)} ${ad.currency || "HTG"}\n` +
+        `<b>Payment:</b> ${paymentMethod}`
+      ).catch(() => {});
+
       // Add system message to chat
       await db.execute(sql`
         INSERT INTO p2p_chat_messages (order_id, sender_id, message)
@@ -6199,6 +6210,22 @@ export async function registerRoutes(
     }
   });
 
+  // ── P2P Anti-Off-Platform Filter ──
+  // Forbidden words (case-insensitive). Use word-boundary patterns so "facebook" matches but "facebookery" does too (intentional - bypass attempts).
+  const P2P_FORBIDDEN_WORDS = ["whatsapp", "telegram", "instagram", "facebook", "\\bfb\\b", "\\big\\b", "\\bwa\\b"];
+  const P2P_URL_REGEX = /\bhttps?:\/\/|www\.|\b[a-z0-9-]+\.(com|net|org|io|me|app|co|biz|info|shop|store|live|tv|xyz|link|us|fr|ht|cn|ru|in)\b/i;
+
+  function checkP2PForbiddenContent(message: string | null | undefined): { blocked: boolean; reason?: string } {
+    if (!message) return { blocked: false };
+    const text = message.toLowerCase();
+    for (const w of P2P_FORBIDDEN_WORDS) {
+      const pattern = w.startsWith("\\b") ? new RegExp(w, "i") : new RegExp(`\\b${w}\\b`, "i");
+      if (pattern.test(text)) return { blocked: true, reason: `forbidden_word:${w.replace(/\\b/g, "")}` };
+    }
+    if (P2P_URL_REGEX.test(message)) return { blocked: true, reason: "external_link" };
+    return { blocked: false };
+  }
+
   // GET /api/p2p/orders/:id/chat — alias for /messages (frontend uses this path)
   app.get("/api/p2p/orders/:id/chat", isAuthenticated, async (req: any, res) => {
     try {
@@ -6219,6 +6246,7 @@ export async function registerRoutes(
         FROM p2p_chat_messages m
         JOIN profiles p ON m.sender_id = p.id
         WHERE m.order_id = ${orderId}
+          AND (m.is_filtered = FALSE OR m.is_filtered IS NULL OR m.sender_id = ${profileId})
         ORDER BY m.created_at ASC
       `);
       res.json(messages.rows);
@@ -6242,13 +6270,21 @@ export async function registerRoutes(
       if (["released", "cancelled"].includes(order.status)) {
         return res.status(400).json({ message: "Trade is closed, chat disabled" });
       }
+      // Anti-off-platform filter: save flagged messages but hide from other party
+      const filterResult = checkP2PForbiddenContent(message);
+      const isFiltered = filterResult.blocked;
       const msg = await db.execute(sql`
-        INSERT INTO p2p_chat_messages (order_id, sender_id, message, file_url, file_name)
-        VALUES (${orderId}, ${profileId}, ${message || null}, ${fileUrl || null}, ${fileName || null})
+        INSERT INTO p2p_chat_messages (order_id, sender_id, message, file_url, file_name, is_filtered, filter_reason)
+        VALUES (${orderId}, ${profileId}, ${message || null}, ${fileUrl || null}, ${fileName || null}, ${isFiltered}, ${filterResult.reason || null})
         RETURNING *
       `);
       const nameRows = await db.execute(sql`SELECT full_name FROM profiles WHERE id = ${profileId}`);
-      res.json({ ...(msg.rows[0] as any), sender_name: (nameRows.rows[0] as any)?.full_name });
+      res.json({
+        ...(msg.rows[0] as any),
+        sender_name: (nameRows.rows[0] as any)?.full_name,
+        filtered: isFiltered,
+        filter_warning: isFiltered ? "For your security, sharing social media contacts or external links is strictly prohibited on Izichanj." : undefined,
+      });
     } catch (e: any) {
       res.status(500).json({ message: e.message });
     }
@@ -6406,6 +6442,7 @@ export async function registerRoutes(
         FROM p2p_chat_messages m
         JOIN profiles p ON m.sender_id = p.id
         WHERE m.order_id = ${orderId}
+          AND (m.is_filtered = FALSE OR m.is_filtered IS NULL OR m.sender_id = ${profileId})
         ORDER BY m.created_at ASC
       `);
       res.json(messages.rows);
@@ -6433,14 +6470,21 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Trade is closed, chat disabled" });
       }
 
+      // Anti-off-platform filter
+      const filterResult = checkP2PForbiddenContent(message);
+      const isFiltered = filterResult.blocked;
       const msg = await db.execute(sql`
-        INSERT INTO p2p_chat_messages (order_id, sender_id, message, file_url, file_name)
-        VALUES (${orderId}, ${profileId}, ${message || null}, ${fileUrl || null}, ${fileName || null})
+        INSERT INTO p2p_chat_messages (order_id, sender_id, message, file_url, file_name, is_filtered, filter_reason)
+        VALUES (${orderId}, ${profileId}, ${message || null}, ${fileUrl || null}, ${fileName || null}, ${isFiltered}, ${filterResult.reason || null})
         RETURNING *
       `);
       const nameRows = await db.execute(sql`SELECT full_name FROM profiles WHERE id = ${profileId}`);
-      const result = { ...(msg.rows[0] as any), sender_name: (nameRows.rows[0] as any)?.full_name };
-      res.json(result);
+      res.json({
+        ...(msg.rows[0] as any),
+        sender_name: (nameRows.rows[0] as any)?.full_name,
+        filtered: isFiltered,
+        filter_warning: isFiltered ? "For your security, sharing social media contacts or external links is strictly prohibited on Izichanj." : undefined,
+      });
     } catch (e: any) {
       res.status(500).json({ message: e.message });
     }

@@ -771,8 +771,22 @@ function TradeDialog({ open, order, currentUserId, onClose }: { open: boolean; o
   }, [showPinModal]);
 
   const sendMsg = useMutation({
-    mutationFn: (body: any) => apiRequest("POST", `/api/p2p/orders/${orderId}/chat`, body),
-    onSuccess: () => { setChatMsg(""); refetchChat(); },
+    mutationFn: async (body: any) => {
+      const res = await apiRequest("POST", `/api/p2p/orders/${orderId}/chat`, body);
+      return res.json();
+    },
+    onSuccess: (data: any) => {
+      setChatMsg("");
+      if (data?.filtered) {
+        toast({
+          title: "🚫 Message bloqué",
+          description: data?.filter_warning || "Pour votre sécurité, le partage de contacts sociaux ou de liens externes est strictement interdit sur Izichanj.",
+          variant: "destructive",
+          duration: 6000,
+        });
+      }
+      refetchChat();
+    },
     onError: () => toast({ title: "Failed to send message.", variant: "destructive" }),
   });
 

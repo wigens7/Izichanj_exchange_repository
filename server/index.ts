@@ -491,6 +491,9 @@ app.use((req, res, next) => {
     await db.execute(sql`ALTER TABLE p2p_orders ADD COLUMN IF NOT EXISTS expires_at TIMESTAMP`);
     // Add read_at to p2p_chat_messages if missing
     await db.execute(sql`ALTER TABLE p2p_chat_messages ADD COLUMN IF NOT EXISTS read_at TIMESTAMP`);
+    // Add is_filtered + filter_reason to p2p_chat_messages (anti-off-platform: hide from other party but keep for admin)
+    await db.execute(sql`ALTER TABLE p2p_chat_messages ADD COLUMN IF NOT EXISTS is_filtered BOOLEAN DEFAULT FALSE`);
+    await db.execute(sql`ALTER TABLE p2p_chat_messages ADD COLUMN IF NOT EXISTS filter_reason TEXT`);
     // Add welcome_message to profiles for P2P seller settings
     await db.execute(sql`ALTER TABLE profiles ADD COLUMN IF NOT EXISTS p2p_welcome_message TEXT`);
     // Add seller_confirmed_receipt to p2p_orders if missing
