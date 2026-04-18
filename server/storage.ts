@@ -2,6 +2,7 @@ import { profiles, deposits, withdrawals, kycDocuments, otps, webauthnCredential
 import { db } from "./db";
 import { eq, desc, and, ne, lt, sql, or, ilike, inArray } from "drizzle-orm";
 import crypto from "crypto";
+import { sendPushToProfile } from "./fcm";
 
 export interface IStorage {
   getProfile(id: number): Promise<Profile | undefined>;
@@ -403,6 +404,12 @@ export class DatabaseStorage implements IStorage {
 
   async createNotification(data: { profileId: number; type: Notification["type"]; title: string; message: string }): Promise<Notification> {
     const [notification] = await db.insert(notifications).values(data).returning();
+    // Fire-and-forget push notification (non-blocking)
+    sendPushToProfile(data.profileId, data.title, data.message, {
+      type: data.type,
+      notificationId: String(notification.id),
+      url: "/",
+    }).catch(() => {});
     return notification;
   }
 

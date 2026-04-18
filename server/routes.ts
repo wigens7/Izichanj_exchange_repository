@@ -1067,6 +1067,22 @@ export async function registerRoutes(
     res.json({ ...safeProfile, pinHash: !!pinHash });
   });
 
+  // Send a test push notification to the logged-in user
+  app.post("/api/profile/test-push", isAuthenticated, async (req: any, res) => {
+    const { sendTestPush } = await import("./fcm");
+    const result = await sendTestPush(req.session.profileId);
+    if (result.ok) return res.json({ ok: true, message: "Test push sent!" });
+    res.status(400).json({ ok: false, message: result.error });
+  });
+
+  // Admin: send a test push to any user by id
+  app.post("/api/admin/profiles/:id/test-push", isAuthenticated, isAdmin, async (req: any, res) => {
+    const { sendTestPush } = await import("./fcm");
+    const result = await sendTestPush(Number(req.params.id));
+    if (result.ok) return res.json({ ok: true });
+    res.status(400).json({ ok: false, message: result.error });
+  });
+
   // Save / refresh the user's FCM (Firebase Cloud Messaging) push token
   app.post("/api/profile/fcm-token", isAuthenticated, async (req: any, res) => {
     try {

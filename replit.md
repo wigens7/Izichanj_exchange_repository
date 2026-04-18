@@ -66,7 +66,9 @@ The application features a modern, secure architecture. The UI/UX is built with 
   - **DB**: `profiles.fcm_token` (TEXT) + `profiles.fcm_token_updated_at` (TIMESTAMP) — added via startup migration in `server/index.ts`.
   - **Endpoint**: `POST /api/profile/fcm-token` (auth required, body: `{token: string}`) — saves token to user's profile.
   - **Required env var**: `VITE_FIREBASE_VAPID_KEY` (Web Push certificate from Firebase Console → Project Settings → Cloud Messaging → Web Push certificates). Without it, `getToken()` returns null and a console warning is logged.
-  - **Server-side sending NOT yet implemented** — when needed, install `firebase-admin`, create a service account JSON env var, and call `messaging().send({token, notification})` wherever `storage.createNotification` runs.
+  - **Server-side push sending**: `server/fcm.ts` uses `firebase-admin` initialized with `FIREBASE_SERVICE_ACCOUNT_JSON` secret. Helper `sendPushToProfile(profileId, title, body, data)` looks up the user's `fcm_token` and sends via `admin.messaging().send()`. Auto-clears invalid/expired tokens.
+  - **Auto-wired**: `storage.createNotification()` automatically fires a push for every in-app notification (fire-and-forget, non-blocking). So every existing notification (deposit/withdrawal status, KYC updates, P2P trade events, support replies, custom admin messages, etc.) now also pushes to the device.
+  - **Test endpoints**: `POST /api/profile/test-push` (logged-in user), `POST /api/admin/profiles/:id/test-push` (admin → any user).
 
 ## Receipt System
 - **DB fields**: `receipt_id` (unique UUID) and `receipt_url` added to both `deposits` and `withdrawals` tables.
