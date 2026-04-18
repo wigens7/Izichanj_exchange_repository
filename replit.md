@@ -53,6 +53,21 @@ The application features a modern, secure architecture. The UI/UX is built with 
 - **PDFKit**: For server-side PDF receipt generation.
 - **QRCode**: For generating QR codes embedded in PDF receipts.
 
+## PWA & Push Notifications
+- **PWA**: App is installable via `client/public/manifest.webmanifest` + service worker at `client/public/firebase-messaging-sw.js`. Icons in `client/public/icons/` (192/512). Meta tags added to `client/index.html`. Service worker auto-registered on app load via `client/src/lib/pwa.ts` (`registerAppServiceWorker`).
+- **Install Button**: `client/src/components/install-pwa-button.tsx` listens for `beforeinstallprompt`. Falls back to instructions on iOS Safari. Shown on Profile page in the new "Mobile App" card.
+- **Download APK**: Profile page "Mobile App" card has a Download Android APK button linking to `/api/download-app` (existing endpoint that tracks downloads + redirects to Google Drive APK).
+- **Firebase Cloud Messaging (FCM)**: 
+  - Client SDK `firebase` v10+. Init in `client/src/lib/firebase.ts` with hardcoded public Firebase config (project: `izichanj-app`).
+  - `requestFcmToken()` requests notification permission, registers SW, calls `getToken()` with `VITE_FIREBASE_VAPID_KEY` env var.
+  - `NotificationPermissionPrompt` component (mounted in `App.tsx`) shows a popup ~1.5s after login when `Notification.permission === "default"`. Once granted, posts token to `POST /api/profile/fcm-token`.
+  - On reload with permission already granted, token is silently re-synced.
+  - Foreground push messages display as toasts via `onForegroundPush`.
+  - **DB**: `profiles.fcm_token` (TEXT) + `profiles.fcm_token_updated_at` (TIMESTAMP) — added via startup migration in `server/index.ts`.
+  - **Endpoint**: `POST /api/profile/fcm-token` (auth required, body: `{token: string}`) — saves token to user's profile.
+  - **Required env var**: `VITE_FIREBASE_VAPID_KEY` (Web Push certificate from Firebase Console → Project Settings → Cloud Messaging → Web Push certificates). Without it, `getToken()` returns null and a console warning is logged.
+  - **Server-side sending NOT yet implemented** — when needed, install `firebase-admin`, create a service account JSON env var, and call `messaging().send({token, notification})` wherever `storage.createNotification` runs.
+
 ## Receipt System
 - **DB fields**: `receipt_id` (unique UUID) and `receipt_url` added to both `deposits` and `withdrawals` tables.
 - **Access control**: Receipts only accessible after admin manually releases them via "Approve & Release Receipt".

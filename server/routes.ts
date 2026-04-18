@@ -1067,6 +1067,24 @@ export async function registerRoutes(
     res.json({ ...safeProfile, pinHash: !!pinHash });
   });
 
+  // Save / refresh the user's FCM (Firebase Cloud Messaging) push token
+  app.post("/api/profile/fcm-token", isAuthenticated, async (req: any, res) => {
+    try {
+      const profileId = req.session.profileId;
+      const token = (req.body?.token || "").toString().trim();
+      if (!token || token.length < 20) {
+        return res.status(400).json({ message: "Invalid token" });
+      }
+      await db.execute(sql`
+        UPDATE profiles SET fcm_token = ${token}, fcm_token_updated_at = NOW() WHERE id = ${profileId}
+      `);
+      console.log(`[FCM] Token saved for profile #${profileId} (len=${token.length})`);
+      res.json({ ok: true });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
   app.get(api.deposits.list.path, isAuthenticated, async (req: any, res) => {
     const profile = await getProfileFromReq(req);
     if (!profile) return res.status(401).json({ message: "Unauthorized" });

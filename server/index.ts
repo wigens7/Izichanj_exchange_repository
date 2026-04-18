@@ -559,6 +559,14 @@ app.use((req, res, next) => {
     console.warn("[startup migration] canalplus_subscriptions skipped:", (e as Error).message);
   }
 
+  try {
+    await db.execute(sql`ALTER TABLE profiles ADD COLUMN IF NOT EXISTS fcm_token TEXT`);
+    await db.execute(sql`ALTER TABLE profiles ADD COLUMN IF NOT EXISTS fcm_token_updated_at TIMESTAMP`);
+    console.log("[startup migration] fcm_token column ensured");
+  } catch (e) {
+    console.warn("[startup migration] fcm_token skipped:", (e as Error).message);
+  }
+
   await registerRoutes(httpServer, app);
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {

@@ -10,7 +10,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { StatusBadge } from "@/components/status-badge";
-import { Loader2, UploadCloud, CheckCircle2, Globe, Clock, User, UserCheck, Copy, Check, FileText, MapPin, LogOut, Users, DollarSign, Share2, HelpCircle } from "lucide-react";
+import { Loader2, UploadCloud, CheckCircle2, Globe, Clock, User, UserCheck, Copy, Check, FileText, MapPin, LogOut, Users, DollarSign, Share2, HelpCircle, Smartphone, Download } from "lucide-react";
+import { InstallPwaButton } from "@/components/install-pwa-button";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { useToast } from "@/hooks/use-toast";
 import { useState, useEffect } from "react";
@@ -552,6 +553,31 @@ export default function ProfilePage() {
           </CardContent>
         </Card>
       )}
+
+      {/* ── Mobile App ── */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Smartphone className="w-4 h-4 text-primary" /> Mobile App
+          </CardTitle>
+          <CardDescription className="text-xs">
+            Install Izichanj on your phone for a faster, app-like experience with push notifications.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid sm:grid-cols-2 gap-3">
+            <InstallPwaButton className="w-full" />
+            <Button asChild variant="default" className="w-full" data-testid="button-download-apk">
+              <a href="/api/download-app" target="_blank" rel="noopener noreferrer">
+                <Download className="w-4 h-4 mr-2" /> Download Android APK
+              </a>
+            </Button>
+          </div>
+          <p className="text-xs text-muted-foreground mt-3">
+            iPhone users: open this site in Safari, tap the Share button and choose "Add to Home Screen".
+          </p>
+        </CardContent>
+      </Card>
 
       {/* ── FAQ Section ── */}
       <Card>

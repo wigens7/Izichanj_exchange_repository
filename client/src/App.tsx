@@ -26,6 +26,8 @@ import CanalPlusPage from "@/pages/canal-plus";
 import NotFound from "@/pages/not-found";
 import VerifyReceiptPage from "@/pages/verify-receipt";
 import { LayoutShell } from "@/components/layout-shell";
+import { NotificationPermissionPrompt } from "@/components/notification-permission-prompt";
+import { registerAppServiceWorker } from "@/lib/pwa";
 
 const INACTIVITY_TIMEOUT = 5 * 60 * 1000;
 
@@ -143,6 +145,9 @@ function Router() {
 }
 
 function App() {
+  useEffect(() => {
+    registerAppServiceWorker();
+  }, []);
   return (
     <QueryClientProvider client={queryClient}>
       <LanguageProvider>
@@ -151,6 +156,7 @@ function App() {
           <InactivityGuard>
             <Router />
           </InactivityGuard>
+          <NotificationPermissionPrompt />
         </TooltipProvider>
       </LanguageProvider>
     </QueryClientProvider>
