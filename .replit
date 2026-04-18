@@ -46,3 +46,4 @@ integrations = ["javascript_object_storage:2.0.0", "javascript_log_in_with_repli
 [userenv.shared]
 COMPANY_MONCASH_PHONE = "+50949397949"
 COMPANY_NATCASH_PHONE = "+50955602114"
+VITE_FIREBASE_VAPID_KEY = "BAPNwB7AaSwm6bTpZlTj03jouVCwVhYKu_SkwPCZ6cHilpil-fWp-tXaKkqYDmXVyyyZvQMIRE2bAf9IJY4caOI"
