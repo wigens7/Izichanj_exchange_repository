@@ -1,4 +1,4 @@
-/* Firebase Cloud Messaging — background notifications service worker */
+/* Firebase Cloud Messaging — background notifications service worker (data-only) */
 importScripts("https://www.gstatic.com/firebasejs/10.13.2/firebase-app-compat.js");
 importScripts("https://www.gstatic.com/firebasejs/10.13.2/firebase-messaging-compat.js");
 
@@ -14,16 +14,35 @@ firebase.initializeApp({
 
 const messaging = firebase.messaging();
 
-messaging.onBackgroundMessage((payload) => {
-  const title = (payload.notification && payload.notification.title) || "Izichanj";
-  const options = {
-    body: (payload.notification && payload.notification.body) || "",
+function buildOptions(data) {
+  const d = data || {};
+  return {
+    body: d.body || "",
     icon: "/icons/icon-192.png",
     badge: "/icons/icon-192.png",
-    data: payload.data || {},
-    tag: (payload.data && payload.data.tag) || "izichanj-notification",
+    image: d.image || undefined,
+    data: d,
+    tag: d.tag || ("izichanj-" + Date.now()),
+    renotify: true,
+    requireInteraction: true,
+    vibrate: [200, 100, 200, 100, 200],
+    silent: false,
   };
-  self.registration.showNotification(title, options);
+}
+
+messaging.onBackgroundMessage((payload) => {
+  const data = payload && payload.data ? payload.data : {};
+  const title = data.title || (payload.notification && payload.notification.title) || "Izichanj";
+  self.registration.showNotification(title, buildOptions(data));
+});
+
+/* Fallback raw push handler — fires even if onBackgroundMessage isn't invoked */
+self.addEventListener("push", (event) => {
+  let payload = {};
+  try { payload = event.data ? event.data.json() : {}; } catch (e) { try { payload = { data: { body: event.data.text() } }; } catch (_) {} }
+  const data = (payload && (payload.data || payload.notification)) || {};
+  const title = data.title || "Izichanj";
+  event.waitUntil(self.registration.showNotification(title, buildOptions(data)));
 });
 
 self.addEventListener("notificationclick", (event) => {
@@ -32,13 +51,12 @@ self.addEventListener("notificationclick", (event) => {
   event.waitUntil(
     clients.matchAll({ type: "window", includeUncontrolled: true }).then((list) => {
       for (const c of list) {
-        if ("focus" in c) return c.navigate(url).then(() => c.focus());
+        if ("focus" in c) return c.navigate(url).then(() => c.focus()).catch(() => c.focus());
       }
       if (clients.openWindow) return clients.openWindow(url);
     })
   );
 });
 
-/* PWA install support — minimal pass-through service worker behavior */
 self.addEventListener("install", () => self.skipWaiting());
 self.addEventListener("activate", (e) => e.waitUntil(self.clients.claim()));

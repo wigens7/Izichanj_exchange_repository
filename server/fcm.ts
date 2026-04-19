@@ -50,14 +50,20 @@ export async function sendPushToProfile(
     const token = (rows.rows[0] as any)?.fcm_token;
     if (!token) return false;
 
+    const dataPayload: Record<string, string> = {
+      title: String(title || "Izichanj"),
+      body: String(body || ""),
+      url: String(data.url || "/"),
+      ...Object.fromEntries(Object.entries(data).map(([k, v]) => [k, String(v)])),
+    };
     await admin.messaging().send({
       token,
-      notification: { title, body },
-      data: Object.fromEntries(Object.entries(data).map(([k, v]) => [k, String(v)])),
+      data: dataPayload,
       webpush: {
-        fcmOptions: { link: data.url || "/" },
-        notification: { icon: "/icons/icon-192.png", badge: "/icons/icon-192.png" },
+        headers: { Urgency: "high", TTL: "2419200" },
+        fcmOptions: { link: dataPayload.url },
       },
+      android: { priority: "high" },
     });
     console.log(`[FCM] Push sent to profile #${profileId}: "${title}"`);
     return true;
@@ -88,8 +94,13 @@ export async function sendTestPush(profileId: number): Promise<{ ok: boolean; er
     if (!row?.fcm_token) return { ok: false, error: "No FCM token saved for this user" };
     await admin.messaging().send({
       token: row.fcm_token,
-      notification: { title: "🔔 Izichanj test notification", body: "If you see this, push notifications are working perfectly." },
-      webpush: { notification: { icon: "/icons/icon-192.png" }, fcmOptions: { link: "/" } },
+      data: {
+        title: "🔔 Izichanj test notification",
+        body: "If you see this, push notifications are working perfectly.",
+        url: "/",
+      },
+      webpush: { headers: { Urgency: "high", TTL: "2419200" }, fcmOptions: { link: "/" } },
+      android: { priority: "high" },
     });
     return { ok: true };
   } catch (e: any) {

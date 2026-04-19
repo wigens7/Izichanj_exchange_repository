@@ -46,9 +46,10 @@ export function NotificationPermissionPrompt() {
     let unsub: (() => void) | undefined;
     (async () => {
       unsub = await onForegroundPush((payload) => {
+        const d = payload?.data || {};
         toast({
-          title: payload?.notification?.title || "Izichanj",
-          description: payload?.notification?.body || "",
+          title: d.title || payload?.notification?.title || "Izichanj",
+          description: d.body || payload?.notification?.body || "",
         });
       });
     })();
