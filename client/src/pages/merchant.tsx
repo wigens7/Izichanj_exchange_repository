@@ -269,7 +269,6 @@ export default function MerchantPage() {
                       <div className="flex items-center gap-2">
                         <span className="inline-block w-3 h-3 rounded-full border" style={{ backgroundColor: m.hex }} />
                         <span>{m.label}</span>
-                        <span className="text-[11px] text-muted-foreground">({m.colorName})</span>
                       </div>
                     </SelectItem>
                   ))}

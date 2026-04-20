@@ -5097,7 +5097,7 @@ function MerchantPayoutsTab() {
                     <div className="flex items-start gap-3 min-w-0">
                       <span className="inline-block w-4 h-4 rounded-full border mt-1 shrink-0" style={{ backgroundColor: meta.hex }} />
                       <div className="min-w-0">
-                        <p className="font-semibold">{meta.label} <span className="text-xs font-normal text-muted-foreground">({meta.colorName})</span></p>
+                        <p className="font-semibold">{meta.label}</p>
                         <p className="text-sm text-muted-foreground">{p.user?.fullName} • <span className="font-mono text-xs">{p.user?.email}</span></p>
                         {p.merchant && <p className="text-xs text-muted-foreground">🏪 {p.merchant.businessName}</p>}
                         <p className="text-sm font-mono mt-1" data-testid={`text-detail-${p.id}`}>{detail}</p>
