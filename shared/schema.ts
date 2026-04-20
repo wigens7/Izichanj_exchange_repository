@@ -532,6 +532,56 @@ export const merchantTransactions = pgTable("merchant_transactions", {
 });
 export type MerchantTransaction = typeof merchantTransactions.$inferSelect;
 
+// Merchant payout requests
+export const payoutMethodEnum = pgEnum("payout_method", ["moncash", "natcash", "zelle", "cashapp"]);
+export const payoutStatusEnum = pgEnum("payout_status", ["pending", "approved", "rejected"]);
+
+export const payoutRequests = pgTable("payout_requests", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => profiles.id).notNull(),
+  merchantId: integer("merchant_id").references(() => merchants.id),
+  amount: decimal("amount", { precision: 14, scale: 4 }).notNull(),
+  method: payoutMethodEnum("method").notNull(),
+  details: jsonb("details").notNull(),
+  status: payoutStatusEnum("status").default("pending").notNull(),
+  adminNote: text("admin_note"),
+  processedAt: timestamp("processed_at"),
+  processedBy: integer("processed_by"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+export type PayoutRequest = typeof payoutRequests.$inferSelect;
+export type InsertPayoutRequest = typeof payoutRequests.$inferInsert;
+
+export const payoutRequestSchema = z.object({
+  amount: z.coerce.number().positive().min(5, "Minimum payout is 5 USDT"),
+  method: z.enum(["moncash", "natcash", "zelle", "cashapp"]),
+  phoneNumber: z.string().optional(),
+  email: z.string().optional(),
+  cashtag: z.string().optional(),
+  acknowledged: z.literal(true, { errorMap: () => ({ message: "You must acknowledge the 24-48h processing time" }) }),
+}).superRefine((v, ctx) => {
+  if ((v.method === "moncash" || v.method === "natcash")) {
+    if (!v.phoneNumber || !/^[0-9+\s-]{6,20}$/.test(v.phoneNumber.trim())) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["phoneNumber"], message: "Valid phone number required" });
+    }
+  } else if (v.method === "zelle") {
+    if (!v.email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v.email.trim())) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["email"], message: "Valid Zelle email required" });
+    }
+  } else if (v.method === "cashapp") {
+    if (!v.cashtag || !/^\$?[A-Za-z0-9_]{1,20}$/.test(v.cashtag.trim())) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["cashtag"], message: "Valid $cashtag required" });
+    }
+  }
+});
+
+export const PAYOUT_METHOD_META: Record<string, { label: string; colorName: string; hex: string }> = {
+  moncash: { label: "MonCash", colorName: "Red", hex: "#EF4444" },
+  natcash: { label: "NatCash", colorName: "Lemon Yellow (Citron)", hex: "#E3FF00" },
+  zelle: { label: "Zelle", colorName: "Navy Blue", hex: "#1A237E" },
+  cashapp: { label: "CashApp", colorName: "Green", hex: "#22C55E" },
+};
+
 export const updateMerchantSchema = z.object({
   businessName: z.string().min(2).max(100).optional(),
   webhookUrl: z.string().url().or(z.literal("")).nullish(),

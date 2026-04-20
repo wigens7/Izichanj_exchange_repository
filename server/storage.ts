@@ -1,4 +1,4 @@
-import { profiles, deposits, withdrawals, kycDocuments, otps, webauthnCredentials, notifications, supportConversations, supportMessages, virtualCards, blacklistedUsers, p2pTransfers, loginLogs, fraudRejections, cardTransactions, topUpTransactions, securityEvents, balanceLogs, userReports, referralEarnings, referralPayoutRequests, type Profile, type Deposit, type InsertDeposit, type Withdrawal, type InsertWithdrawal, type KycDocument, type WebAuthnCredential, type Notification, type SupportConversation, type SupportMessage, type VirtualCard, type BlacklistedUser, type P2PTransfer, type LoginLog, type FraudRejection, type CardTransaction, type TopUpTransaction, type SecurityEvent, type BalanceLog, type UserReport, type ReferralEarning, type ReferralPayoutRequest, merchants, merchantTransactions, type Merchant, type MerchantTransaction } from "@shared/schema";
+import { profiles, deposits, withdrawals, kycDocuments, otps, webauthnCredentials, notifications, supportConversations, supportMessages, virtualCards, blacklistedUsers, p2pTransfers, loginLogs, fraudRejections, cardTransactions, topUpTransactions, securityEvents, balanceLogs, userReports, referralEarnings, referralPayoutRequests, type Profile, type Deposit, type InsertDeposit, type Withdrawal, type InsertWithdrawal, type KycDocument, type WebAuthnCredential, type Notification, type SupportConversation, type SupportMessage, type VirtualCard, type BlacklistedUser, type P2PTransfer, type LoginLog, type FraudRejection, type CardTransaction, type TopUpTransaction, type SecurityEvent, type BalanceLog, type UserReport, type ReferralEarning, type ReferralPayoutRequest, merchants, merchantTransactions, type Merchant, type MerchantTransaction, payoutRequests, type PayoutRequest, type InsertPayoutRequest } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, ne, lt, sql, or, ilike, inArray } from "drizzle-orm";
 import crypto from "crypto";
@@ -147,6 +147,11 @@ export interface IStorage {
   getMerchantTransactionByPaymentId(paymentId: string): Promise<MerchantTransaction | undefined>;
   getMerchantTransactions(merchantId: number, limit?: number): Promise<MerchantTransaction[]>;
   getMerchantPaymentsAsBuyer(profileId: number, limit?: number): Promise<MerchantTransaction[]>;
+  createPayoutRequest(data: InsertPayoutRequest): Promise<PayoutRequest>;
+  getPayoutRequestsByUser(userId: number): Promise<PayoutRequest[]>;
+  getAllPayoutRequests(): Promise<PayoutRequest[]>;
+  getPayoutRequestById(id: number): Promise<PayoutRequest | undefined>;
+  updatePayoutRequestStatus(id: number, status: "approved" | "rejected", adminId: number, adminNote?: string): Promise<PayoutRequest | undefined>;
   markMerchantTransactionPaid(paymentId: string, payerProfileId: number): Promise<MerchantTransaction | undefined>;
   markMerchantTransactionExpired(paymentId: string): Promise<void>;
   incrementWebhookAttempt(paymentId: string, delivered: boolean): Promise<void>;
@@ -1128,6 +1133,28 @@ export class DatabaseStorage implements IStorage {
     const [t] = await db.select().from(merchantTransactions).where(eq(merchantTransactions.paymentId, paymentId));
     return t;
   }
+  async createPayoutRequest(data: InsertPayoutRequest): Promise<PayoutRequest> {
+    const [r] = await db.insert(payoutRequests).values(data).returning();
+    return r;
+  }
+  async getPayoutRequestsByUser(userId: number): Promise<PayoutRequest[]> {
+    return db.select().from(payoutRequests).where(eq(payoutRequests.userId, userId)).orderBy(desc(payoutRequests.createdAt));
+  }
+  async getAllPayoutRequests(): Promise<PayoutRequest[]> {
+    return db.select().from(payoutRequests).orderBy(desc(payoutRequests.createdAt));
+  }
+  async getPayoutRequestById(id: number): Promise<PayoutRequest | undefined> {
+    const [r] = await db.select().from(payoutRequests).where(eq(payoutRequests.id, id));
+    return r;
+  }
+  async updatePayoutRequestStatus(id: number, status: "approved" | "rejected", adminId: number, adminNote?: string): Promise<PayoutRequest | undefined> {
+    const [r] = await db.update(payoutRequests)
+      .set({ status, adminNote: adminNote ?? null, processedAt: new Date(), processedBy: adminId })
+      .where(and(eq(payoutRequests.id, id), eq(payoutRequests.status, "pending")))
+      .returning();
+    return r;
+  }
+
   async getMerchantPaymentsAsBuyer(profileId: number, limit = 100): Promise<MerchantTransaction[]> {
     return db.select().from(merchantTransactions)
       .where(eq(merchantTransactions.payerProfileId, profileId))

@@ -2,10 +2,10 @@ import type { Express, Request, Response, NextFunction } from "express";
 import { storage } from "./storage";
 import { db } from "./db";
 import { profiles, merchants, type Merchant } from "@shared/schema";
-import { eq, sql } from "drizzle-orm";
+import { eq, sql, and } from "drizzle-orm";
 import { isAuthenticated } from "./auth";
 import { getDepositRate } from "./rates";
-import { checkoutApiSchema, updateMerchantSchema } from "@shared/schema";
+import { checkoutApiSchema, updateMerchantSchema, payoutRequestSchema, PAYOUT_METHOD_META } from "@shared/schema";
 import crypto from "crypto";
 
 const FEE_PCT = 0.015; // 1.5% transaction fee
@@ -171,6 +171,202 @@ export function registerMerchantRoutes(app: Express) {
         ...asMerchant.filter(t => t.payerProfileId !== profileId).map(t => enrich(t, "merchant_payment")),
       ].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
       res.json({ payments: combined });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // ============ MERCHANT PAYOUTS ============
+
+  app.get("/api/merchant/payouts", isAuthenticated, async (req: any, res) => {
+    try {
+      const list = await storage.getPayoutRequestsByUser(req.session.profileId);
+      res.json({ payouts: list });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.post("/api/merchant/payouts", isAuthenticated, async (req: any, res) => {
+    try {
+      const parsed = payoutRequestSchema.parse(req.body);
+      const profile = await storage.getProfile(req.session.profileId);
+      if (!profile) return res.status(404).json({ message: "Profile not found" });
+      const merchant = await storage.getMerchantByProfile(profile.id);
+      if (!merchant) return res.status(403).json({ message: "Merchant account required to request a payout" });
+
+      const balance = Number(profile.balance);
+      if (balance < parsed.amount) {
+        return res.status(400).json({ message: `Insufficient balance. You have ${balance.toFixed(2)} USDT.` });
+      }
+
+      // Build details object based on method
+      const details: Record<string, string> = { method: parsed.method };
+      if (parsed.method === "moncash" || parsed.method === "natcash") {
+        details.phoneNumber = parsed.phoneNumber!.trim();
+      } else if (parsed.method === "zelle") {
+        details.email = parsed.email!.trim();
+      } else if (parsed.method === "cashapp") {
+        details.cashtag = parsed.cashtag!.trim().startsWith("$") ? parsed.cashtag!.trim() : `$${parsed.cashtag!.trim()}`;
+      }
+
+      // Atomic: deduct balance + create payout request in one transaction
+      let request: any;
+      try {
+        request = await db.transaction(async (tx) => {
+          const [updated] = await tx.update(profiles)
+            .set({ balance: sql`${profiles.balance} - ${parsed.amount}` })
+            .where(and(eq(profiles.id, profile.id), sql`${profiles.balance} >= ${parsed.amount}`))
+            .returning();
+          if (!updated) throw new Error("INSUFFICIENT_BALANCE");
+          const [r] = await tx.insert((await import("@shared/schema")).payoutRequests).values({
+            userId: profile.id,
+            merchantId: merchant.id,
+            amount: String(parsed.amount.toFixed(4)) as any,
+            method: parsed.method,
+            details: details as any,
+          }).returning();
+          return r;
+        });
+      } catch (txErr: any) {
+        if (txErr?.message === "INSUFFICIENT_BALANCE") {
+          return res.status(400).json({ message: "Balance changed; please retry." });
+        }
+        throw txErr;
+      }
+
+      const meta = PAYOUT_METHOD_META[parsed.method];
+      const detailLine = parsed.method === "zelle" ? `📧 ${details.email}` :
+                          parsed.method === "cashapp" ? `💵 ${details.cashtag}` :
+                          `📱 ${details.phoneNumber}`;
+      sendAdminTelegram(
+        `💸 <b>New Merchant Payout Request</b>\n\n` +
+        `🏪 <b>Merchant:</b> ${merchant.businessName}\n` +
+        `👤 <b>User:</b> ${profile.fullName} (${profile.email})\n` +
+        `💰 <b>Amount:</b> ${parsed.amount.toFixed(4)} USDT\n` +
+        `🎨 <b>Method:</b> ${meta.label} (${meta.colorName})\n` +
+        `${detailLine}\n` +
+        `🆔 <b>Request ID:</b> #${request.id}\n` +
+        `🕒 ${new Date().toLocaleString("en-US", { timeZone: "America/Port-au-Prince" })}\n\n` +
+        `⏳ Awaiting admin processing (24-48h SLA).`
+      ).catch(() => {});
+
+      storage.createNotification({
+        profileId: profile.id,
+        type: "custom_message" as any,
+        title: "💸 Payout Request Submitted",
+        message: `Your ${meta.label} payout request for ${parsed.amount.toFixed(2)} USDT is being processed (24-48h).`,
+      }).catch(() => {});
+
+      res.json({ ok: true, payout: request });
+    } catch (e: any) {
+      const msg = e?.errors?.[0]?.message || e?.message || String(e);
+      res.status(400).json({ message: msg });
+    }
+  });
+
+  // ============ ADMIN PAYOUTS ============
+
+  app.get("/api/admin/payouts", isAuthenticated, async (req: any, res) => {
+    try {
+      const me = await storage.getProfile(req.session.profileId);
+      if (me?.role !== "admin") return res.status(403).json({ message: "Forbidden" });
+      const list = await storage.getAllPayoutRequests();
+      // Enrich with user + merchant info
+      const enriched = await Promise.all(list.map(async (p) => {
+        const user = await storage.getProfile(p.userId);
+        const merchant = p.merchantId ? await storage.getMerchantById(p.merchantId) : null;
+        return {
+          ...p,
+          user: user ? { id: user.id, fullName: user.fullName, email: user.email } : null,
+          merchant: merchant ? { id: merchant.id, businessName: merchant.businessName } : null,
+        };
+      }));
+      res.json({ payouts: enriched });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.post("/api/admin/payouts/:id/approve", isAuthenticated, async (req: any, res) => {
+    try {
+      const me = await storage.getProfile(req.session.profileId);
+      if (me?.role !== "admin") return res.status(403).json({ message: "Forbidden" });
+      const id = Number(req.params.id);
+      const payout = await storage.getPayoutRequestById(id);
+      if (!payout) return res.status(404).json({ message: "Payout not found" });
+      if (payout.status !== "pending") return res.status(400).json({ message: `Already ${payout.status}` });
+
+      const updated = await storage.updatePayoutRequestStatus(id, "approved", me.id, req.body?.adminNote);
+      if (!updated) return res.status(409).json({ message: "Concurrently processed" });
+
+      const meta = PAYOUT_METHOD_META[payout.method];
+      storage.createNotification({
+        profileId: payout.userId,
+        type: "withdrawal_approved" as any,
+        title: "✅ Payout Approved",
+        message: `Your ${meta.label} payout of ${Number(payout.amount).toFixed(2)} USDT has been processed.`,
+      }).catch(() => {});
+
+      sendAdminTelegram(
+        `✅ <b>Payout #${payout.id} Approved</b>\n` +
+        `${meta.label} (${meta.colorName}) — ${Number(payout.amount).toFixed(2)} USDT`
+      ).catch(() => {});
+
+      res.json({ ok: true, payout: updated });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.post("/api/admin/payouts/:id/reject", isAuthenticated, async (req: any, res) => {
+    try {
+      const me = await storage.getProfile(req.session.profileId);
+      if (me?.role !== "admin") return res.status(403).json({ message: "Forbidden" });
+      const id = Number(req.params.id);
+      const payout = await storage.getPayoutRequestById(id);
+      if (!payout) return res.status(404).json({ message: "Payout not found" });
+      if (payout.status !== "pending") return res.status(400).json({ message: `Already ${payout.status}` });
+
+      // Atomic refund + state transition in one transaction
+      const amount = Number(payout.amount);
+      const adminNote = req.body?.adminNote || "Rejected by admin";
+      const { payoutRequests: payoutsTable } = await import("@shared/schema");
+      let updated: any;
+      try {
+        updated = await db.transaction(async (tx) => {
+          // CAS: only transition pending → rejected
+          const [u] = await tx.update(payoutsTable)
+            .set({ status: "rejected", adminNote, processedAt: new Date(), processedBy: me.id })
+            .where(and(eq(payoutsTable.id, id), eq(payoutsTable.status, "pending")))
+            .returning();
+          if (!u) throw new Error("RACE");
+          await tx.update(profiles)
+            .set({ balance: sql`${profiles.balance} + ${amount}` })
+            .where(eq(profiles.id, payout.userId));
+          return u;
+        });
+      } catch (txErr: any) {
+        if (txErr?.message === "RACE") {
+          return res.status(409).json({ message: "Concurrently processed" });
+        }
+        throw txErr;
+      }
+
+      const meta = PAYOUT_METHOD_META[payout.method];
+      storage.createNotification({
+        profileId: payout.userId,
+        type: "withdrawal_rejected" as any,
+        title: "❌ Payout Rejected",
+        message: `Your ${meta.label} payout of ${amount.toFixed(2)} USDT was rejected and refunded to your balance.${req.body?.adminNote ? ` Reason: ${req.body.adminNote}` : ""}`,
+      }).catch(() => {});
+
+      sendAdminTelegram(
+        `❌ <b>Payout #${payout.id} Rejected</b>\n` +
+        `${meta.label} (${meta.colorName}) — ${amount.toFixed(2)} USDT refunded to user.`
+      ).catch(() => {});
+
+      res.json({ ok: true, payout: updated });
     } catch (e: any) {
       res.status(500).json({ message: e.message });
     }

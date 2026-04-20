@@ -10,7 +10,23 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Loader2, Copy, Check, Eye, EyeOff, RefreshCw, Webhook, KeyRound, Store, BookOpen, AlertTriangle, ExternalLink } from "lucide-react";
+import { Loader2, Copy, Check, Eye, EyeOff, RefreshCw, Webhook, KeyRound, Store, BookOpen, AlertTriangle, ExternalLink, Wallet } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Textarea } from "@/components/ui/textarea";
+
+const PAYOUT_METHODS = [
+  { value: "moncash", label: "MonCash", colorName: "Red", hex: "#EF4444" },
+  { value: "natcash", label: "NatCash", colorName: "Lemon Yellow (Citron)", hex: "#E3FF00" },
+  { value: "zelle", label: "Zelle", colorName: "Navy Blue", hex: "#1A237E" },
+  { value: "cashapp", label: "CashApp", colorName: "Green", hex: "#22C55E" },
+] as const;
+type PayoutMethod = typeof PAYOUT_METHODS[number]["value"];
+type PayoutReq = {
+  id: number; amount: string; method: PayoutMethod;
+  details: any; status: "pending" | "approved" | "rejected";
+  adminNote: string | null; createdAt: string; processedAt: string | null;
+};
 
 type Merchant = {
   id: number;
@@ -59,6 +75,12 @@ export default function MerchantPage() {
   const [businessName, setBusinessName] = useState("");
   const [webhookInput, setWebhookInput] = useState("");
   const [showSecret, setShowSecret] = useState(false);
+  const [payoutMethod, setPayoutMethod] = useState<PayoutMethod | "">("");
+  const [payoutAmount, setPayoutAmount] = useState("");
+  const [payoutPhone, setPayoutPhone] = useState("");
+  const [payoutEmail, setPayoutEmail] = useState("");
+  const [payoutCashtag, setPayoutCashtag] = useState("");
+  const [acknowledged, setAcknowledged] = useState(false);
 
   const { data, isLoading } = useQuery<{ merchant: Merchant | null }>({ queryKey: ["/api/merchant/me"] });
   const merchant = data?.merchant;
@@ -102,6 +124,33 @@ export default function MerchantPage() {
       queryClient.invalidateQueries({ queryKey: ["/api/merchant/me"] });
       toast({ title: "API keys rotated", description: "Your old keys are now invalid. Update your integrations." });
     },
+  });
+
+  const { data: payoutData } = useQuery<{ payouts: PayoutReq[] }>({
+    queryKey: ["/api/merchant/payouts"],
+    enabled: !!data?.merchant,
+    refetchInterval: 20000,
+  });
+  const payouts = payoutData?.payouts || [];
+
+  const submitPayout = useMutation({
+    mutationFn: async () => {
+      const body: any = { amount: Number(payoutAmount), method: payoutMethod, acknowledged: true };
+      if (payoutMethod === "moncash" || payoutMethod === "natcash") body.phoneNumber = payoutPhone;
+      else if (payoutMethod === "zelle") body.email = payoutEmail;
+      else if (payoutMethod === "cashapp") body.cashtag = payoutCashtag;
+      const r = await apiRequest("POST", "/api/merchant/payouts", body);
+      return r.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/merchant/payouts"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/profile"] });
+      toast({ title: "Payout request submitted", description: "Admin will process it within 24-48 hours." });
+      setPayoutAmount(""); setPayoutPhone(""); setPayoutEmail(""); setPayoutCashtag("");
+      setPayoutMethod(""); setAcknowledged(false);
+    },
+    onError: (e: any) => toast({ title: "Payout failed", description: e?.message || "Please try again", variant: "destructive" }),
   });
 
   if (isLoading) {
@@ -197,6 +246,152 @@ export default function MerchantPage() {
         <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">Successful payments</p><p className="text-2xl font-bold" data-testid="text-payment-count">{totalCount}</p></CardContent></Card>
         <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">Transaction fee</p><p className="text-2xl font-bold">1.5%</p></CardContent></Card>
       </div>
+
+      <Card data-testid="card-payout">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2"><Wallet className="w-5 h-5" />Withdraw Earnings</CardTitle>
+          <CardDescription>
+            Request a payout to MonCash, NatCash, Zelle, or CashApp. Minimum 5 USDT. Admin processes within 24-48 hours.
+            Available balance: <span className="font-bold text-foreground" data-testid="text-balance">{Number(user?.balance || 0).toFixed(2)} USDT</span>
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <Label>Payout method</Label>
+              <Select value={payoutMethod} onValueChange={(v) => setPayoutMethod(v as PayoutMethod)}>
+                <SelectTrigger data-testid="select-payout-method">
+                  <SelectValue placeholder="Select a method" />
+                </SelectTrigger>
+                <SelectContent>
+                  {PAYOUT_METHODS.map((m) => (
+                    <SelectItem key={m.value} value={m.value} data-testid={`option-${m.value}`}>
+                      <div className="flex items-center gap-2">
+                        <span className="inline-block w-3 h-3 rounded-full border" style={{ backgroundColor: m.hex }} />
+                        <span>{m.label}</span>
+                        <span className="text-[11px] text-muted-foreground">({m.colorName})</span>
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label htmlFor="payout-amount">Amount (USDT)</Label>
+              <Input
+                id="payout-amount"
+                type="number"
+                min="5"
+                step="0.01"
+                placeholder="Min 5 USDT"
+                value={payoutAmount}
+                onChange={(e) => setPayoutAmount(e.target.value)}
+                data-testid="input-payout-amount"
+              />
+            </div>
+          </div>
+
+          {(payoutMethod === "moncash" || payoutMethod === "natcash") && (
+            <div>
+              <Label htmlFor="payout-phone">{payoutMethod === "moncash" ? "MonCash" : "NatCash"} phone number</Label>
+              <Input
+                id="payout-phone"
+                placeholder="+509 1234-5678"
+                value={payoutPhone}
+                onChange={(e) => setPayoutPhone(e.target.value)}
+                data-testid="input-payout-phone"
+              />
+            </div>
+          )}
+          {payoutMethod === "zelle" && (
+            <div>
+              <Label htmlFor="payout-email">Zelle email address</Label>
+              <Input
+                id="payout-email"
+                type="email"
+                placeholder="you@example.com"
+                value={payoutEmail}
+                onChange={(e) => setPayoutEmail(e.target.value)}
+                data-testid="input-payout-email"
+              />
+            </div>
+          )}
+          {payoutMethod === "cashapp" && (
+            <div>
+              <Label htmlFor="payout-cashtag">CashApp $cashtag</Label>
+              <Input
+                id="payout-cashtag"
+                placeholder="$yourtag"
+                value={payoutCashtag}
+                onChange={(e) => setPayoutCashtag(e.target.value)}
+                data-testid="input-payout-cashtag"
+              />
+            </div>
+          )}
+
+          <div className="flex items-start gap-2 p-3 rounded-lg border bg-muted/30">
+            <Checkbox
+              id="acknowledge"
+              checked={acknowledged}
+              onCheckedChange={(c) => setAcknowledged(!!c)}
+              data-testid="checkbox-acknowledge"
+            />
+            <Label htmlFor="acknowledge" className="text-xs leading-snug cursor-pointer">
+              I understand that my balance will be debited <span className="font-semibold">immediately</span> upon submission, and that the payout will be processed manually by Izichanj admin within <span className="font-semibold">24-48 hours</span>. If rejected, the funds will be refunded to my balance.
+            </Label>
+          </div>
+
+          <Button
+            className="w-full"
+            onClick={() => submitPayout.mutate()}
+            disabled={
+              submitPayout.isPending ||
+              !acknowledged ||
+              !payoutMethod ||
+              Number(payoutAmount) < 5 ||
+              Number(payoutAmount) > Number(user?.balance || 0) ||
+              ((payoutMethod === "moncash" || payoutMethod === "natcash") && payoutPhone.trim().length < 6) ||
+              (payoutMethod === "zelle" && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(payoutEmail.trim())) ||
+              (payoutMethod === "cashapp" && payoutCashtag.trim().length < 1)
+            }
+            data-testid="button-submit-payout"
+          >
+            {submitPayout.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+            Request payout
+          </Button>
+
+          {payouts.length > 0 && (
+            <div className="space-y-2 pt-2">
+              <p className="text-xs font-semibold text-muted-foreground">Recent payout requests</p>
+              {payouts.slice(0, 8).map((p) => {
+                const meta = PAYOUT_METHODS.find((m) => m.value === p.method)!;
+                const detail = p.details?.phoneNumber || p.details?.email || p.details?.cashtag || "";
+                return (
+                  <div key={p.id} className="flex items-center justify-between gap-3 p-2 rounded-md border" data-testid={`row-payout-${p.id}`}>
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="inline-block w-3 h-3 rounded-full border shrink-0" style={{ backgroundColor: meta.hex }} />
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium">{meta.label}</p>
+                        <p className="text-[11px] text-muted-foreground truncate">{detail}</p>
+                      </div>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <p className="font-bold text-sm">{Number(p.amount).toFixed(2)} USDT</p>
+                      <Badge
+                        variant={p.status === "approved" ? "default" : p.status === "rejected" ? "destructive" : "secondary"}
+                        className="text-[10px]"
+                        data-testid={`badge-status-${p.id}`}
+                      >
+                        {p.status}
+                      </Badge>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>

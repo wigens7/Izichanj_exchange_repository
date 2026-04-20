@@ -567,6 +567,33 @@ app.use((req, res, next) => {
     console.warn("[startup migration] fcm_token skipped:", (e as Error).message);
   }
 
+  try {
+    await db.execute(sql`DO $$ BEGIN
+      CREATE TYPE payout_method AS ENUM ('moncash','natcash','zelle','cashapp');
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$;`);
+    await db.execute(sql`DO $$ BEGIN
+      CREATE TYPE payout_status AS ENUM ('pending','approved','rejected');
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$;`);
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS payout_requests (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES profiles(id),
+        merchant_id INTEGER REFERENCES merchants(id),
+        amount DECIMAL(14,4) NOT NULL,
+        method payout_method NOT NULL,
+        details JSONB NOT NULL,
+        status payout_status NOT NULL DEFAULT 'pending',
+        admin_note TEXT,
+        processed_at TIMESTAMP,
+        processed_by INTEGER,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    `);
+    console.log("[startup migration] payout_requests table ensured");
+  } catch (e) {
+    console.warn("[startup migration] payout_requests skipped:", (e as Error).message);
+  }
+
   await registerRoutes(httpServer, app);
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {

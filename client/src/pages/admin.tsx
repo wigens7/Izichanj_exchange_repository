@@ -13,7 +13,7 @@ import {
   useAdminUpdateBalance,
 } from "@/hooks/use-transactions";
 import { useUser } from "@/hooks/use-auth";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -85,6 +85,7 @@ import {
   Share2,
   Smartphone,
   Tv,
+  Wallet,
 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -180,6 +181,10 @@ export default function AdminPage() {
               <Tv className="w-5 h-5" />
               <span>Canal+</span>
             </TabsTrigger>
+            <TabsTrigger value="merchant-payouts" className="flex-col items-center gap-1 shrink-0 min-w-[60px] h-auto py-2.5 px-2 text-[10px] font-medium" data-testid="tab-admin-merchant-payouts">
+              <Wallet className="w-5 h-5" />
+              <span>Payouts</span>
+            </TabsTrigger>
           </TabsList>
         </div>
 
@@ -218,6 +223,9 @@ export default function AdminPage() {
         </TabsContent>
         <TabsContent value="referral-payouts">
           <ReferralPayoutsTab />
+        </TabsContent>
+        <TabsContent value="merchant-payouts">
+          <MerchantPayoutsTab />
         </TabsContent>
         <TabsContent value="p2p-disputes">
           <P2PDisputesTab key="p2p-disputes" />
@@ -4986,6 +4994,178 @@ function CanalplusTab() {
                 ))}
               </TableBody>
             </Table>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+const PAYOUT_METHOD_DISPLAY: Record<string, { label: string; colorName: string; hex: string }> = {
+  moncash: { label: "MonCash", colorName: "Red", hex: "#EF4444" },
+  natcash: { label: "NatCash", colorName: "Lemon Yellow", hex: "#E3FF00" },
+  zelle: { label: "Zelle", colorName: "Navy Blue", hex: "#1A237E" },
+  cashapp: { label: "CashApp", colorName: "Green", hex: "#22C55E" },
+};
+
+type AdminPayout = {
+  id: number; userId: number; merchantId: number | null;
+  amount: string; method: keyof typeof PAYOUT_METHOD_DISPLAY;
+  details: any; status: "pending" | "approved" | "rejected";
+  adminNote: string | null; createdAt: string; processedAt: string | null;
+  user: { id: number; fullName: string; email: string } | null;
+  merchant: { id: number; businessName: string } | null;
+};
+
+function MerchantPayoutsTab() {
+  const { toast } = useToast();
+  const { data, isLoading } = useQuery<{ payouts: AdminPayout[] }>({
+    queryKey: ["/api/admin/payouts"],
+    refetchInterval: 15000,
+  });
+  const payouts = data?.payouts || [];
+  const [filter, setFilter] = useState<"pending" | "all">("pending");
+  const [rejectingId, setRejectingId] = useState<number | null>(null);
+  const [rejectNote, setRejectNote] = useState("");
+
+  const approve = useMutation({
+    mutationFn: async (id: number) => {
+      const r = await apiRequest("POST", `/api/admin/payouts/${id}/approve`, {});
+      return r.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/payouts"] });
+      toast({ title: "Payout approved" });
+    },
+    onError: (e: any) => toast({ title: "Approve failed", description: e?.message, variant: "destructive" }),
+  });
+
+  const reject = useMutation({
+    mutationFn: async (id: number) => {
+      const r = await apiRequest("POST", `/api/admin/payouts/${id}/reject`, { adminNote: rejectNote });
+      return r.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/payouts"] });
+      toast({ title: "Payout rejected", description: "Funds refunded to user balance." });
+      setRejectingId(null);
+      setRejectNote("");
+    },
+    onError: (e: any) => toast({ title: "Reject failed", description: e?.message, variant: "destructive" }),
+  });
+
+  const filtered = filter === "pending" ? payouts.filter((p) => p.status === "pending") : payouts;
+  const pendingCount = payouts.filter((p) => p.status === "pending").length;
+
+  return (
+    <Card data-testid="card-admin-payouts">
+      <CardHeader>
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div>
+            <CardTitle className="flex items-center gap-2"><Wallet className="w-5 h-5" />Merchant Payouts</CardTitle>
+            <CardDescription>{pendingCount} pending request{pendingCount === 1 ? "" : "s"}. Review and process within 24-48h.</CardDescription>
+          </div>
+          <div className="flex gap-2">
+            <Button
+              size="sm"
+              variant={filter === "pending" ? "default" : "outline"}
+              onClick={() => setFilter("pending")}
+              data-testid="button-filter-pending"
+            >Pending ({pendingCount})</Button>
+            <Button
+              size="sm"
+              variant={filter === "all" ? "default" : "outline"}
+              onClick={() => setFilter("all")}
+              data-testid="button-filter-all"
+            >All ({payouts.length})</Button>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin" /></div>
+        ) : filtered.length === 0 ? (
+          <p className="text-sm text-muted-foreground text-center py-8" data-testid="text-no-payouts">No payouts to display.</p>
+        ) : (
+          <div className="space-y-3">
+            {filtered.map((p) => {
+              const meta = PAYOUT_METHOD_DISPLAY[p.method];
+              const detail = p.details?.phoneNumber || p.details?.email || p.details?.cashtag || "—";
+              return (
+                <div key={p.id} className="border rounded-lg p-4 space-y-3" data-testid={`row-admin-payout-${p.id}`}>
+                  <div className="flex items-start justify-between gap-3 flex-wrap">
+                    <div className="flex items-start gap-3 min-w-0">
+                      <span className="inline-block w-4 h-4 rounded-full border mt-1 shrink-0" style={{ backgroundColor: meta.hex }} />
+                      <div className="min-w-0">
+                        <p className="font-semibold">{meta.label} <span className="text-xs font-normal text-muted-foreground">({meta.colorName})</span></p>
+                        <p className="text-sm text-muted-foreground">{p.user?.fullName} • <span className="font-mono text-xs">{p.user?.email}</span></p>
+                        {p.merchant && <p className="text-xs text-muted-foreground">🏪 {p.merchant.businessName}</p>}
+                        <p className="text-sm font-mono mt-1" data-testid={`text-detail-${p.id}`}>{detail}</p>
+                      </div>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <p className="text-2xl font-bold" data-testid={`text-amount-${p.id}`}>{Number(p.amount).toFixed(2)} <span className="text-sm font-normal">USDT</span></p>
+                      <Badge
+                        variant={p.status === "approved" ? "default" : p.status === "rejected" ? "destructive" : "secondary"}
+                        data-testid={`badge-status-${p.id}`}
+                      >{p.status}</Badge>
+                      <p className="text-[11px] text-muted-foreground mt-1">{new Date(p.createdAt).toLocaleString()}</p>
+                    </div>
+                  </div>
+                  {p.adminNote && (
+                    <div className="text-xs p-2 rounded bg-muted">
+                      <span className="font-semibold">Note:</span> {p.adminNote}
+                    </div>
+                  )}
+                  {p.status === "pending" && (
+                    <>
+                      {rejectingId === p.id ? (
+                        <div className="space-y-2 pt-2 border-t">
+                          <Label className="text-xs">Reason for rejection (sent to user)</Label>
+                          <Input
+                            placeholder="e.g. Invalid phone number"
+                            value={rejectNote}
+                            onChange={(e) => setRejectNote(e.target.value)}
+                            data-testid={`input-reject-note-${p.id}`}
+                          />
+                          <div className="flex gap-2">
+                            <Button
+                              size="sm"
+                              variant="destructive"
+                              onClick={() => reject.mutate(p.id)}
+                              disabled={reject.isPending}
+                              data-testid={`button-confirm-reject-${p.id}`}
+                            >
+                              {reject.isPending && <Loader2 className="w-3 h-3 mr-1 animate-spin" />}
+                              Confirm reject & refund
+                            </Button>
+                            <Button size="sm" variant="outline" onClick={() => { setRejectingId(null); setRejectNote(""); }} data-testid={`button-cancel-reject-${p.id}`}>Cancel</Button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex gap-2 pt-2 border-t">
+                          <Button
+                            size="sm"
+                            onClick={() => approve.mutate(p.id)}
+                            disabled={approve.isPending}
+                            data-testid={`button-approve-${p.id}`}
+                          >
+                            {approve.isPending && <Loader2 className="w-3 h-3 mr-1 animate-spin" />}
+                            Mark as paid
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => setRejectingId(p.id)}
+                            data-testid={`button-reject-${p.id}`}
+                          >Reject & refund</Button>
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
       </CardContent>
