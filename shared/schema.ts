@@ -484,3 +484,64 @@ export const canalplusSubscriptions = pgTable("canalplus_subscriptions", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 export type CanalplusSubscription = typeof canalplusSubscriptions.$inferSelect;
+
+// =====================================================================
+// Izichanj Pay — Merchant API
+// =====================================================================
+export const merchantTxnStatusEnum = pgEnum("merchant_txn_status", [
+  "pending",
+  "completed",
+  "expired",
+  "failed",
+]);
+
+export const merchants = pgTable("merchants", {
+  id: serial("id").primaryKey(),
+  profileId: integer("profile_id").references(() => profiles.id).notNull().unique(),
+  businessName: text("business_name").notNull(),
+  webhookUrl: text("webhook_url"),
+  apiPublicKey: text("api_public_key").notNull().unique(),
+  apiSecretKey: text("api_secret_key").notNull().unique(),
+  isVerified: boolean("is_verified").default(false).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+export type Merchant = typeof merchants.$inferSelect;
+
+export const merchantTransactions = pgTable("merchant_transactions", {
+  id: serial("id").primaryKey(),
+  paymentId: text("payment_id").notNull().unique(),
+  merchantId: integer("merchant_id").references(() => merchants.id).notNull(),
+  orderId: text("order_id").notNull(),
+  amount: decimal("amount", { precision: 14, scale: 2 }).notNull(),
+  currency: text("currency").notNull(),
+  amountUsdt: decimal("amount_usdt", { precision: 14, scale: 4 }).notNull(),
+  amountHtg: decimal("amount_htg", { precision: 14, scale: 2 }).notNull(),
+  feeUsdt: decimal("fee_usdt", { precision: 14, scale: 4 }).notNull(),
+  netUsdt: decimal("net_usdt", { precision: 14, scale: 4 }).notNull(),
+  exchangeRate: decimal("exchange_rate", { precision: 10, scale: 4 }).notNull(),
+  status: merchantTxnStatusEnum("status").default("pending").notNull(),
+  payerProfileId: integer("payer_profile_id").references(() => profiles.id),
+  successUrl: text("success_url"),
+  cancelUrl: text("cancel_url"),
+  description: text("description"),
+  webhookDelivered: boolean("webhook_delivered").default(false).notNull(),
+  webhookAttempts: integer("webhook_attempts").default(0).notNull(),
+  paidAt: timestamp("paid_at"),
+  expiresAt: timestamp("expires_at").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+export type MerchantTransaction = typeof merchantTransactions.$inferSelect;
+
+export const updateMerchantSchema = z.object({
+  businessName: z.string().min(2).max(100).optional(),
+  webhookUrl: z.string().url().or(z.literal("")).nullish(),
+});
+
+export const checkoutApiSchema = z.object({
+  amount: z.coerce.number().positive(),
+  currency: z.enum(["HTG", "USDT"]),
+  order_id: z.string().min(1).max(120),
+  description: z.string().max(255).optional(),
+  success_url: z.string().url().optional(),
+  cancel_url: z.string().url().optional(),
+});

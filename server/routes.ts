@@ -6,6 +6,7 @@ import { api } from "@shared/routes";
 import { registerSchema, loginSchema, forgotPasswordSchema, resetPasswordSchema, resetPinSchema } from "@shared/schema";
 import { z } from "zod";
 import { setupAuth, isAuthenticated } from "./auth";
+import { registerMerchantRoutes } from "./merchant";
 import { registerObjectStorageRoutes } from "./replit_integrations/object_storage";
 import crypto from "crypto";
 import bcrypt from "bcryptjs";
@@ -185,6 +186,7 @@ export async function registerRoutes(
 
   setupAuth(app);
   registerObjectStorageRoutes(app);
+  registerMerchantRoutes(app);
 
   // --- MonCash Payment Integration ---
   const MONCASH_CLIENT_ID = process.env.MONCASH_CLIENT_ID;

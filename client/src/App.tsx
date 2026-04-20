@@ -25,6 +25,9 @@ import ReportPage from "@/pages/report";
 import CanalPlusPage from "@/pages/canal-plus";
 import NotFound from "@/pages/not-found";
 import VerifyReceiptPage from "@/pages/verify-receipt";
+import MerchantPage from "@/pages/merchant";
+import DevelopersPage from "@/pages/developers";
+import CheckoutPage from "@/pages/checkout";
 import { LayoutShell } from "@/components/layout-shell";
 import { NotificationPermissionPrompt } from "@/components/notification-permission-prompt";
 import { registerAppServiceWorker } from "@/lib/pwa";
@@ -137,6 +140,11 @@ function Router() {
       <Route path="/canal-plus">
         <ProtectedRoute component={CanalPlusPage} />
       </Route>
+      <Route path="/merchant">
+        <ProtectedRoute component={MerchantPage} />
+      </Route>
+      <Route path="/developers" component={DevelopersPage} />
+      <Route path="/checkout/:paymentId" component={CheckoutPage} />
 
       <Route path="/verify/:receiptId" component={VerifyReceiptPage} />
       <Route component={NotFound} />

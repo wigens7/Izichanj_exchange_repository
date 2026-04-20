@@ -1,4 +1,4 @@
-import { profiles, deposits, withdrawals, kycDocuments, otps, webauthnCredentials, notifications, supportConversations, supportMessages, virtualCards, blacklistedUsers, p2pTransfers, loginLogs, fraudRejections, cardTransactions, topUpTransactions, securityEvents, balanceLogs, userReports, referralEarnings, referralPayoutRequests, type Profile, type Deposit, type InsertDeposit, type Withdrawal, type InsertWithdrawal, type KycDocument, type WebAuthnCredential, type Notification, type SupportConversation, type SupportMessage, type VirtualCard, type BlacklistedUser, type P2PTransfer, type LoginLog, type FraudRejection, type CardTransaction, type TopUpTransaction, type SecurityEvent, type BalanceLog, type UserReport, type ReferralEarning, type ReferralPayoutRequest } from "@shared/schema";
+import { profiles, deposits, withdrawals, kycDocuments, otps, webauthnCredentials, notifications, supportConversations, supportMessages, virtualCards, blacklistedUsers, p2pTransfers, loginLogs, fraudRejections, cardTransactions, topUpTransactions, securityEvents, balanceLogs, userReports, referralEarnings, referralPayoutRequests, type Profile, type Deposit, type InsertDeposit, type Withdrawal, type InsertWithdrawal, type KycDocument, type WebAuthnCredential, type Notification, type SupportConversation, type SupportMessage, type VirtualCard, type BlacklistedUser, type P2PTransfer, type LoginLog, type FraudRejection, type CardTransaction, type TopUpTransaction, type SecurityEvent, type BalanceLog, type UserReport, type ReferralEarning, type ReferralPayoutRequest, merchants, merchantTransactions, type Merchant, type MerchantTransaction } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, ne, lt, sql, or, ilike, inArray } from "drizzle-orm";
 import crypto from "crypto";
@@ -134,6 +134,21 @@ export interface IStorage {
   getReferralPayoutRequests(profileId?: number): Promise<any[]>;
   updateReferralPayoutRequest(id: number, status: "approved" | "rejected", adminNote?: string): Promise<ReferralPayoutRequest | null>;
   hasPendingReferralPayout(profileId: number): Promise<boolean>;
+
+  // Merchant API
+  getMerchantByProfile(profileId: number): Promise<Merchant | undefined>;
+  getMerchantBySecretKey(key: string): Promise<Merchant | undefined>;
+  getMerchantByPublicKey(key: string): Promise<Merchant | undefined>;
+  getMerchantById(id: number): Promise<Merchant | undefined>;
+  createMerchant(profileId: number, businessName: string): Promise<Merchant>;
+  updateMerchant(profileId: number, data: { businessName?: string; webhookUrl?: string | null }): Promise<Merchant | undefined>;
+  rotateMerchantKeys(profileId: number): Promise<Merchant | undefined>;
+  createMerchantTransaction(data: Omit<MerchantTransaction, "id" | "createdAt" | "paidAt" | "webhookDelivered" | "webhookAttempts" | "status" | "payerProfileId">): Promise<MerchantTransaction>;
+  getMerchantTransactionByPaymentId(paymentId: string): Promise<MerchantTransaction | undefined>;
+  getMerchantTransactions(merchantId: number, limit?: number): Promise<MerchantTransaction[]>;
+  markMerchantTransactionPaid(paymentId: string, payerProfileId: number): Promise<MerchantTransaction | undefined>;
+  markMerchantTransactionExpired(paymentId: string): Promise<void>;
+  incrementWebhookAttempt(paymentId: string, delivered: boolean): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1063,6 +1078,77 @@ export class DatabaseStorage implements IStorage {
       SELECT 1 FROM referral_payout_requests WHERE profile_id = ${profileId} AND status = 'pending' LIMIT 1
     `);
     return (rows.rows as any[]).length > 0;
+  }
+
+  // ===== Merchant API =====
+  async getMerchantByProfile(profileId: number): Promise<Merchant | undefined> {
+    const [m] = await db.select().from(merchants).where(eq(merchants.profileId, profileId));
+    return m;
+  }
+  async getMerchantBySecretKey(key: string): Promise<Merchant | undefined> {
+    const [m] = await db.select().from(merchants).where(eq(merchants.apiSecretKey, key));
+    return m;
+  }
+  async getMerchantByPublicKey(key: string): Promise<Merchant | undefined> {
+    const [m] = await db.select().from(merchants).where(eq(merchants.apiPublicKey, key));
+    return m;
+  }
+  async getMerchantById(id: number): Promise<Merchant | undefined> {
+    const [m] = await db.select().from(merchants).where(eq(merchants.id, id));
+    return m;
+  }
+  async createMerchant(profileId: number, businessName: string): Promise<Merchant> {
+    const apiPublicKey = "izi_pk_" + crypto.randomBytes(18).toString("hex");
+    const apiSecretKey = "izi_sk_" + crypto.randomBytes(28).toString("hex");
+    const [m] = await db.insert(merchants).values({
+      profileId, businessName, apiPublicKey, apiSecretKey,
+    }).returning();
+    return m;
+  }
+  async updateMerchant(profileId: number, data: { businessName?: string; webhookUrl?: string | null }): Promise<Merchant | undefined> {
+    const update: any = {};
+    if (data.businessName !== undefined) update.businessName = data.businessName;
+    if (data.webhookUrl !== undefined) update.webhookUrl = data.webhookUrl || null;
+    if (Object.keys(update).length === 0) return this.getMerchantByProfile(profileId);
+    const [m] = await db.update(merchants).set(update).where(eq(merchants.profileId, profileId)).returning();
+    return m;
+  }
+  async rotateMerchantKeys(profileId: number): Promise<Merchant | undefined> {
+    const apiPublicKey = "izi_pk_" + crypto.randomBytes(18).toString("hex");
+    const apiSecretKey = "izi_sk_" + crypto.randomBytes(28).toString("hex");
+    const [m] = await db.update(merchants).set({ apiPublicKey, apiSecretKey }).where(eq(merchants.profileId, profileId)).returning();
+    return m;
+  }
+  async createMerchantTransaction(data: any): Promise<MerchantTransaction> {
+    const [t] = await db.insert(merchantTransactions).values(data).returning();
+    return t;
+  }
+  async getMerchantTransactionByPaymentId(paymentId: string): Promise<MerchantTransaction | undefined> {
+    const [t] = await db.select().from(merchantTransactions).where(eq(merchantTransactions.paymentId, paymentId));
+    return t;
+  }
+  async getMerchantTransactions(merchantId: number, limit = 100): Promise<MerchantTransaction[]> {
+    return db.select().from(merchantTransactions)
+      .where(eq(merchantTransactions.merchantId, merchantId))
+      .orderBy(desc(merchantTransactions.createdAt))
+      .limit(limit);
+  }
+  async markMerchantTransactionPaid(paymentId: string, payerProfileId: number): Promise<MerchantTransaction | undefined> {
+    const [t] = await db.update(merchantTransactions)
+      .set({ status: "completed", paidAt: new Date(), payerProfileId })
+      .where(and(eq(merchantTransactions.paymentId, paymentId), eq(merchantTransactions.status, "pending")))
+      .returning();
+    return t;
+  }
+  async markMerchantTransactionExpired(paymentId: string): Promise<void> {
+    await db.update(merchantTransactions)
+      .set({ status: "expired" })
+      .where(and(eq(merchantTransactions.paymentId, paymentId), eq(merchantTransactions.status, "pending")));
+  }
+  async incrementWebhookAttempt(paymentId: string, delivered: boolean): Promise<void> {
+    await db.update(merchantTransactions)
+      .set({ webhookDelivered: delivered, webhookAttempts: sql`${merchantTransactions.webhookAttempts} + 1` })
+      .where(eq(merchantTransactions.paymentId, paymentId));
   }
 }
 

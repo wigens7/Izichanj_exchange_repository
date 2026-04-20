@@ -1,7 +1,7 @@
 # Izichanj - Crypto to Cash Exchange Platform
 
 ## Overview
-Izichanj is a secure fintech mobile web application designed to facilitate the conversion of USDT (TRC20/BEP20) to local mobile money (MonCash/NatCash). The platform aims to provide a seamless and secure experience for users to manage their crypto and fiat currencies, including features like KYC verification, automated crypto deposits, P2P transfers, virtual Visa cards, and comprehensive customer support. The project envisions becoming a leading platform for crypto-to-cash exchanges in its target market, offering a robust and user-friendly solution for digital asset liquidity.
+Izichanj is a secure fintech mobile web application facilitating the conversion of USDT (TRC20/BEP20) to local mobile money (MonCash/NatCash). It provides a seamless and secure experience for managing crypto and fiat currencies through features like KYC verification, automated crypto deposits, P2P transfers, virtual Visa cards, and comprehensive customer support. The platform aims to be a leading solution for digital asset liquidity in its target market.
 
 ## User Preferences
 I prefer clear, concise language.
@@ -11,69 +11,42 @@ I value detailed explanations for complex features or decisions.
 Do not make changes to files in the `server/replit_integrations/object_storage/` directory without explicit instruction.
 
 ## System Architecture
-The application features a modern, secure architecture. The UI/UX is built with a fintech design overhaul, incorporating a deep navy sidebar, indigo/purple primary gradient, and professional dark mode, utilizing Inter and Outfit fonts. All pages are designed with consistent card layouts and status badges.
+The application features a modern, secure architecture with a fintech-inspired UI/UX. The design incorporates a deep navy sidebar, indigo/purple primary gradient, professional dark mode, and consistent card layouts, utilizing Inter and Outfit fonts.
 
 **Technical Implementations:**
-- **Authentication**: Custom email/password authentication using bcrypt hashing and `express-session` stored in PostgreSQL. It supports 2FA (TOTP with `otplib`) and WebAuthn (fingerprint/biometric authentication via `SimpleWebAuthn`).
-- **Authorization**: Role-based access control, notably for the comprehensive admin panel.
-- **Internationalization**: Full multi-language support (English, French, Haitian Creole) with language selection and persistence.
-- **Deposits**:
-    - **Crypto (NOWPayments, non-custodial)**: User enters an amount and selects network (TRC20 or BEP20). A one-time payment address is generated via NOWPayments API and displayed for 15 minutes. Funds go directly to the merchant's Binance wallet via NOWPayments auto-payout. When NOWPayments fires an IPN webhook on confirmation, the balance is auto-credited minus the network fee (TRC20: $2.50 fee, min $5.00; BEP20: $0.25 fee, min $1.00). Duplicate payment_id protection built in.
-    - Manual MonCash/NatCash deposit system: User selects wallet, uploads payment screenshot + transaction ID. Reviewed by admin. Duplicate TX ID detection (anti-fraud). Admin sees proof screenshot, rejects with reason (user notified via WhatsApp + in-app). Company phone numbers via `COMPANY_MONCASH_PHONE` and `COMPANY_NATCASH_PHONE` env vars. DB: `proof_image_url` + `rejection_reason` columns on deposits (startup migration).
-- **Withdrawals**: USDT TRC-20 (Tron network) withdrawals only. Users enter a TRC-20 wallet address and authorize with a separate 6-digit withdrawal PIN. Min 10 USDT, Max 10,000 USDT/day, fixed 2.50 USDT fee (deducted immediately from balance along with the withdrawal amount). Status shown as "Under Review" pending admin approval. Haitian Creole Terms of Service included in the form.
-- **KYC Verification**: Mandatory KYC process involving ID document uploads, selfie, and personal information collection, integrated with Strowallet API. KYC status is managed with admin approval/rejection flows and options for re-submission requests.
-- **P2P Transfers**: Allows users to send USDT to other users via reference ID, email, or phone.
-- **Virtual Cards**: Integration with Strowallet API for virtual Visa cards, enabling users to apply, fund, view details, freeze/unfreeze, and track transactions. Card fundings are logged locally in the `card_transactions` DB table (Strowallet only returns spending/merchant transactions, not funding events). Transaction history merges both local funding records and Strowallet spending data.
-- **Notifications**: Real-time notification system with in-app alerts, unread counts, and sound, for various system events (e.g., deposit/withdrawal status, KYC updates, custom admin messages).
-- **Support Chat**: A floating chat bubble providing bot-based FAQs and live agent support with file attachment capabilities, conversation rating, and auto-closure.
-- **Exchange Rates**: Dynamic exchange rate system (1 USDT = 139.50 HTG) integrated throughout the platform for conversions and display.
-- **Security**: Account deletion with blacklisting, user banning features for administrators.
-- **User Reports**: Any authenticated user can report another user (by email or reference ID) via the "Report a User" page. Reports include a reason (8 categories), a description, and an optional proof screenshot upload. On submission, the admin receives an instant Telegram notification. Admins can view all reports in a dedicated "Reports" tab in the admin panel, expand each report to see full details and proof image, add notes, and mark reports as Reviewed or Dismissed.
-- **Referral / Affiliate System**: Manual invitation system where admins can enable affiliate status per user. Once enabled, the user gets a unique referral code (format: `IZI{id}{hex}`). New users can enter a referral code during registration. Commission structure: $0.05 on referee email verification, $0.25 on KYC approval, $2.00 on first deposit ≥ $50 (once per referee). Earnings accumulate in `referral_balance` field. Users can request payout transfer to main balance (min $1.00). Admins approve/reject payout requests in the "Referrals" tab of the admin panel. Anti-fraud: referral code only credited if referrer's `affiliateEnabled = true`. DB tables: `referral_earnings` (per-event ledger) + `referral_payout_requests` (payout requests). Referral code field shown in registration form. Referral panel shown on Profile page only when `affiliateEnabled = true`.
-- **P2P Market (USDT Escrow Marketplace)**: Full peer-to-peer USDT trading system at `/p2p`. KYC-gated (verified users only). Sellers post USDT listings with rate (130–145 HTG/USDT for Haiti), amount, min/max order range, payment methods, and optional trade terms. Funds locked in escrow on ad post. Buyers place orders; both parties trade via in-app chat with file attachment support. Order lifecycle: pending → paid → released (or cancelled/disputed). Release requires seller confirmation checkbox. Disputes send Telegram alert to admin. Anti-abuse: 3 cancellations within 24h triggers 2-hour ban. DB tables: `p2p_ads`, `p2p_orders`, `p2p_chat_messages`, `p2p_cancellations`, `p2p_bans`. Navigation: "P2P Market" replaces "FAQ" in sidebar (FAQ moved to Profile page accordion section).
-- **FAQ Section (Profile Page)**: 8-item FAQ accordion added at the bottom of the Profile page (`/profile`) covering deposits, fees, withdrawals, KYC, P2P, virtual cards, fund transfers, and disputes.
-- **P2P Dispute & Investigation Center (Admin)**: Dedicated "Disputes" tab in the admin panel. Lists all active disputed orders with buyer/seller info. Expandable detail panel per dispute includes: full trade chat history with image attachments, escrow status banner, both parties' login IP/device history, per-user action buttons (Flag as Reported Buyer/Seller, Seller Restrict, Freeze 7 days, Ban/Unban), shared reason input required for all actions, and resolution panel (Release to Buyer / Refund to Seller) with automatic notification to both parties. All admin actions are logged to the `p2p_dispute_actions` table with the admin name, action, reason, and target user. Profile fields added: `p2p_seller_restricted` (blocks ad posting), `p2p_flagged_as` (displays flag badges). New DB table: `p2p_dispute_actions`.
+- **Authentication & Authorization**: Custom email/password authentication with bcrypt, `express-session`, PostgreSQL storage, 2FA (TOTP), WebAuthn (biometric), and role-based access control for an admin panel.
+- **Internationalization**: Full multi-language support (English, French, Haitian Creole).
+- **Deposits**: Automated crypto deposits via NOWPayments (non-custodial, TRC20/BEP20) with direct merchant wallet payouts and IPN webhook integration for balance crediting. Manual MonCash/NatCash deposit system with admin review and anti-fraud features.
+- **Withdrawals**: USDT TRC-20 withdrawals with 6-digit PIN authorization, minimum/maximum limits, fixed fees, and admin approval workflow.
+- **KYC Verification**: Mandatory KYC process integrated with Strowallet API, including ID/selfie uploads and admin approval/rejection flows.
+- **P2P Transfers**: Facilitates USDT transfers between users using reference IDs, emails, or phone numbers.
+- **Virtual Cards**: Strowallet API integration for virtual Visa cards, allowing application, funding, detail viewing, freezing/unfreezing, and transaction tracking.
+- **Notifications**: Real-time in-app alerts with unread counts and sound for various system events, including push notifications via FCM.
+- **Support Chat**: Bot-based FAQs and live agent support with file attachments and conversation rating.
+- **Exchange Rates**: Dynamic exchange rate system (1 USDT = 139.50 HTG) for all conversions.
+- **Security**: Account deletion, user banning, and user reporting system with admin alerts and resolution tools.
+- **Referral System**: Admin-enabled affiliate system with unique referral codes, commission tracking for new user actions (email verification, KYC approval, first deposit), and payout requests.
+- **P2P Market (USDT Escrow)**: A peer-to-peer USDT trading platform with KYC gating. Sellers post listings, buyers place orders, and trades occur via in-app chat with escrow functionality. Includes dispute resolution mechanisms for administrators.
+- **Izichanj Pay — Merchant API**: Enables verified users to accept HTG/USDT payments on external sites. Features include API key generation, webhook integration, a branded checkout flow, and transaction tracking. Payments are processed with a 1.5% fee and converted to USDT if necessary.
+- **Receipt System**: Generates secure PDF receipts for deposits and withdrawals, accessible after admin release. Receipts include transaction details, QR codes for public verification, and digital signatures.
 
 **System Design Choices:**
-- **Database**: PostgreSQL is used as the primary database, managed with Drizzle ORM.
-- **Object Storage**: Replit Object Storage is utilized for storing KYC documents and support chat attachments.
-- **Frontend**: Developed using React, Vite, TanStack Query, Wouter, and Shadcn UI.
-- **Backend**: Built with Express.js.
+- **Database**: PostgreSQL with Drizzle ORM.
+- **Object Storage**: Replit Object Storage for KYC documents and chat attachments.
+- **Frontend**: React, Vite, TanStack Query, Wouter, Shadcn UI.
+- **Backend**: Express.js.
+- **PWA**: Installable Progressive Web App with Firebase Cloud Messaging (FCM) for push notifications.
 
 ## External Dependencies
-- **NOWPayments API**: For automated crypto deposit processing.
-- **Strowallet API**: For KYC verification and virtual Visa card management.
-- **UltraMsg API**: For WhatsApp OTP delivery (registration, login, password reset, PIN reset, withdrawal verification).
-- **SendGrid**: For sending transactional emails, such as OTP verification (fallback to console logging if API key not set).
-- **PostgreSQL**: Relational database for all application data.
-- **Replit Object Storage**: Cloud storage for files (KYC documents, chat attachments).
-- **MonCash Payment Gateway**: For MonCash deposits (currently disabled).
-- **otplib**: For TOTP-based 2FA generation and verification.
-- **SimpleWebAuthn**: For WebAuthn (biometric/fingerprint) authentication.
-- **PDFKit**: For server-side PDF receipt generation.
-- **QRCode**: For generating QR codes embedded in PDF receipts.
-
-## PWA & Push Notifications
-- **PWA**: App is installable via `client/public/manifest.webmanifest` + service worker at `client/public/firebase-messaging-sw.js`. Icons in `client/public/icons/` (192/512). Meta tags added to `client/index.html`. Service worker auto-registered on app load via `client/src/lib/pwa.ts` (`registerAppServiceWorker`).
-- **Install Button**: `client/src/components/install-pwa-button.tsx` listens for `beforeinstallprompt`. Falls back to instructions on iOS Safari. Shown on Profile page in the new "Mobile App" card.
-- **Download APK**: Profile page "Mobile App" card has a Download Android APK button linking to `/api/download-app` (existing endpoint that tracks downloads + redirects to Google Drive APK).
-- **Firebase Cloud Messaging (FCM)**: 
-  - Client SDK `firebase` v10+. Init in `client/src/lib/firebase.ts` with hardcoded public Firebase config (project: `izichanj-app`).
-  - `requestFcmToken()` requests notification permission, registers SW, calls `getToken()` with `VITE_FIREBASE_VAPID_KEY` env var.
-  - `NotificationPermissionPrompt` component (mounted in `App.tsx`) shows a popup ~1.5s after login when `Notification.permission === "default"`. Once granted, posts token to `POST /api/profile/fcm-token`.
-  - On reload with permission already granted, token is silently re-synced.
-  - Foreground push messages display as toasts via `onForegroundPush`.
-  - **DB**: `profiles.fcm_token` (TEXT) + `profiles.fcm_token_updated_at` (TIMESTAMP) — added via startup migration in `server/index.ts`.
-  - **Endpoint**: `POST /api/profile/fcm-token` (auth required, body: `{token: string}`) — saves token to user's profile.
-  - **Required env var**: `VITE_FIREBASE_VAPID_KEY` (Web Push certificate from Firebase Console → Project Settings → Cloud Messaging → Web Push certificates). Without it, `getToken()` returns null and a console warning is logged.
-  - **Server-side push sending**: `server/fcm.ts` uses `firebase-admin` initialized with `FIREBASE_SERVICE_ACCOUNT_JSON` secret. Helper `sendPushToProfile(profileId, title, body, data)` looks up the user's `fcm_token` and sends via `admin.messaging().send()`. Auto-clears invalid/expired tokens.
-  - **Auto-wired**: `storage.createNotification()` automatically fires a push for every in-app notification (fire-and-forget, non-blocking). So every existing notification (deposit/withdrawal status, KYC updates, P2P trade events, support replies, custom admin messages, etc.) now also pushes to the device.
-  - **Test endpoints**: `POST /api/profile/test-push` (logged-in user), `POST /api/admin/profiles/:id/test-push` (admin → any user).
-
-## Receipt System
-- **DB fields**: `receipt_id` (unique UUID) and `receipt_url` added to both `deposits` and `withdrawals` tables.
-- **Access control**: Receipts only accessible after admin manually releases them via "Approve & Release Receipt".
-- **PDF format**: Branded header (logo), semi-transparent watermark, transaction details, masked destination, QR code linking to `/verify/:receiptId`, digital signature footer.
-- **Admin routes**: `PATCH /api/admin/deposits/:id/approve-release`, `PATCH /api/admin/withdrawals/:id/approve-release` (approve + generate + download PDF), `GET /api/admin/receipts/deposit/:id` (preview), `GET /api/admin/receipts/withdrawal/:id` (preview).
-- **User routes**: `GET /api/receipts/deposit/:id` and `GET /api/receipts/withdrawal/:id` (owner-only, approved with receiptId required).
-- **Public verification**: `GET /api/verify/:receiptId` returns read-only JSON; frontend page at `/verify/:receiptId`.
+- **NOWPayments API**: Automated crypto deposit processing.
+- **Strowallet API**: KYC verification and virtual Visa card management.
+- **UltraMsg API**: WhatsApp OTP delivery.
+- **SendGrid**: Transactional email services.
+- **PostgreSQL**: Primary database.
+- **Replit Object Storage**: File storage.
+- **otplib**: TOTP 2FA.
+- **SimpleWebAuthn**: WebAuthn (biometric) authentication.
+- **PDFKit**: Server-side PDF generation.
+- **QRCode**: QR code generation for receipts.
+- **Firebase Cloud Messaging (FCM)**: Push notifications.
+- **firebase-admin**: Server-side FCM management.

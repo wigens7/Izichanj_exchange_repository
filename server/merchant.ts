@@ -1,0 +1,341 @@
+import type { Express, Request, Response, NextFunction } from "express";
+import { storage } from "./storage";
+import { db } from "./db";
+import { profiles, merchants, type Merchant } from "@shared/schema";
+import { eq, sql } from "drizzle-orm";
+import { isAuthenticated } from "./auth";
+import { getDepositRate } from "./rates";
+import { checkoutApiSchema, updateMerchantSchema } from "@shared/schema";
+import crypto from "crypto";
+
+const FEE_PCT = 0.015; // 1.5% transaction fee
+const CHECKOUT_TTL_MS = 30 * 60 * 1000; // 30 minutes
+
+declare global {
+  namespace Express {
+    interface Request { merchant?: Merchant }
+  }
+}
+
+/** API auth middleware: verifies api_secret_key from Authorization header. */
+async function requireApiKey(req: Request, res: Response, next: NextFunction) {
+  try {
+    const auth = req.headers.authorization || "";
+    const headerKey = (req.headers["x-api-key"] as string) || "";
+    let key = "";
+    if (auth.toLowerCase().startsWith("bearer ")) key = auth.slice(7).trim();
+    else if (headerKey) key = headerKey.trim();
+
+    if (!key || !key.startsWith("izi_sk_")) {
+      return res.status(401).json({ error: "Missing or invalid API key. Send Authorization: Bearer izi_sk_..." });
+    }
+    const merchant = await storage.getMerchantBySecretKey(key);
+    if (!merchant) return res.status(401).json({ error: "Invalid API key" });
+    req.merchant = merchant;
+    next();
+  } catch (e: any) {
+    res.status(500).json({ error: "Auth error: " + (e.message || e) });
+  }
+}
+
+/** Sign a webhook payload using HMAC-SHA256 with the merchant's secret. */
+function signWebhook(secret: string, payloadJson: string): string {
+  return crypto.createHmac("sha256", secret).update(payloadJson).digest("hex");
+}
+
+/** Fire-and-forget webhook delivery with HMAC signature. */
+async function deliverWebhook(merchant: Merchant, paymentId: string, payload: any) {
+  if (!merchant.webhookUrl) return;
+  try {
+    const body = JSON.stringify(payload);
+    const sig = signWebhook(merchant.apiSecretKey, body);
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 10000);
+    const r = await fetch(merchant.webhookUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Izichanj-Signature": sig,
+        "X-Izichanj-Event": payload.event || "payment.completed",
+        "User-Agent": "Izichanj-Pay-Webhook/1.0",
+      },
+      body,
+      signal: ctrl.signal,
+    });
+    clearTimeout(t);
+    await storage.incrementWebhookAttempt(paymentId, r.ok);
+    console.log(`[MerchantWebhook] ${paymentId} → ${merchant.webhookUrl} → ${r.status}`);
+  } catch (e: any) {
+    await storage.incrementWebhookAttempt(paymentId, false);
+    console.warn(`[MerchantWebhook] ${paymentId} delivery failed:`, e.message || e);
+  }
+}
+
+export function registerMerchantRoutes(app: Express) {
+  // ============ MERCHANT DASHBOARD (session-auth) ============
+
+  app.get("/api/merchant/me", isAuthenticated, async (req: any, res) => {
+    const merchant = await storage.getMerchantByProfile(req.session.profileId);
+    res.json({ merchant: merchant || null });
+  });
+
+  app.post("/api/merchant/enroll", isAuthenticated, async (req: any, res) => {
+    try {
+      const existing = await storage.getMerchantByProfile(req.session.profileId);
+      if (existing) return res.json({ merchant: existing });
+      const businessName = String(req.body?.businessName || "").trim();
+      if (businessName.length < 2) return res.status(400).json({ message: "Business name required (min 2 chars)" });
+      const profile = await storage.getProfile(req.session.profileId);
+      if (!profile) return res.status(404).json({ message: "Profile not found" });
+      if (profile.kycStatus !== "verified") {
+        return res.status(403).json({ message: "KYC verification is required to enroll as a merchant" });
+      }
+      const merchant = await storage.createMerchant(req.session.profileId, businessName);
+      res.json({ merchant });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.patch("/api/merchant/me", isAuthenticated, async (req: any, res) => {
+    try {
+      const parsed = updateMerchantSchema.parse(req.body);
+      const m = await storage.updateMerchant(req.session.profileId, {
+        businessName: parsed.businessName,
+        webhookUrl: parsed.webhookUrl ?? undefined,
+      });
+      if (!m) return res.status(404).json({ message: "Merchant account not found" });
+      res.json({ merchant: m });
+    } catch (e: any) {
+      res.status(400).json({ message: e.message });
+    }
+  });
+
+  app.post("/api/merchant/rotate-keys", isAuthenticated, async (req: any, res) => {
+    const m = await storage.rotateMerchantKeys(req.session.profileId);
+    if (!m) return res.status(404).json({ message: "Merchant account not found" });
+    res.json({ merchant: m });
+  });
+
+  app.get("/api/merchant/transactions", isAuthenticated, async (req: any, res) => {
+    const merchant = await storage.getMerchantByProfile(req.session.profileId);
+    if (!merchant) return res.json({ transactions: [] });
+    const txns = await storage.getMerchantTransactions(merchant.id, 200);
+    res.json({ transactions: txns });
+  });
+
+  // ============ PUBLIC API (Bearer api_secret_key) ============
+
+  app.post("/api/v1/checkout", requireApiKey, async (req, res) => {
+    try {
+      const parsed = checkoutApiSchema.parse(req.body);
+      const merchant = req.merchant!;
+      const rate = getDepositRate();
+      let amountUsdt: number;
+      let amountHtg: number;
+      if (parsed.currency === "HTG") {
+        amountHtg = parsed.amount;
+        amountUsdt = parsed.amount / rate;
+      } else {
+        amountUsdt = parsed.amount;
+        amountHtg = parsed.amount * rate;
+      }
+      if (amountUsdt < 0.5) {
+        return res.status(400).json({ error: "Minimum charge is 0.50 USDT (~70 HTG)" });
+      }
+      const feeUsdt = +(amountUsdt * FEE_PCT).toFixed(4);
+      const netUsdt = +(amountUsdt - feeUsdt).toFixed(4);
+      const paymentId = "pay_" + crypto.randomBytes(14).toString("hex");
+      const expiresAt = new Date(Date.now() + CHECKOUT_TTL_MS);
+
+      await storage.createMerchantTransaction({
+        paymentId,
+        merchantId: merchant.id,
+        orderId: parsed.order_id,
+        amount: String(parsed.amount.toFixed(2)) as any,
+        currency: parsed.currency,
+        amountUsdt: String(amountUsdt.toFixed(4)) as any,
+        amountHtg: String(amountHtg.toFixed(2)) as any,
+        feeUsdt: String(feeUsdt.toFixed(4)) as any,
+        netUsdt: String(netUsdt.toFixed(4)) as any,
+        exchangeRate: String(rate.toFixed(4)) as any,
+        successUrl: parsed.success_url || null,
+        cancelUrl: parsed.cancel_url || null,
+        description: parsed.description || null,
+        expiresAt,
+      } as any);
+
+      const proto = (req.headers["x-forwarded-proto"] as string) || req.protocol || "https";
+      const host = req.headers.host;
+      const checkoutUrl = `${proto}://${host}/checkout/${paymentId}`;
+
+      res.json({
+        ok: true,
+        payment_id: paymentId,
+        checkout_url: checkoutUrl,
+        amount: parsed.amount,
+        currency: parsed.currency,
+        amount_usdt: amountUsdt.toFixed(4),
+        amount_htg: amountHtg.toFixed(2),
+        fee_usdt: feeUsdt.toFixed(4),
+        net_usdt: netUsdt.toFixed(4),
+        exchange_rate: rate,
+        order_id: parsed.order_id,
+        expires_at: expiresAt.toISOString(),
+      });
+    } catch (e: any) {
+      res.status(400).json({ error: e?.message || String(e) });
+    }
+  });
+
+  app.get("/api/v1/payment/:id", requireApiKey, async (req, res) => {
+    const t = await storage.getMerchantTransactionByPaymentId(req.params.id);
+    if (!t || t.merchantId !== req.merchant!.id) return res.status(404).json({ error: "Not found" });
+    res.json({
+      payment_id: t.paymentId,
+      order_id: t.orderId,
+      status: t.status,
+      amount: t.amount,
+      currency: t.currency,
+      amount_usdt: t.amountUsdt,
+      amount_htg: t.amountHtg,
+      net_usdt: t.netUsdt,
+      paid_at: t.paidAt,
+      expires_at: t.expiresAt,
+    });
+  });
+
+  // ============ CHECKOUT GATEWAY (session-auth — payer pays from balance) ============
+
+  app.get("/api/checkout/:paymentId", async (req: any, res) => {
+    const t = await storage.getMerchantTransactionByPaymentId(req.params.paymentId);
+    if (!t) return res.status(404).json({ message: "Payment not found" });
+    if (t.status === "pending" && new Date(t.expiresAt) < new Date()) {
+      await storage.markMerchantTransactionExpired(t.paymentId);
+      t.status = "expired" as any;
+    }
+    const merchant = await storage.getMerchantById(t.merchantId);
+    let payerBalance: number | null = null;
+    if (req.session?.profileId) {
+      const p = await storage.getProfile(req.session.profileId);
+      payerBalance = p ? Number(p.balance) : null;
+    }
+    res.json({
+      payment_id: t.paymentId,
+      order_id: t.orderId,
+      status: t.status,
+      amount: Number(t.amount),
+      currency: t.currency,
+      amount_usdt: Number(t.amountUsdt),
+      amount_htg: Number(t.amountHtg),
+      exchange_rate: Number(t.exchangeRate),
+      description: t.description,
+      success_url: t.successUrl,
+      cancel_url: t.cancelUrl,
+      expires_at: t.expiresAt,
+      paid_at: t.paidAt,
+      merchant: merchant ? {
+        business_name: merchant.businessName,
+        is_verified: merchant.isVerified,
+      } : null,
+      payer: req.session?.profileId ? {
+        logged_in: true,
+        balance_usdt: payerBalance,
+      } : { logged_in: false },
+    });
+  });
+
+  app.post("/api/checkout/:paymentId/pay", isAuthenticated, async (req: any, res) => {
+    try {
+      const t = await storage.getMerchantTransactionByPaymentId(req.params.paymentId);
+      if (!t) return res.status(404).json({ message: "Payment not found" });
+      if (t.status !== "pending") return res.status(400).json({ message: `Payment already ${t.status}` });
+      if (new Date(t.expiresAt) < new Date()) {
+        await storage.markMerchantTransactionExpired(t.paymentId);
+        return res.status(400).json({ message: "Payment expired" });
+      }
+      const merchant = await storage.getMerchantById(t.merchantId);
+      if (!merchant) return res.status(404).json({ message: "Merchant not found" });
+      const payer = await storage.getProfile(req.session.profileId);
+      if (!payer) return res.status(404).json({ message: "Payer not found" });
+      if (payer.id === merchant.profileId) {
+        return res.status(400).json({ message: "You cannot pay your own merchant order" });
+      }
+      const amountUsdt = Number(t.amountUsdt);
+      const netUsdt = Number(t.netUsdt);
+      const payerBal = Number(payer.balance);
+      if (payerBal < amountUsdt) {
+        return res.status(400).json({ message: `Insufficient balance. Need ${amountUsdt.toFixed(2)} USDT, you have ${payerBal.toFixed(2)} USDT.` });
+      }
+
+      // Atomic transfer: debit payer, credit merchant net amount
+      await db.transaction(async (tx) => {
+        await tx.update(profiles)
+          .set({ balance: sql`${profiles.balance} - ${amountUsdt}` })
+          .where(eq(profiles.id, payer.id));
+        await tx.update(profiles)
+          .set({ balance: sql`${profiles.balance} + ${netUsdt}` })
+          .where(eq(profiles.id, merchant.profileId));
+      });
+
+      const updated = await storage.markMerchantTransactionPaid(t.paymentId, payer.id);
+      if (!updated) {
+        // race condition rollback
+        await db.transaction(async (tx) => {
+          await tx.update(profiles).set({ balance: sql`${profiles.balance} + ${amountUsdt}` }).where(eq(profiles.id, payer.id));
+          await tx.update(profiles).set({ balance: sql`${profiles.balance} - ${netUsdt}` }).where(eq(profiles.id, merchant.profileId));
+        });
+        return res.status(409).json({ message: "Payment was concurrently processed" });
+      }
+
+      // In-app notifications for both parties
+      storage.createNotification({
+        profileId: merchant.profileId,
+        type: "transfer_received" as any,
+        title: "💸 Izichanj Pay — Payment Received",
+        message: `${payer.fullName} paid ${amountUsdt.toFixed(2)} USDT for order ${t.orderId}. Net credited: ${netUsdt.toFixed(2)} USDT (after 1.5% fee).`,
+      }).catch(() => {});
+      storage.createNotification({
+        profileId: payer.id,
+        type: "transfer_sent" as any,
+        title: "✅ Payment Successful",
+        message: `You paid ${amountUsdt.toFixed(2)} USDT to ${merchant.businessName} (order ${t.orderId}).`,
+      }).catch(() => {});
+
+      // Fire webhook (non-blocking)
+      const webhookPayload = {
+        event: "payment.completed",
+        payment_id: t.paymentId,
+        order_id: t.orderId,
+        status: "completed",
+        amount: Number(t.amount),
+        currency: t.currency,
+        amount_usdt: Number(t.amountUsdt),
+        amount_htg: Number(t.amountHtg),
+        fee_usdt: Number(t.feeUsdt),
+        net_usdt: Number(t.netUsdt),
+        exchange_rate: Number(t.exchangeRate),
+        paid_at: new Date().toISOString(),
+        merchant_id: merchant.id,
+      };
+      deliverWebhook(merchant, t.paymentId, webhookPayload).catch(() => {});
+
+      res.json({
+        ok: true,
+        payment_id: t.paymentId,
+        status: "completed",
+        success_url: t.successUrl,
+      });
+    } catch (e: any) {
+      console.error("[Checkout pay] error:", e);
+      res.status(500).json({ message: e?.message || "Payment failed" });
+    }
+  });
+
+  // Periodic expiry sweep (lightweight — runs every 5 min)
+  setInterval(async () => {
+    try {
+      await db.execute(sql`UPDATE merchant_transactions SET status='expired' WHERE status='pending' AND expires_at < NOW()`);
+    } catch {}
+  }, 5 * 60 * 1000);
+}
