@@ -3,9 +3,11 @@ import { useDeposits, useWithdrawals } from "@/hooks/use-transactions";
 import { useLanguage } from "@/lib/i18n";
 import { formatHtg, formatUsdt } from "@shared/constants";
 import { useRates } from "@/hooks/use-rates";
+import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ArrowUpRight, ArrowDownLeft, Wallet, TrendingUp, TrendingDown, ArrowRightLeft, FileText, Eye, EyeOff, Copy, CheckCheck } from "lucide-react";
+import { ArrowUpRight, ArrowDownLeft, Wallet, TrendingUp, TrendingDown, ArrowRightLeft, FileText, Eye, EyeOff, Copy, CheckCheck, Store } from "lucide-react";
 import { useState } from "react";
 import { formatDateTime } from "@/lib/dateUtils";
 import { StatusBadge } from "@/components/status-badge";
@@ -33,9 +35,15 @@ export default function DashboardPage() {
   const totalDepositedHtg = totalDepositedUsdt * depositRate;
   const totalWithdrawnHtg = totalWithdrawnUsdt * depositRate;
 
+  const { data: apiPaymentsData } = useQuery<{ payments: any[] }>({
+    queryKey: ["/api/profile/api-payments"],
+  });
+  const apiPayments = apiPaymentsData?.payments || [];
+
   const allTransactions = [
     ...(deposits?.map(d => ({ ...d, type: 'deposit' as const })) || []),
-    ...(withdrawals?.map(w => ({ ...w, type: 'withdrawal' as const })) || [])
+    ...(withdrawals?.map(w => ({ ...w, type: 'withdrawal' as const })) || []),
+    ...apiPayments.map(p => ({ ...p, type: p.kind === 'api_purchase' ? 'api_purchase' as const : 'merchant_payment' as const })),
   ].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
   if (!user) return null;
@@ -146,11 +154,72 @@ export default function DashboardPage() {
 
 function TransactionRow({ txn }: { txn: any }) {
     const isDeposit = txn.type === 'deposit';
+    const isWithdrawal = txn.type === 'withdrawal';
+    const isApiPurchase = txn.type === 'api_purchase';
+    const isMerchantPayment = txn.type === 'merchant_payment';
+    const isApiTxn = isApiPurchase || isMerchantPayment;
+    const isIncoming = isDeposit || isMerchantPayment;
     const { t } = useLanguage();
     const { depositRate } = useRates();
-    const amountUsdt = isDeposit ? Number(txn.amountUsdt) : Number(txn.amount);
+    const amountUsdt = isDeposit
+      ? Number(txn.amountUsdt)
+      : isApiTxn
+        ? (isApiPurchase ? Number(txn.amountUsdt) : Number(txn.netUsdt))
+        : Number(txn.amount);
     const amountHtg = amountUsdt * depositRate;
     const [copied, setCopied] = useState(false);
+
+    if (isApiTxn) {
+      return (
+        <div className="rounded-md border border-border bg-card hover:bg-muted/30 transition-colors" data-testid={`txn-${txn.type}-${txn.id}`}>
+          <div className="flex items-center justify-between gap-4 p-3.5">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className={`w-9 h-9 rounded-md flex items-center justify-center flex-shrink-0 ${isIncoming ? 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400' : 'bg-purple-500/10 text-purple-600 dark:text-purple-400'}`}>
+                <Store className="w-4 h-4" />
+              </div>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <p className="text-sm font-medium text-foreground truncate" data-testid={`label-api-txn-${txn.id}`}>
+                    {isApiPurchase ? "API Purchase" : "Merchant Payment"}
+                  </p>
+                  <Badge variant="outline" className="text-[9px] px-1.5 py-0 h-4 border-indigo-400/40 text-indigo-600 dark:text-indigo-400">
+                    Izichanj Pay
+                  </Badge>
+                </div>
+                <p className="text-xs text-muted-foreground truncate">
+                  {isApiPurchase ? `Paid to ${txn.merchantBusinessName}` : `From buyer · ${txn.merchantBusinessName}`}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {formatDateTime(txn.createdAt)}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-3 flex-shrink-0">
+              <div className="text-right">
+                <p className={`text-sm font-semibold ${isIncoming ? 'text-emerald-600 dark:text-emerald-400' : 'text-purple-600 dark:text-purple-400'}`}>
+                  {isIncoming ? '+' : '-'}{formatHtg(amountHtg)} HTG
+                </p>
+                <p className="text-[11px] text-muted-foreground">
+                  {formatUsdt(amountUsdt)} USDT{isMerchantPayment && txn.feeUsdt ? ` (fee ${Number(txn.feeUsdt).toFixed(4)})` : ''}
+                </p>
+                <StatusBadge status={txn.status} className="mt-1 text-[10px]" />
+              </div>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 px-3.5 pb-2.5 pt-0 border-t border-border/40 mt-0">
+            <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Order ID</span>
+            <span className="font-mono text-[10px] text-foreground truncate" data-testid={`text-order-id-${txn.id}`}>
+              {txn.orderId}
+            </span>
+            <span className="text-muted-foreground text-[10px]">·</span>
+            <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Payment</span>
+            <span className="font-mono text-[10px] text-foreground truncate" title={txn.paymentId}>
+              {txn.paymentId}
+            </span>
+          </div>
+        </div>
+      );
+    }
 
     const hasReceipt = txn.status === "approved" && !!txn.receiptId;
     const receiptUrl = isDeposit

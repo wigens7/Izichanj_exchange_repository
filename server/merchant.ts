@@ -10,6 +10,23 @@ import crypto from "crypto";
 
 const FEE_PCT = 0.015; // 1.5% transaction fee
 const CHECKOUT_TTL_MS = 30 * 60 * 1000; // 30 minutes
+const PUBLIC_BASE_URL = (process.env.PUBLIC_APP_URL || "https://izichanj.com").replace(/\/$/, "");
+
+/** Send a HTML-formatted message to the admin Telegram channel. Fire-and-forget. */
+async function sendAdminTelegram(text: string): Promise<void> {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  const chatId = process.env.TELEGRAM_CHAT_ID;
+  if (!token || !chatId) return;
+  try {
+    await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: chatId, text, parse_mode: "HTML", disable_web_page_preview: true }),
+    });
+  } catch (e) {
+    console.error("[MerchantTelegram] Failed:", e);
+  }
+}
 
 declare global {
   namespace Express {
@@ -72,6 +89,16 @@ async function deliverWebhook(merchant: Merchant, paymentId: string, payload: an
 }
 
 export function registerMerchantRoutes(app: Express) {
+  // ============ CORS for public API (/api/v1/*) ============
+  app.use("/api/v1", (req, res, next) => {
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Authorization, Content-Type, X-API-Key");
+    res.setHeader("Access-Control-Max-Age", "86400");
+    if (req.method === "OPTIONS") return res.status(204).end();
+    next();
+  });
+
   // ============ MERCHANT DASHBOARD (session-auth) ============
 
   app.get("/api/merchant/me", isAuthenticated, async (req: any, res) => {
@@ -115,6 +142,38 @@ export function registerMerchantRoutes(app: Express) {
     const m = await storage.rotateMerchantKeys(req.session.profileId);
     if (!m) return res.status(404).json({ message: "Merchant account not found" });
     res.json({ merchant: m });
+  });
+
+  // Returns ALL API/merchant payments touching this user — both as a buyer ("API Purchase") and as a merchant ("Merchant Payment")
+  app.get("/api/profile/api-payments", isAuthenticated, async (req: any, res) => {
+    try {
+      const profileId = req.session.profileId;
+      const asBuyer = await storage.getMerchantPaymentsAsBuyer(profileId, 100);
+      const myMerchant = await storage.getMerchantByProfile(profileId);
+      const asMerchant = myMerchant ? await storage.getMerchantTransactions(myMerchant.id, 100) : [];
+      const merchantIds = new Set<number>([
+        ...asBuyer.map(t => t.merchantId),
+        ...asMerchant.map(t => t.merchantId),
+      ]);
+      const merchantsList = await Promise.all(
+        Array.from(merchantIds).map(id => storage.getMerchantById(id))
+      );
+      const nameById = new Map<number, string>();
+      merchantsList.forEach(m => { if (m) nameById.set(m.id, m.businessName); });
+
+      const enrich = (t: any, kind: "api_purchase" | "merchant_payment") => ({
+        ...t,
+        kind,
+        merchantBusinessName: nameById.get(t.merchantId) || "Merchant",
+      });
+      const combined = [
+        ...asBuyer.map(t => enrich(t, "api_purchase")),
+        ...asMerchant.filter(t => t.payerProfileId !== profileId).map(t => enrich(t, "merchant_payment")),
+      ].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      res.json({ payments: combined });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
   });
 
   app.get("/api/merchant/transactions", isAuthenticated, async (req: any, res) => {
@@ -165,9 +224,7 @@ export function registerMerchantRoutes(app: Express) {
         expiresAt,
       } as any);
 
-      const proto = (req.headers["x-forwarded-proto"] as string) || req.protocol || "https";
-      const host = req.headers.host;
-      const checkoutUrl = `${proto}://${host}/checkout/${paymentId}`;
+      const checkoutUrl = `${PUBLIC_BASE_URL}/checkout/${paymentId}`;
 
       res.json({
         ok: true,
@@ -301,6 +358,23 @@ export function registerMerchantRoutes(app: Express) {
         title: "✅ Payment Successful",
         message: `You paid ${amountUsdt.toFixed(2)} USDT to ${merchant.businessName} (order ${t.orderId}).`,
       }).catch(() => {});
+
+      // Admin Telegram alert with full split breakdown
+      const platformFee = amountUsdt - netUsdt;
+      const feeHtg = platformFee * Number(t.exchangeRate);
+      const merchantHtg = netUsdt * Number(t.exchangeRate);
+      sendAdminTelegram(
+        `🛒 <b>Izichanj Pay — API Purchase Completed</b>\n\n` +
+        `🏪 <b>Merchant:</b> ${merchant.businessName}\n` +
+        `🆔 <b>Order ID:</b> <code>${t.orderId}</code>\n` +
+        `🔖 <b>Payment ID:</b> <code>${t.paymentId}</code>\n` +
+        `👤 <b>Buyer:</b> ${payer.fullName} (${payer.email})\n\n` +
+        `💵 <b>Total Paid by Customer:</b> ${amountUsdt.toFixed(4)} USDT (${Number(t.amountHtg).toFixed(2)} HTG)\n` +
+        `🏦 <b>Merchant Share:</b> ${netUsdt.toFixed(4)} USDT (${merchantHtg.toFixed(2)} HTG)\n` +
+        `💰 <b>Izichanj Commission (1.5%):</b> ${platformFee.toFixed(4)} USDT (${feeHtg.toFixed(2)} HTG)\n\n` +
+        `📈 <b>Rate:</b> 1 USDT = ${Number(t.exchangeRate).toFixed(2)} HTG\n` +
+        `🕒 ${new Date().toLocaleString("en-US", { timeZone: "America/Port-au-Prince" })}`
+      ).catch(() => {});
 
       // Fire webhook (non-blocking)
       const webhookPayload = {

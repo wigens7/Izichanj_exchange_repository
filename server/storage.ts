@@ -146,6 +146,7 @@ export interface IStorage {
   createMerchantTransaction(data: Omit<MerchantTransaction, "id" | "createdAt" | "paidAt" | "webhookDelivered" | "webhookAttempts" | "status" | "payerProfileId">): Promise<MerchantTransaction>;
   getMerchantTransactionByPaymentId(paymentId: string): Promise<MerchantTransaction | undefined>;
   getMerchantTransactions(merchantId: number, limit?: number): Promise<MerchantTransaction[]>;
+  getMerchantPaymentsAsBuyer(profileId: number, limit?: number): Promise<MerchantTransaction[]>;
   markMerchantTransactionPaid(paymentId: string, payerProfileId: number): Promise<MerchantTransaction | undefined>;
   markMerchantTransactionExpired(paymentId: string): Promise<void>;
   incrementWebhookAttempt(paymentId: string, delivered: boolean): Promise<void>;
@@ -1127,6 +1128,13 @@ export class DatabaseStorage implements IStorage {
     const [t] = await db.select().from(merchantTransactions).where(eq(merchantTransactions.paymentId, paymentId));
     return t;
   }
+  async getMerchantPaymentsAsBuyer(profileId: number, limit = 100): Promise<MerchantTransaction[]> {
+    return db.select().from(merchantTransactions)
+      .where(eq(merchantTransactions.payerProfileId, profileId))
+      .orderBy(desc(merchantTransactions.createdAt))
+      .limit(limit);
+  }
+
   async getMerchantTransactions(merchantId: number, limit = 100): Promise<MerchantTransaction[]> {
     return db.select().from(merchantTransactions)
       .where(eq(merchantTransactions.merchantId, merchantId))

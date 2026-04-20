@@ -55,7 +55,7 @@ export default function DevelopersPage() {
         <CardHeader><CardTitle>Create a checkout</CardTitle></CardHeader>
         <CardContent className="space-y-3">
           <p className="text-sm text-muted-foreground">Always call this endpoint from your backend (never the browser — your secret key must stay private).</p>
-          <CodeBlock>{`POST https://izichanj.replit.app/api/v1/checkout
+          <CodeBlock>{`POST https://izichanj.com/api/v1/checkout
 Authorization: Bearer izi_sk_your_secret_key_here
 Content-Type: application/json
 
@@ -71,7 +71,7 @@ Content-Type: application/json
           <CodeBlock>{`{
   "ok": true,
   "payment_id": "pay_abc123...",
-  "checkout_url": "https://izichanj.replit.app/checkout/pay_abc123...",
+  "checkout_url": "https://izichanj.com/checkout/pay_abc123...",
   "amount": 5000,
   "currency": "HTG",
   "amount_usdt": "35.8423",
@@ -89,7 +89,7 @@ Content-Type: application/json
       <Card>
         <CardHeader><CardTitle>Node.js Example</CardTitle></CardHeader>
         <CardContent>
-          <CodeBlock>{`const r = await fetch("https://izichanj.replit.app/api/v1/checkout", {
+          <CodeBlock>{`const r = await fetch("https://izichanj.com/api/v1/checkout", {
   method: "POST",
   headers: {
     "Authorization": "Bearer " + process.env.IZICHANJ_SECRET,
