@@ -35,6 +35,7 @@ type Merchant = {
   apiPublicKey: string;
   apiSecretKey: string;
   isVerified: boolean;
+  balance: string;
   createdAt: string;
 };
 type Txn = {
@@ -252,7 +253,7 @@ export default function MerchantPage() {
           <CardTitle className="flex items-center gap-2"><Wallet className="w-5 h-5" />Withdraw Earnings</CardTitle>
           <CardDescription>
             Request a payout to MonCash, NatCash, Zelle, or CashApp. Minimum 5 USDT. Admin processes within 24-48 hours.
-            Available balance: <span className="font-bold text-foreground" data-testid="text-balance">{Number(user?.balance || 0).toFixed(2)} USDT</span>
+            <br />Merchant balance: <span className="font-bold text-foreground text-base" data-testid="text-merchant-balance">{Number(merchant.balance || 0).toFixed(2)} USDT</span>
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">

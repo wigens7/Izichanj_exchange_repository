@@ -195,9 +195,9 @@ export function registerMerchantRoutes(app: Express) {
       const merchant = await storage.getMerchantByProfile(profile.id);
       if (!merchant) return res.status(403).json({ message: "Merchant account required to request a payout" });
 
-      const balance = Number(profile.balance);
-      if (balance < parsed.amount) {
-        return res.status(400).json({ message: `Insufficient balance. You have ${balance.toFixed(2)} USDT.` });
+      const merchantBalance = Number(merchant.balance);
+      if (merchantBalance < parsed.amount) {
+        return res.status(400).json({ message: `Insufficient merchant balance. You have ${merchantBalance.toFixed(2)} USDT in your merchant account.` });
       }
 
       // Build details object based on method
@@ -210,13 +210,13 @@ export function registerMerchantRoutes(app: Express) {
         details.cashtag = parsed.cashtag!.trim().startsWith("$") ? parsed.cashtag!.trim() : `$${parsed.cashtag!.trim()}`;
       }
 
-      // Atomic: deduct balance + create payout request in one transaction
+      // Atomic: deduct MERCHANT balance + create payout request in one transaction
       let request: any;
       try {
         request = await db.transaction(async (tx) => {
-          const [updated] = await tx.update(profiles)
-            .set({ balance: sql`${profiles.balance} - ${parsed.amount}` })
-            .where(and(eq(profiles.id, profile.id), sql`${profiles.balance} >= ${parsed.amount}`))
+          const [updated] = await tx.update(merchants)
+            .set({ balance: sql`${merchants.balance} - ${parsed.amount}` })
+            .where(and(eq(merchants.id, merchant.id), sql`${merchants.balance} >= ${parsed.amount}`))
             .returning();
           if (!updated) throw new Error("INSUFFICIENT_BALANCE");
           const [r] = await tx.insert((await import("@shared/schema")).payoutRequests).values({
@@ -230,7 +230,7 @@ export function registerMerchantRoutes(app: Express) {
         });
       } catch (txErr: any) {
         if (txErr?.message === "INSUFFICIENT_BALANCE") {
-          return res.status(400).json({ message: "Balance changed; please retry." });
+          return res.status(400).json({ message: "Merchant balance changed; please retry." });
         }
         throw txErr;
       }
@@ -328,7 +328,7 @@ export function registerMerchantRoutes(app: Express) {
       if (!payout) return res.status(404).json({ message: "Payout not found" });
       if (payout.status !== "pending") return res.status(400).json({ message: `Already ${payout.status}` });
 
-      // Atomic refund + state transition in one transaction
+      // Atomic refund to MERCHANT balance + state transition
       const amount = Number(payout.amount);
       const adminNote = req.body?.adminNote || "Rejected by admin";
       const { payoutRequests: payoutsTable } = await import("@shared/schema");
@@ -341,9 +341,15 @@ export function registerMerchantRoutes(app: Express) {
             .where(and(eq(payoutsTable.id, id), eq(payoutsTable.status, "pending")))
             .returning();
           if (!u) throw new Error("RACE");
-          await tx.update(profiles)
-            .set({ balance: sql`${profiles.balance} + ${amount}` })
-            .where(eq(profiles.id, payout.userId));
+          if (payout.merchantId) {
+            await tx.update(merchants)
+              .set({ balance: sql`${merchants.balance} + ${amount}` })
+              .where(eq(merchants.id, payout.merchantId));
+          } else {
+            await tx.update(profiles)
+              .set({ balance: sql`${profiles.balance} + ${amount}` })
+              .where(eq(profiles.id, payout.userId));
+          }
           return u;
         });
       } catch (txErr: any) {
@@ -521,14 +527,14 @@ export function registerMerchantRoutes(app: Express) {
         return res.status(400).json({ message: `Insufficient balance. Need ${amountUsdt.toFixed(2)} USDT, you have ${payerBal.toFixed(2)} USDT.` });
       }
 
-      // Atomic transfer: debit payer, credit merchant net amount
+      // Atomic transfer: debit payer profile, credit MERCHANT BALANCE (separate from personal account)
       await db.transaction(async (tx) => {
         await tx.update(profiles)
           .set({ balance: sql`${profiles.balance} - ${amountUsdt}` })
           .where(eq(profiles.id, payer.id));
-        await tx.update(profiles)
-          .set({ balance: sql`${profiles.balance} + ${netUsdt}` })
-          .where(eq(profiles.id, merchant.profileId));
+        await tx.update(merchants)
+          .set({ balance: sql`${merchants.balance} + ${netUsdt}` })
+          .where(eq(merchants.id, merchant.id));
       });
 
       const updated = await storage.markMerchantTransactionPaid(t.paymentId, payer.id);
@@ -536,7 +542,7 @@ export function registerMerchantRoutes(app: Express) {
         // race condition rollback
         await db.transaction(async (tx) => {
           await tx.update(profiles).set({ balance: sql`${profiles.balance} + ${amountUsdt}` }).where(eq(profiles.id, payer.id));
-          await tx.update(profiles).set({ balance: sql`${profiles.balance} - ${netUsdt}` }).where(eq(profiles.id, merchant.profileId));
+          await tx.update(merchants).set({ balance: sql`${merchants.balance} - ${netUsdt}` }).where(eq(merchants.id, merchant.id));
         });
         return res.status(409).json({ message: "Payment was concurrently processed" });
       }

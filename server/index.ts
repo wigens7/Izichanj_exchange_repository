@@ -594,6 +594,13 @@ app.use((req, res, next) => {
     console.warn("[startup migration] payout_requests skipped:", (e as Error).message);
   }
 
+  try {
+    await db.execute(sql`ALTER TABLE merchants ADD COLUMN IF NOT EXISTS balance DECIMAL(14,4) NOT NULL DEFAULT 0`);
+    console.log("[startup migration] merchants.balance column ensured");
+  } catch (e) {
+    console.warn("[startup migration] merchants.balance skipped:", (e as Error).message);
+  }
+
   await registerRoutes(httpServer, app);
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {

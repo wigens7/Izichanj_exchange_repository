@@ -503,6 +503,7 @@ export const merchants = pgTable("merchants", {
   apiPublicKey: text("api_public_key").notNull().unique(),
   apiSecretKey: text("api_secret_key").notNull().unique(),
   isVerified: boolean("is_verified").default(false).notNull(),
+  balance: decimal("balance", { precision: 14, scale: 4 }).default("0").notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 export type Merchant = typeof merchants.$inferSelect;
