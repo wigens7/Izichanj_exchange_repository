@@ -77,6 +77,7 @@ export default function VerifyEmailPage() {
                 maxLength={6}
                 value={code}
                 onChange={setCode}
+                autoFocus
                 data-testid="input-otp-code"
               >
                 <InputOTPGroup>
