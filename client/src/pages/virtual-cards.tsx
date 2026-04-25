@@ -59,6 +59,8 @@ export default function VirtualCardsPage() {
 
   const kycVerified = user?.kycStatus === "verified";
   const hasPendingCard = cards?.some((c) => c.status === "pending");
+  const pendingCard = cards?.find((c) => c.status === "pending");
+  const pendingHeld = pendingCard ? Number(pendingCard.balance ?? 0).toFixed(2) : "0.00";
 
   return (
     <div className="p-4 md:p-6 max-w-4xl mx-auto space-y-6">
@@ -88,7 +90,7 @@ export default function VirtualCardsPage() {
             <div>
               <p className="font-semibold text-sm">Card Application in Progress</p>
               <p className="text-sm text-muted-foreground mt-0.5">
-                Your virtual card is currently being processed. Your $30.00 payment has been received and is held securely.
+                Your virtual card is currently being processed. Your ${pendingHeld} payment has been received and is held securely.
                 Use the <strong>"Check if my card is ready"</strong> button on the card below to check for updates.
               </p>
             </div>
@@ -986,7 +988,7 @@ function CardItem({ card }: { card: VirtualCard }) {
                 <div className="w-4 h-4 mt-0.5 shrink-0 border-2 border-amber-500 border-t-transparent rounded-full animate-spin" />
                 <div>
                   <p className="text-sm font-medium text-amber-700 dark:text-amber-400">Card request received</p>
-                  <p className="text-xs text-muted-foreground mt-0.5">Your $30.00 is held securely. If the card is not issued, you can retry or cancel for a full refund.</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">Your ${Number(card.balance ?? 0).toFixed(2)} is held securely. If the card is not issued, you can retry or cancel for a full refund.</p>
                 </div>
               </div>
 
@@ -1032,12 +1034,12 @@ function CardItem({ card }: { card: VirtualCard }) {
                   data-testid={`button-cancel-card-${card.id}`}
                 >
                   <Trash2 className="w-3.5 h-3.5 mr-1.5" />
-                  Cancel & get $30.00 refund
+                  Cancel & get ${Number(card.balance ?? 0).toFixed(2)} refund
                 </Button>
               ) : (
                 <div className="rounded-md border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-950/30 p-3 space-y-2">
                   <p className="text-sm text-red-700 dark:text-red-400 font-medium">Are you sure you want to cancel?</p>
-                  <p className="text-xs text-muted-foreground">$30.00 USDT will be instantly refunded to your balance. This cannot be undone.</p>
+                  <p className="text-xs text-muted-foreground">${Number(card.balance ?? 0).toFixed(2)} USDT will be instantly refunded to your balance. This cannot be undone.</p>
                   <div className="flex gap-2">
                     <Button
                       size="sm"
