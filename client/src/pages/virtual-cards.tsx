@@ -4,6 +4,10 @@ import { apiRequest } from "@/lib/queryClient";
 import { useLanguage } from "@/lib/i18n";
 import { useUser } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
+import {
+  CARD_LOAD_AMOUNT_USD, CARD_CREATION_FEE_USD, CARD_TOPUP_FIXED_FEE_USD, CARD_TOPUP_MIN_USD,
+  calcCardCreationCost, calcCardTopUpCost,
+} from "@shared/constants";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -122,8 +126,12 @@ function ApplyCardSection() {
   const { toast } = useToast();
   const qc = useQueryClient();
 
-  const CARD_COST = 30;          // Price user pays for card activation
-  const CARD_LOAD_AMOUNT = 20;   // Initial balance loaded onto the card
+  // Pricing breakdown (single source of truth in @shared/constants)
+  const cardBreakdown = calcCardCreationCost(CARD_LOAD_AMOUNT_USD);
+  const CARD_COST        = cardBreakdown.total;        // e.g. $35.68
+  const CARD_LOAD_AMOUNT = cardBreakdown.loadAmount;   // $20
+  const CARD_FIXED_FEE   = cardBreakdown.fixedFee;     // $15
+  const CARD_VAR_FEE     = cardBreakdown.variableFee;  // $0.68
   const userBalance = parseFloat(user?.balance || "0");
   const hasEnoughBalance = userBalance >= CARD_COST;
 
@@ -432,7 +440,7 @@ function ApplyCardSection() {
               <div className="flex items-center justify-between gap-3 flex-wrap">
                 <div>
                   <p className="text-sm text-muted-foreground">{vc.cardCost}</p>
-                  <p className="text-2xl font-bold font-display" data-testid="text-card-cost">$30.00 <span className="text-sm font-normal text-muted-foreground">USD</span></p>
+                  <p className="text-2xl font-bold font-display" data-testid="text-card-cost">${CARD_COST.toFixed(2)} <span className="text-sm font-normal text-muted-foreground">USD</span></p>
                 </div>
                 <div className="text-right">
                   <p className="text-sm text-muted-foreground">{vc.yourBalance}</p>
@@ -441,19 +449,23 @@ function ApplyCardSection() {
                   </p>
                 </div>
               </div>
-              {/* Price breakdown */}
-              <div className="border-t border-border/50 pt-2.5 space-y-1">
-                <div className="flex justify-between text-xs text-muted-foreground">
-                  <span>💳 Initial card balance</span>
-                  <span>${CARD_LOAD_AMOUNT}.00</span>
+              {/* Detailed price breakdown */}
+              <div className="border-t border-border/50 pt-2.5 space-y-1.5">
+                <div className="flex justify-between text-xs text-muted-foreground" data-testid="text-card-fee">
+                  <span>⚡ Card / Activation fee</span>
+                  <span>${CARD_FIXED_FEE.toFixed(2)}</span>
                 </div>
-                <div className="flex justify-between text-xs text-muted-foreground">
-                  <span>⚡ Card activation fee</span>
-                  <span>${CARD_COST - CARD_LOAD_AMOUNT}.00</span>
+                <div className="flex justify-between text-xs text-muted-foreground" data-testid="text-card-network-fee">
+                  <span>🌐 Network fee (3.4%)</span>
+                  <span>${CARD_VAR_FEE.toFixed(2)}</span>
                 </div>
-                <div className="flex justify-between text-xs font-semibold text-foreground pt-1 border-t border-border/40">
-                  <span>Total charged</span>
-                  <span>${CARD_COST}.00 USDT</span>
+                <div className="flex justify-between text-xs text-emerald-600 dark:text-emerald-400 font-medium" data-testid="text-card-load-amount">
+                  <span>💳 Amount to card</span>
+                  <span>${CARD_LOAD_AMOUNT.toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between text-sm font-bold text-foreground pt-1.5 border-t border-border/40" data-testid="text-card-total">
+                  <span>Total to pay</span>
+                  <span>${CARD_COST.toFixed(2)} USDT</span>
                 </div>
               </div>
             </div>
@@ -490,7 +502,7 @@ function ApplyCardSection() {
                 {createMutation.isPending ? (
                   <><Loader2 className="w-4 h-4 animate-spin mr-2" />{vc.applying}</>
                 ) : (
-                  <><CreditCard className="w-4 h-4 mr-2" />{vc.applyButton} — $30.00</>  
+                  <><CreditCard className="w-4 h-4 mr-2" />{vc.applyButton} — ${CARD_COST.toFixed(2)}</>  
                 )}
               </Button>
             )}
@@ -780,33 +792,60 @@ function CardItem({ card }: { card: VirtualCard }) {
             </div>
           )}
 
-          {showFund && (
-            <div className="bg-muted/30 rounded-md p-3 space-y-2">
-              <Label>{vc.fundAmount}</Label>
-              <p className="text-xs text-muted-foreground">{vc.minFunding}</p>
-              <div className="flex items-center gap-2">
-                <div className="relative flex-1">
-                  <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                  <Input
-                    type="number"
-                    min="19.99"
-                    step="0.01"
-                    value={fundAmount}
-                    onChange={(e) => setFundAmount(e.target.value)}
-                    className="pl-9"
-                    data-testid={`input-fund-amount-${card.id}`}
-                  />
+          {showFund && (() => {
+            const fundNum = parseFloat(fundAmount) || 0;
+            const fundBreakdown = fundNum >= CARD_TOPUP_MIN_USD ? calcCardTopUpCost(fundNum) : null;
+            return (
+              <div className="bg-muted/30 rounded-md p-3 space-y-3">
+                <div>
+                  <Label>{vc.fundAmount}</Label>
+                  <p className="text-xs text-muted-foreground mt-0.5">Minimum ${CARD_TOPUP_MIN_USD.toFixed(2)} USD</p>
                 </div>
-                <Button
-                  onClick={() => fundMutation.mutate(fundAmount)}
-                  disabled={fundMutation.isPending || !fundAmount || parseFloat(fundAmount) < 19.99}
-                  data-testid={`button-fund-card-${card.id}`}
-                >
-                  {fundMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : vc.fundButton}
-                </Button>
+                <div className="flex items-center gap-2">
+                  <div className="relative flex-1">
+                    <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                    <Input
+                      type="number"
+                      min={CARD_TOPUP_MIN_USD}
+                      step="0.01"
+                      value={fundAmount}
+                      onChange={(e) => setFundAmount(e.target.value)}
+                      className="pl-9"
+                      placeholder={String(CARD_TOPUP_MIN_USD)}
+                      data-testid={`input-fund-amount-${card.id}`}
+                    />
+                  </div>
+                  <Button
+                    onClick={() => fundMutation.mutate(fundAmount)}
+                    disabled={fundMutation.isPending || !fundAmount || fundNum < CARD_TOPUP_MIN_USD}
+                    data-testid={`button-fund-card-${card.id}`}
+                  >
+                    {fundMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : vc.fundButton}
+                  </Button>
+                </div>
+                {fundBreakdown && (
+                  <div className="border-t border-border/50 pt-2.5 space-y-1.5" data-testid={`text-fund-breakdown-${card.id}`}>
+                    <div className="flex justify-between text-xs text-muted-foreground">
+                      <span>⚡ Funding fee</span>
+                      <span>${fundBreakdown.fixedFee.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between text-xs text-muted-foreground">
+                      <span>🌐 Network fee (1.9%)</span>
+                      <span>${fundBreakdown.variableFee.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between text-xs text-emerald-600 dark:text-emerald-400 font-medium">
+                      <span>💳 Amount to card</span>
+                      <span>${fundBreakdown.loadAmount.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between text-sm font-bold text-foreground pt-1.5 border-t border-border/40">
+                      <span>Total to pay</span>
+                      <span>${fundBreakdown.total.toFixed(2)} USDT</span>
+                    </div>
+                  </div>
+                )}
               </div>
-            </div>
-          )}
+            );
+          })()}
 
           {/* Transaction History Modal */}
           <Dialog open={showTxModal} onOpenChange={(open) => {

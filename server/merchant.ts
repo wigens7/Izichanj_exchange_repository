@@ -6,9 +6,10 @@ import { eq, sql, and } from "drizzle-orm";
 import { isAuthenticated } from "./auth";
 import { getDepositRate } from "./rates";
 import { checkoutApiSchema, updateMerchantSchema, payoutRequestSchema, PAYOUT_METHOD_META } from "@shared/schema";
+import { MERCHANT_API_FEE_PCT } from "@shared/constants";
 import crypto from "crypto";
 
-const FEE_PCT = 0.015; // 1.5% transaction fee
+const FEE_PCT = MERCHANT_API_FEE_PCT; // 0% — Izichanj Pay is FREE for merchants
 const CHECKOUT_TTL_MS = 30 * 60 * 1000; // 30 minutes
 const PUBLIC_BASE_URL = (process.env.PUBLIC_APP_URL || "https://izichanj.com").replace(/\/$/, "");
 
@@ -552,7 +553,7 @@ export function registerMerchantRoutes(app: Express) {
         profileId: merchant.profileId,
         type: "transfer_received" as any,
         title: "💸 Izichanj Pay — Payment Received",
-        message: `${payer.fullName} paid ${amountUsdt.toFixed(2)} USDT for order ${t.orderId}. Net credited: ${netUsdt.toFixed(2)} USDT (after 1.5% fee).`,
+        message: `${payer.fullName} paid ${amountUsdt.toFixed(2)} USDT for order ${t.orderId}. Full amount credited (0% Izichanj Pay fee).`,
       }).catch(() => {});
       storage.createNotification({
         profileId: payer.id,
@@ -562,8 +563,6 @@ export function registerMerchantRoutes(app: Express) {
       }).catch(() => {});
 
       // Admin Telegram alert with full split breakdown
-      const platformFee = amountUsdt - netUsdt;
-      const feeHtg = platformFee * Number(t.exchangeRate);
       const merchantHtg = netUsdt * Number(t.exchangeRate);
       sendAdminTelegram(
         `🛒 <b>Izichanj Pay — API Purchase Completed</b>\n\n` +
@@ -573,7 +572,7 @@ export function registerMerchantRoutes(app: Express) {
         `👤 <b>Buyer:</b> ${payer.fullName} (${payer.email})\n\n` +
         `💵 <b>Total Paid by Customer:</b> ${amountUsdt.toFixed(4)} USDT (${Number(t.amountHtg).toFixed(2)} HTG)\n` +
         `🏦 <b>Merchant Share:</b> ${netUsdt.toFixed(4)} USDT (${merchantHtg.toFixed(2)} HTG)\n` +
-        `💰 <b>Izichanj Commission (1.5%):</b> ${platformFee.toFixed(4)} USDT (${feeHtg.toFixed(2)} HTG)\n\n` +
+        `💰 <b>Izichanj Commission:</b> 0.0000 USDT (0% — Izichanj Pay is FREE)\n\n` +
         `📈 <b>Rate:</b> 1 USDT = ${Number(t.exchangeRate).toFixed(2)} HTG\n` +
         `🕒 ${new Date().toLocaleString("en-US", { timeZone: "America/Port-au-Prince" })}`
       ).catch(() => {});

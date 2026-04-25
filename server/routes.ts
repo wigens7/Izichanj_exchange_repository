@@ -10,7 +10,12 @@ import { registerMerchantRoutes } from "./merchant";
 import { registerObjectStorageRoutes } from "./replit_integrations/object_storage";
 import crypto from "crypto";
 import bcrypt from "bcryptjs";
-import { WITHDRAWAL_MIN_USDT, WITHDRAWAL_MAX_USDT, WITHDRAWAL_FEE_USDT, formatHtg, NETWORK_FEE_CONFIG, MANUAL_DEPOSIT_MIN_HTG, MANUAL_DEPOSIT_MIN_USDT, TOPUP_FEE_USD } from "@shared/constants";
+import {
+  WITHDRAWAL_MIN_USDT, WITHDRAWAL_MAX_USDT, WITHDRAWAL_FEE_USDT, formatHtg,
+  NETWORK_FEE_CONFIG, MANUAL_DEPOSIT_MIN_HTG, MANUAL_DEPOSIT_MIN_USDT, TOPUP_FEE_USD,
+  CARD_LOAD_AMOUNT_USD, CARD_CREATION_FEE_USD, CARD_TOPUP_FIXED_FEE_USD, CARD_TOPUP_MIN_USD,
+  calcCardCreationCost, calcCardTopUpCost,
+} from "@shared/constants";
 import { getDepositRate, getWithdrawalRate, setRates, rateUsdtToHtg, rateHtgToUsdt, rateUsdtToHtgWithdrawal } from "./rates";
 import { generateReceiptPDF, generateAdjustmentReceiptPDF } from "./receipt";
 import { ensureKycImageSize } from "./image-compress";
@@ -2438,9 +2443,11 @@ export async function registerRoutes(
       const pendingCards2 = allCards.filter(c => c.status === "pending").length;
       const frozenCards   = allCards.filter(c => c.status === "frozen").length;
       const totalIssued   = activeCards + frozenCards; // cards that actually went through
-      const CARD_PRICE    = 30;    // what user pays
-      const CARD_COST     = 22.80; // our actual cost (Strowallet $20 + ~$2.80 buffer/fees)
-      const PROFIT_PER    = Number((CARD_PRICE - CARD_COST).toFixed(2)); // 7.20
+      const breakdown     = calcCardCreationCost();          // default $20 load
+      const CARD_PRICE    = breakdown.total;                 // what user pays (e.g. $35.68)
+      const STRO_FIXED    = 4.40;                            // $2.50 + $1.90
+      const CARD_COST     = Number((breakdown.loadAmount + STRO_FIXED + breakdown.variableFee).toFixed(2));
+      const PROFIT_PER    = Number((CARD_PRICE - CARD_COST).toFixed(2)); // $10.60
       res.json({
         activeCards,
         pendingCards: pendingCards2,
@@ -3951,12 +3958,16 @@ export async function registerRoutes(
         return res.status(500).json({ message: "Card service not configured" });
       }
 
-      const CARD_COST_USD = 30;        // Amount deducted from user's Izichanj balance
-      const STROWALLET_FUND_AMOUNT = 20; // Amount loaded onto the card via Strowallet ($10 activation fee kept by Izichanj)
+      // ── Pricing breakdown ──────────────────────────────────────────────
+      // Total = $20 load + $15 fixed fee ($10.60 Izichanj profit + $4.40 Stro fixed)
+      //       + 3.4% Strowallet variable fee on the $20 load = $35.68
+      const breakdown = calcCardCreationCost(CARD_LOAD_AMOUNT_USD);
+      const CARD_COST_USD          = breakdown.total;       // user pays e.g. $35.68
+      const STROWALLET_FUND_AMOUNT = breakdown.loadAmount;  // $20 → loaded on card
 
       const balanceUsdt = parseFloat(profile.balance || "0");
       if (balanceUsdt < CARD_COST_USD) {
-        return res.status(400).json({ message: `Insufficient balance. You need at least $${CARD_COST_USD} USDT to apply for a virtual card. Your current balance is $${balanceUsdt.toFixed(2)} USDT.` });
+        return res.status(400).json({ message: `Insufficient balance. You need $${CARD_COST_USD.toFixed(2)} USDT to apply for a virtual card ($${STROWALLET_FUND_AMOUNT.toFixed(2)} card balance + $${CARD_CREATION_FEE_USD.toFixed(2)} card fee + $${breakdown.variableFee.toFixed(2)} network fee). Your current balance is $${balanceUsdt.toFixed(2)} USDT.` });
       }
 
       const fundAmount = STROWALLET_FUND_AMOUNT; // What Strowallet loads onto the card
@@ -4047,7 +4058,7 @@ export async function registerRoutes(
             `📧 <b>Email:</b> ${profile.email}\n` +
             `📞 <b>Phone:</b> ${profile.phone || "—"}\n` +
             `🪪 <b>Strowallet ID:</b> ${profile.strowalletCustomerId}\n` +
-            `💵 <b>User charged:</b> $${CARD_COST_USD} USDT (card loaded with $${fundAmount})\n` +
+            `💵 <b>User charged:</b> $${CARD_COST_USD.toFixed(2)} USDT (card loaded with $${fundAmount.toFixed(2)})\n` +
             `💰 <b>Remaining balance:</b> $${newBalance.toFixed(2)} USDT\n` +
             `🗂 <b>Pending card ID:</b> ${pendingCard.id}\n\n` +
             `👉 <b>Fund your Strowallet account, then issue the card manually or re-trigger card creation.</b>\n` +
@@ -4068,7 +4079,7 @@ export async function registerRoutes(
           `👤 <b>User:</b> ${profile.fullName}\n` +
           `📧 <b>Email:</b> ${profile.email}\n` +
           `📞 <b>Phone:</b> ${profile.phone || "—"}\n` +
-          `💵 <b>Amount:</b> $${CARD_COST_USD} USDT\n` +
+          `💵 <b>Amount:</b> $${CARD_COST_USD.toFixed(2)} USDT\n` +
           `💰 <b>User balance:</b> $${balanceUsdt.toFixed(2)} USDT\n` +
           `⚠️ <b>Error:</b> ${friendlyErr}\n` +
           `📋 <b>Full response:</b>\n<pre>${JSON.stringify(data, null, 2).slice(0, 600)}</pre>\n\n` +
@@ -4415,13 +4426,18 @@ export async function registerRoutes(
 
       const { amount } = req.body;
       const fundAmount = parseFloat(amount);
-      if (isNaN(fundAmount) || fundAmount < 19.99) {
-        return res.status(400).json({ message: "Minimum funding is $19.99 USD" });
+      if (isNaN(fundAmount) || fundAmount < CARD_TOPUP_MIN_USD) {
+        return res.status(400).json({ message: `Minimum funding is $${CARD_TOPUP_MIN_USD.toFixed(2)} USD` });
       }
 
+      // ── Top-up pricing ───────────────────────────────────────────────
+      // Total = fundAmount + $2.15 fixed ($0.25 Izichanj + $1.90 Strowallet) + 1.9% Strowallet variable
+      const breakdown = calcCardTopUpCost(fundAmount);
+      const totalCharge = breakdown.total;
+
       const balanceUsdt = parseFloat(profile.balance || "0");
-      if (fundAmount > balanceUsdt) {
-        return res.status(400).json({ message: `Insufficient USDT balance. Your current balance is $${balanceUsdt.toFixed(2)} USDT.` });
+      if (totalCharge > balanceUsdt) {
+        return res.status(400).json({ message: `Insufficient USDT balance. You need $${totalCharge.toFixed(2)} USDT ($${fundAmount.toFixed(2)} to card + $${breakdown.fixedFee.toFixed(2)} fee + $${breakdown.variableFee.toFixed(2)} network fee). Your current balance is $${balanceUsdt.toFixed(2)} USDT.` });
       }
 
       const response = await strowalletFetch(`${STROWALLET_BASE}/fund-card/`, {
@@ -4429,7 +4445,7 @@ export async function registerRoutes(
         headers: { "Content-Type": "application/json", "Accept": "application/json" },
         body: JSON.stringify({
           card_id: card.cardId,
-          amount: fundAmount.toString(),
+          amount: fundAmount.toString(),  // Strowallet still receives the load amount
           public_key: strowalletPublicKey,
         }),
       });
@@ -4441,7 +4457,8 @@ export async function registerRoutes(
         return res.status(400).json({ message: data.message || data.error || "Failed to fund card" });
       }
 
-      const newBalance = balanceUsdt - fundAmount;
+      // Deduct the FULL charge (load + fixed + variable fees) from user's wallet
+      const newBalance = balanceUsdt - totalCharge;
       await storage.updateProfileBalance(profile.id, newBalance);
 
       const currentCardBalance = parseFloat(card.balance || "0");
@@ -4456,7 +4473,7 @@ export async function registerRoutes(
         type: "fund",
         amount: fundAmount.toFixed(2),
         currency: "USD",
-        description: `Card funded — $${fundAmount.toFixed(2)} USD added`,
+        description: `Card funded — $${fundAmount.toFixed(2)} USD added (total charged $${totalCharge.toFixed(2)} incl. $${breakdown.fixedFee.toFixed(2)} fee + $${breakdown.variableFee.toFixed(2)} network)`,
       });
 
       res.json(updatedCard);
