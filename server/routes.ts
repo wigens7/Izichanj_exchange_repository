@@ -2591,10 +2591,10 @@ export async function registerRoutes(
         console.log(`[ADMIN RETRY CARD] Cardholder registered — Strowallet ID: ${customerId}`);
       }
 
-      // IMPORTANT: The user's balance was already deducted ($26) when the pending card was created.
+      // IMPORTANT: User's balance was already deducted (CARD_TOTAL_PRICE_USD) when the pending card was created.
       // This retry only calls Strowallet's API — it does NOT touch the user's balance again.
-      // Strowallet always receives $20 to load onto the card (regardless of what user paid).
-      const fundAmount = 20;
+      // Strowallet receives the configured load amount (Strowallet enforces $5 minimum).
+      const fundAmount = CARD_LOAD_AMOUNT_USD;
       const nameOnCard = card.nameOnCard || profile.fullName;
 
       const createCardPayload: Record<string, string> = {
@@ -2627,7 +2627,11 @@ export async function registerRoutes(
       });
 
       const data = await response.json();
-      console.log("[ADMIN RETRY CARD] Strowallet raw response:", JSON.stringify(data, null, 2));
+      console.log("================== [ADMIN RETRY CREATE-CARD] ==================");
+      console.log("[ADMIN RETRY] HTTP status:", response.status);
+      console.log("[ADMIN RETRY] Request payload:", JSON.stringify(createCardPayload, null, 2));
+      console.log("[ADMIN RETRY] Strowallet raw response:", JSON.stringify(data, null, 2));
+      console.log("================================================================");
 
       if (!response.ok || data.status === "error" || data.status === false) {
         // Safely extract error — Strowallet sometimes returns objects, not strings
@@ -3995,7 +3999,11 @@ export async function registerRoutes(
       });
 
       const data = await response.json();
-      console.log("[STROWALLET] Create card response:", JSON.stringify(data));
+      console.log("==================== [STROWALLET CREATE-CARD] ====================");
+      console.log("[STROWALLET] HTTP status:", response.status);
+      console.log("[STROWALLET] Request payload:", JSON.stringify(createCardPayload, null, 2));
+      console.log("[STROWALLET] Raw response:", JSON.stringify(data, null, 2));
+      console.log("==================================================================");
 
       if (!response.ok || data.status === "error" || data.status === false) {
         // Safely convert to string — Strowallet sometimes returns objects instead of strings
@@ -4254,9 +4262,9 @@ export async function registerRoutes(
       const _stroBase = "https://strowallet.com/api/bitvcard";
       const _stroKey = process.env.STROWALLET_PUBLIC_KEY || "";
 
-      // NOTE: No balance deduction — the $26 was already deducted when the pending card was created.
-      // Strowallet always receives $20 for card funding regardless of what user paid.
-      const fundAmount = 20;
+      // NOTE: No balance deduction — the full charge was already deducted when the pending card was created.
+      // Strowallet receives the configured load amount (Strowallet enforces $5 minimum).
+      const fundAmount = CARD_LOAD_AMOUNT_USD;
 
       const payload: Record<string, string> = {
         name_on_card: card.nameOnCard || profile.fullName,
