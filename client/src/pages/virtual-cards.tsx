@@ -451,19 +451,19 @@ function ApplyCardSection() {
                   </p>
                 </div>
               </div>
-              {/* Detailed price breakdown */}
+              {/* Simple flat breakdown */}
               <div className="border-t border-border/50 pt-2.5 space-y-1.5">
                 <div className="flex justify-between text-xs text-muted-foreground" data-testid="text-card-fee">
                   <span>⚡ Card / Activation fee</span>
                   <span>${CARD_FIXED_FEE.toFixed(2)}</span>
                 </div>
-                <div className="flex justify-between text-xs text-muted-foreground" data-testid="text-card-network-fee">
-                  <span>🌐 Network fee (3.4%)</span>
-                  <span>${CARD_VAR_FEE.toFixed(2)}</span>
-                </div>
                 <div className="flex justify-between text-xs text-emerald-600 dark:text-emerald-400 font-medium" data-testid="text-card-load-amount">
                   <span>💳 Amount to card</span>
                   <span>${CARD_LOAD_AMOUNT.toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between text-[11px] text-muted-foreground/70 italic" data-testid="text-card-network-fee">
+                  <span>🌐 Network fee (3.4%)</span>
+                  <span>Included</span>
                 </div>
                 <div className="flex justify-between text-sm font-bold text-foreground pt-1.5 border-t border-border/40" data-testid="text-card-total">
                   <span>Total to pay</span>

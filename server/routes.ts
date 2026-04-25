@@ -2443,11 +2443,12 @@ export async function registerRoutes(
       const pendingCards2 = allCards.filter(c => c.status === "pending").length;
       const frozenCards   = allCards.filter(c => c.status === "frozen").length;
       const totalIssued   = activeCards + frozenCards; // cards that actually went through
-      const breakdown     = calcCardCreationCost();          // default $20 load
-      const CARD_PRICE    = breakdown.total;                 // what user pays (e.g. $35.68)
-      const STRO_FIXED    = 4.40;                            // $2.50 + $1.90
-      const CARD_COST     = Number((breakdown.loadAmount + STRO_FIXED + breakdown.variableFee).toFixed(2));
-      const PROFIT_PER    = Number((CARD_PRICE - CARD_COST).toFixed(2)); // $10.60
+      const breakdown     = calcCardCreationCost();          // flat $19 / $4 to card
+      const CARD_PRICE    = breakdown.total;                 // user pays $19.00
+      const STRO_FIXED    = 4.40;                            // $2.50 + $1.90 Strowallet fixed
+      const STRO_VAR      = Number((breakdown.loadAmount * 0.034).toFixed(2)); // 3.4% of load (absorbed)
+      const CARD_COST     = Number((breakdown.loadAmount + STRO_FIXED + STRO_VAR).toFixed(2));
+      const PROFIT_PER    = Number((CARD_PRICE - CARD_COST).toFixed(2)); // $10.46
       res.json({
         activeCards,
         pendingCards: pendingCards2,
@@ -3958,16 +3959,16 @@ export async function registerRoutes(
         return res.status(500).json({ message: "Card service not configured" });
       }
 
-      // ── Pricing breakdown ──────────────────────────────────────────────
-      // Total = $20 load + $15 fixed fee ($10.60 Izichanj profit + $4.40 Stro fixed)
-      //       + 3.4% Strowallet variable fee on the $20 load = $35.68
+      // ── Flat pricing ──────────────────────────────────────────────────
+      // User pays exactly $19.00. $4.00 → card, rest covers Strowallet
+      // fixed/variable fees and Izichanj margin (variable absorbed internally).
       const breakdown = calcCardCreationCost(CARD_LOAD_AMOUNT_USD);
-      const CARD_COST_USD          = breakdown.total;       // user pays e.g. $35.68
-      const STROWALLET_FUND_AMOUNT = breakdown.loadAmount;  // $20 → loaded on card
+      const CARD_COST_USD          = breakdown.total;       // flat $19.00
+      const STROWALLET_FUND_AMOUNT = breakdown.loadAmount;  // $4.00 → loaded on card
 
       const balanceUsdt = parseFloat(profile.balance || "0");
       if (balanceUsdt < CARD_COST_USD) {
-        return res.status(400).json({ message: `Insufficient balance. You need $${CARD_COST_USD.toFixed(2)} USDT to apply for a virtual card ($${STROWALLET_FUND_AMOUNT.toFixed(2)} card balance + $${CARD_CREATION_FEE_USD.toFixed(2)} card fee + $${breakdown.variableFee.toFixed(2)} network fee). Your current balance is $${balanceUsdt.toFixed(2)} USDT.` });
+        return res.status(400).json({ message: `Insufficient balance. You need $${CARD_COST_USD.toFixed(2)} USDT to apply for a virtual card. Your current balance is $${balanceUsdt.toFixed(2)} USDT.` });
       }
 
       const fundAmount = STROWALLET_FUND_AMOUNT; // What Strowallet loads onto the card

@@ -17,13 +17,16 @@ export const WITHDRAWAL_FEE_USDT = 2.50;
 export const TOPUP_FEE_USD = 1.86; // Fixed service fee per mobile top-up transaction
 
 // ────── Virtual Card Pricing ──────
-// Card creation:
-//   • $15.00 fee = $4.40 Strowallet fixed ($2.50 + $1.90) + $10.60 Izichanj profit
-//   • Plus Strowallet variable fee on initial load: 1.5% + 1.9% = 3.4%
-//   • Plus the load amount itself (goes to the card)
-export const CARD_LOAD_AMOUNT_USD     = 20;     // Initial balance loaded on a new card
-export const CARD_CREATION_FEE_USD    = 15;     // Izichanj markup ($10.60) + Stro fixed ($4.40)
-export const CARD_CREATION_VAR_PCT    = 0.034;  // Strowallet variable on initial load (1.5% + 1.9%)
+// Card creation — FLAT TOTAL pricing (no add-on fees shown to user):
+//   • User pays exactly $19.00 USDT, period.
+//   • $4.00  → loaded onto the card
+//   • $4.40  → Strowallet fixed fees ($2.50 + $1.90)
+//   • $0.14  → Strowallet 3.4% variable fee on the $4 load (absorbed by Izichanj)
+//   • $10.46 → Izichanj profit
+export const CARD_TOTAL_PRICE_USD     = 19;     // What the user pays — flat, no extras
+export const CARD_LOAD_AMOUNT_USD     = 4;      // Initial balance loaded on a new card
+export const CARD_CREATION_FEE_USD    = CARD_TOTAL_PRICE_USD - CARD_LOAD_AMOUNT_USD; // $15 (shown as "card fee")
+export const CARD_CREATION_VAR_PCT    = 0.034;  // Strowallet variable (absorbed; not added to user total)
 // Card top-up (funding existing card):
 //   • $2.15 fixed = $1.90 Strowallet fixed + $0.25 Izichanj profit
 //   • Plus Strowallet variable: 1.9%
@@ -40,9 +43,12 @@ export interface CardChargeBreakdown {
 }
 
 export function calcCardCreationCost(loadAmount: number = CARD_LOAD_AMOUNT_USD): CardChargeBreakdown {
-  const variableFee = +(loadAmount * CARD_CREATION_VAR_PCT).toFixed(2);
-  const total       = +(loadAmount + CARD_CREATION_FEE_USD + variableFee).toFixed(2);
-  return { loadAmount, fixedFee: CARD_CREATION_FEE_USD, variableFee, total };
+  // Flat pricing — total never changes regardless of load amount.
+  // Network/variable fee is absorbed by Izichanj (kept for transparency, not billed to user).
+  const variableFee = 0;
+  const total       = CARD_TOTAL_PRICE_USD;
+  const fixedFee    = +(total - loadAmount).toFixed(2);
+  return { loadAmount, fixedFee, variableFee, total };
 }
 
 export function calcCardTopUpCost(loadAmount: number): CardChargeBreakdown {
