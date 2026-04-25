@@ -19,13 +19,13 @@ export const TOPUP_FEE_USD = 1.86; // Fixed service fee per mobile top-up transa
 // ────── Virtual Card Pricing ──────
 // Card creation — FLAT TOTAL pricing (no add-on fees shown to user):
 //   • User pays exactly $19.00 USDT, period.
-//   • $4.00  → loaded onto the card
+//   • $5.00  → loaded onto the card (Strowallet's minimum allowed for virtualcards/create)
 //   • $4.40  → Strowallet fixed fees ($2.50 + $1.90)
-//   • $0.14  → Strowallet 3.4% variable fee on the $4 load (absorbed by Izichanj)
-//   • $10.46 → Izichanj profit
+//   • $0.17  → Strowallet 3.4% variable fee on the $5 load (absorbed by Izichanj)
+//   • $9.43  → Izichanj profit
 export const CARD_TOTAL_PRICE_USD     = 19;     // What the user pays — flat, no extras
-export const CARD_LOAD_AMOUNT_USD     = 4;      // Initial balance loaded on a new card
-export const CARD_CREATION_FEE_USD    = CARD_TOTAL_PRICE_USD - CARD_LOAD_AMOUNT_USD; // $15 (shown as "card fee")
+export const CARD_LOAD_AMOUNT_USD     = 5;      // Initial balance loaded (Strowallet API min = $5)
+export const CARD_CREATION_FEE_USD    = CARD_TOTAL_PRICE_USD - CARD_LOAD_AMOUNT_USD; // $14 (shown as "card fee")
 export const CARD_CREATION_VAR_PCT    = 0.034;  // Strowallet variable (absorbed; not added to user total)
 // Card top-up (funding existing card):
 //   • $2.15 fixed = $1.90 Strowallet fixed + $0.25 Izichanj profit
