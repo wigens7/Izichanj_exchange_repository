@@ -1,4 +1,4 @@
-import { profiles, deposits, withdrawals, kycDocuments, otps, webauthnCredentials, notifications, supportConversations, supportMessages, virtualCards, blacklistedUsers, p2pTransfers, loginLogs, fraudRejections, cardTransactions, topUpTransactions, securityEvents, balanceLogs, userReports, referralEarnings, referralPayoutRequests, type Profile, type Deposit, type InsertDeposit, type Withdrawal, type InsertWithdrawal, type KycDocument, type WebAuthnCredential, type Notification, type SupportConversation, type SupportMessage, type VirtualCard, type BlacklistedUser, type P2PTransfer, type LoginLog, type FraudRejection, type CardTransaction, type TopUpTransaction, type SecurityEvent, type BalanceLog, type UserReport, type ReferralEarning, type ReferralPayoutRequest, merchants, merchantTransactions, type Merchant, type MerchantTransaction, payoutRequests, type PayoutRequest, type InsertPayoutRequest } from "@shared/schema";
+import { profiles, deposits, withdrawals, kycDocuments, otps, webauthnCredentials, notifications, supportConversations, supportMessages, virtualCards, blacklistedUsers, p2pTransfers, loginLogs, fraudRejections, cardTransactions, topUpTransactions, securityEvents, balanceLogs, userReports, referralEarnings, referralPayoutRequests, nfcCards, nfcCardTransactions, type Profile, type Deposit, type InsertDeposit, type Withdrawal, type InsertWithdrawal, type KycDocument, type WebAuthnCredential, type Notification, type SupportConversation, type SupportMessage, type VirtualCard, type BlacklistedUser, type P2PTransfer, type LoginLog, type FraudRejection, type CardTransaction, type TopUpTransaction, type SecurityEvent, type BalanceLog, type UserReport, type ReferralEarning, type ReferralPayoutRequest, type NfcCard, type NfcCardTransaction, merchants, merchantTransactions, type Merchant, type MerchantTransaction, payoutRequests, type PayoutRequest, type InsertPayoutRequest } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, ne, lt, sql, or, ilike, inArray } from "drizzle-orm";
 import crypto from "crypto";
@@ -85,6 +85,15 @@ export interface IStorage {
   getAllPendingVirtualCards(): Promise<any[]>;
   createCardTransaction(data: { cardId: number; profileId: number; type: string; amount: string; currency?: string; description?: string }): Promise<CardTransaction>;
   getCardTransactions(cardId: number, profileId: number): Promise<CardTransaction[]>;
+
+  // ── NFC virtual cards (BitVCard NFC) ──
+  createNfcCard(data: { profileId: number; cardId: string; nameOnCard: string; last4?: string; brand?: string; status?: NfcCard["status"]; balance?: string; currency?: string; cardDetail?: any }): Promise<NfcCard>;
+  getNfcCards(profileId: number): Promise<NfcCard[]>;
+  getNfcCard(id: number, profileId: number): Promise<NfcCard | undefined>;
+  getNfcCardById(id: number): Promise<NfcCard | undefined>;
+  updateNfcCard(id: number, data: Partial<NfcCard>): Promise<NfcCard>;
+  createNfcCardTransaction(data: { cardId: number; profileId: number; type: string; amount: string; currency?: string; description?: string }): Promise<NfcCardTransaction>;
+  getNfcCardTransactions(cardId: number, profileId: number): Promise<NfcCardTransaction[]>;
   createTopUpTransaction(data: { profileId: number; operatorId: string; operatorName: string; phone: string; amountUsd: string; transactionId?: string; status?: string }): Promise<TopUpTransaction>;
   getTopUpTransactions(profileId: number): Promise<TopUpTransaction[]>;
 
@@ -618,6 +627,45 @@ export class DatabaseStorage implements IStorage {
     return db.select().from(cardTransactions)
       .where(and(eq(cardTransactions.cardId, cardId), eq(cardTransactions.profileId, profileId)))
       .orderBy(desc(cardTransactions.createdAt));
+  }
+
+  // ── NFC Virtual Cards ─────────────────────────────────────────
+  async createNfcCard(data: { profileId: number; cardId: string; nameOnCard: string; last4?: string; brand?: string; status?: NfcCard["status"]; balance?: string; currency?: string; cardDetail?: any }): Promise<NfcCard> {
+    const [card] = await db.insert(nfcCards).values(data).returning();
+    return card;
+  }
+  async getNfcCards(profileId: number): Promise<NfcCard[]> {
+    return db.select().from(nfcCards)
+      .where(and(eq(nfcCards.profileId, profileId), ne(nfcCards.status, "cancelled")))
+      .orderBy(desc(nfcCards.createdAt));
+  }
+  async getNfcCard(id: number, profileId: number): Promise<NfcCard | undefined> {
+    const [card] = await db.select().from(nfcCards).where(and(eq(nfcCards.id, id), eq(nfcCards.profileId, profileId)));
+    return card;
+  }
+  async getNfcCardById(id: number): Promise<NfcCard | undefined> {
+    const [card] = await db.select().from(nfcCards).where(eq(nfcCards.id, id));
+    return card;
+  }
+  async updateNfcCard(id: number, data: Partial<NfcCard>): Promise<NfcCard> {
+    const [card] = await db.update(nfcCards).set(data).where(eq(nfcCards.id, id)).returning();
+    return card;
+  }
+  async createNfcCardTransaction(data: { cardId: number; profileId: number; type: string; amount: string; currency?: string; description?: string }): Promise<NfcCardTransaction> {
+    const [tx] = await db.insert(nfcCardTransactions).values({
+      cardId: data.cardId,
+      profileId: data.profileId,
+      type: data.type,
+      amount: data.amount,
+      currency: data.currency ?? "USD",
+      description: data.description ?? null,
+    }).returning();
+    return tx;
+  }
+  async getNfcCardTransactions(cardId: number, profileId: number): Promise<NfcCardTransaction[]> {
+    return db.select().from(nfcCardTransactions)
+      .where(and(eq(nfcCardTransactions.cardId, cardId), eq(nfcCardTransactions.profileId, profileId)))
+      .orderBy(desc(nfcCardTransactions.createdAt));
   }
 
   async createTopUpTransaction(data: { profileId: number; operatorId: string; operatorName: string; phone: string; amountUsd: string; transactionId?: string; status?: string }): Promise<TopUpTransaction> {

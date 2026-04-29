@@ -195,6 +195,47 @@ app.use((req, res, next) => {
     console.warn("[startup migration] card_transactions table skipped:", (e as Error).message);
   }
 
+  // Create nfc_cards table for the NFC virtual card service (BitVCard NFC)
+  try {
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS nfc_cards (
+        id SERIAL PRIMARY KEY,
+        profile_id INTEGER NOT NULL REFERENCES profiles(id),
+        card_id TEXT NOT NULL,
+        name_on_card TEXT NOT NULL,
+        last4 TEXT,
+        brand TEXT DEFAULT 'Visa',
+        status card_status DEFAULT 'pending' NOT NULL,
+        nfc_balance DECIMAL(10,2) DEFAULT '0' NOT NULL,
+        nfc_currency TEXT DEFAULT 'USD' NOT NULL,
+        card_detail JSONB,
+        created_at TIMESTAMP DEFAULT NOW() NOT NULL
+      )
+    `);
+    console.log("[startup migration] nfc_cards table ensured");
+  } catch (e) {
+    console.warn("[startup migration] nfc_cards table skipped:", (e as Error).message);
+  }
+
+  // Create nfc_card_transactions table for local NFC fund/withdraw logs
+  try {
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS nfc_card_transactions (
+        id SERIAL PRIMARY KEY,
+        card_id INTEGER NOT NULL REFERENCES nfc_cards(id),
+        profile_id INTEGER NOT NULL REFERENCES profiles(id),
+        type TEXT NOT NULL,
+        amount DECIMAL(10,2) NOT NULL,
+        currency TEXT DEFAULT 'USD' NOT NULL,
+        description TEXT,
+        created_at TIMESTAMP DEFAULT NOW() NOT NULL
+      )
+    `);
+    console.log("[startup migration] nfc_card_transactions table ensured");
+  } catch (e) {
+    console.warn("[startup migration] nfc_card_transactions table skipped:", (e as Error).message);
+  }
+
   // Fix: reset any card marked "active" that still has a pending_ card_id (never really issued)
   try {
     const fixed = await db.execute(sql`

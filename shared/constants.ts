@@ -57,6 +57,45 @@ export function calcCardTopUpCost(loadAmount: number): CardChargeBreakdown {
   return { loadAmount, fixedFee: CARD_TOPUP_FIXED_FEE_USD, variableFee, total };
 }
 
+// ────── NFC Virtual Card Pricing ──────
+// NFC card creation — same flat $19.00 pricing as the standard virtual card.
+//   • $5.00  → loaded onto card (Strowallet API minimum)
+//   • $4.40  → Strowallet fixed fees
+//   • $0.17  → 3.4% variable fee (absorbed by Izichanj)
+//   • $9.43  → Izichanj profit
+export const NFC_CARD_TOTAL_PRICE_USD  = 19;
+export const NFC_CARD_LOAD_AMOUNT_USD  = 5;
+// NFC top-up: user pays ALL Strowallet fees + $0.25 Izichanj profit.
+//   • Total = amount + ($1.90 Stro fixed + $0.25 Izichanj) + 1.9% Stro variable
+export const NFC_TOPUP_FIXED_FEE_USD   = 2.15;   // $1.90 Stro + $0.25 profit
+export const NFC_TOPUP_VAR_PCT         = 0.019;  // 1.9% Strowallet variable
+export const NFC_TOPUP_MIN_USD         = 5;
+// NFC withdrawal back to user wallet: small flat $1 service fee
+export const NFC_WITHDRAW_FEE_USD      = 1.00;
+export const NFC_WITHDRAW_MIN_USD      = 5;
+
+export function calcNfcCardCreationCost(loadAmount: number = NFC_CARD_LOAD_AMOUNT_USD): CardChargeBreakdown {
+  // Flat pricing — total never changes regardless of load amount.
+  const variableFee = 0;
+  const total       = NFC_CARD_TOTAL_PRICE_USD;
+  const fixedFee    = +(total - loadAmount).toFixed(2);
+  return { loadAmount, fixedFee, variableFee, total };
+}
+
+export function calcNfcCardTopUpCost(loadAmount: number): CardChargeBreakdown {
+  const variableFee = +(loadAmount * NFC_TOPUP_VAR_PCT).toFixed(2);
+  const total       = +(loadAmount + NFC_TOPUP_FIXED_FEE_USD + variableFee).toFixed(2);
+  return { loadAmount, fixedFee: NFC_TOPUP_FIXED_FEE_USD, variableFee, total };
+}
+
+export function calcNfcCardWithdrawCost(amount: number): { amount: number; fee: number; netToWallet: number } {
+  // User asks to pull `amount` off the card — we charge the card for `amount`,
+  // then credit (amount - fee) back to their Izichanj USDT balance.
+  const fee = NFC_WITHDRAW_FEE_USD;
+  const netToWallet = +Math.max(0, amount - fee).toFixed(2);
+  return { amount, fee, netToWallet };
+}
+
 // ────── Merchant API Pricing ──────
 // 0% transaction fee — Izichanj Pay is FREE for merchants to drive adoption.
 export const MERCHANT_API_FEE_PCT = 0;

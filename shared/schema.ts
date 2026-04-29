@@ -261,6 +261,39 @@ export const virtualCards = pgTable("virtual_cards", {
 export const insertVirtualCardSchema = createInsertSchema(virtualCards).omit({ id: true, profileId: true, createdAt: true });
 export type VirtualCard = typeof virtualCards.$inferSelect;
 
+// ────────── NFC Virtual Cards (BitVCard NFC) ──────────
+// Separate table so the NFC service runs alongside the standard virtual card system.
+// NFC cards support contactless payments via Apple Pay & Google Pay.
+export const nfcCards = pgTable("nfc_cards", {
+  id: serial("id").primaryKey(),
+  profileId: integer("profile_id").references(() => profiles.id).notNull(),
+  cardId: text("card_id").notNull(),                   // Strowallet NFC card_id
+  nameOnCard: text("name_on_card").notNull(),
+  last4: text("last4"),
+  brand: text("brand").default("Visa"),
+  status: cardStatusEnum("status").default("pending").notNull(),
+  balance: decimal("nfc_balance", { precision: 10, scale: 2 }).default("0").notNull(),
+  currency: text("nfc_currency").default("USD").notNull(),
+  cardDetail: jsonb("card_detail"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertNfcCardSchema = createInsertSchema(nfcCards).omit({ id: true, profileId: true, createdAt: true });
+export type NfcCard = typeof nfcCards.$inferSelect;
+
+// Local log for NFC card fund/withdraw events (Strowallet API only returns spending txns)
+export const nfcCardTransactions = pgTable("nfc_card_transactions", {
+  id: serial("id").primaryKey(),
+  cardId: integer("card_id").references(() => nfcCards.id).notNull(),
+  profileId: integer("profile_id").references(() => profiles.id).notNull(),
+  type: text("type").notNull(), // "fund" | "withdraw" | "creation"
+  amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
+  currency: text("currency").default("USD").notNull(),
+  description: text("description"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+export type NfcCardTransaction = typeof nfcCardTransactions.$inferSelect;
+
 export const loginLogs = pgTable("login_logs", {
   id: serial("id").primaryKey(),
   profileId: integer("profile_id").references(() => profiles.id).notNull(),

@@ -15,6 +15,8 @@ import {
   NETWORK_FEE_CONFIG, MANUAL_DEPOSIT_MIN_HTG, MANUAL_DEPOSIT_MIN_USDT, TOPUP_FEE_USD,
   CARD_LOAD_AMOUNT_USD, CARD_CREATION_FEE_USD, CARD_TOPUP_FIXED_FEE_USD, CARD_TOPUP_MIN_USD,
   calcCardCreationCost, calcCardTopUpCost,
+  NFC_CARD_LOAD_AMOUNT_USD, NFC_TOPUP_MIN_USD, NFC_WITHDRAW_MIN_USD,
+  calcNfcCardCreationCost, calcNfcCardTopUpCost, calcNfcCardWithdrawCost,
 } from "@shared/constants";
 import { getDepositRate, getWithdrawalRate, setRates, rateUsdtToHtg, rateHtgToUsdt, rateUsdtToHtgWithdrawal } from "./rates";
 import { generateReceiptPDF, generateAdjustmentReceiptPDF } from "./receipt";
@@ -4735,6 +4737,465 @@ export async function registerRoutes(
       res.json(updatedCard);
     } catch (e: any) {
       console.error("Freeze card error:", e);
+      res.status(500).json({ message: e.message || "Internal Error" });
+    }
+  });
+
+  // ════════════════════════════════════════════════════════════════════════
+  //  NFC VIRTUAL CARD SERVICE  (Strowallet BitVCard NFC)
+  //  Runs alongside the standard virtual card. Apple Pay & Google Pay ready.
+  //  Pricing:
+  //    • Issuance: flat $19 (user) → $5 to card, fees absorbed/profit
+  //    • Funding:  amount + ($1.90 + 1.9%) Strowallet fees + $0.25 Izichanj
+  //    • Withdraw: amount → wallet, $1 service fee
+  // ════════════════════════════════════════════════════════════════════════
+
+  // List the user's NFC cards
+  app.get("/api/nfc-cards", isAuthenticated, async (req: any, res) => {
+    try {
+      const profile = await getProfileFromReq(req);
+      if (!profile) return res.status(401).json({ message: "Unauthorized" });
+      const cards = await storage.getNfcCards(profile.id);
+      res.json(cards);
+    } catch (e: any) {
+      console.error("[NFC] list error:", e);
+      res.status(500).json({ message: e.message || "Internal Error" });
+    }
+  });
+
+  // Create a new NFC card — flat $19 charge, $5 to card, no separate cardholder needed
+  app.post("/api/nfc-cards/create", isAuthenticated, async (req: any, res) => {
+    try {
+      const profile = await getProfileFromReq(req);
+      if (!profile) return res.status(401).json({ message: "Unauthorized" });
+      if (profile.kycStatus !== "verified") {
+        return res.status(403).json({ message: "KYC verification required before applying for an NFC card" });
+      }
+      if (!strowalletPublicKey) {
+        return res.status(500).json({ message: "NFC card service not configured" });
+      }
+
+      const breakdown = calcNfcCardCreationCost(NFC_CARD_LOAD_AMOUNT_USD);
+      const COST_USD = breakdown.total;       // flat $19
+      const LOAD_USD = breakdown.loadAmount;  // $5 to card
+
+      const balanceUsdt = parseFloat(profile.balance || "0");
+      if (balanceUsdt < COST_USD) {
+        return res.status(400).json({ message: `Insufficient balance. NFC cards cost $${COST_USD.toFixed(2)} USDT. Your balance: $${balanceUsdt.toFixed(2)} USDT.` });
+      }
+
+      const firstName = profile.firstName || profile.fullName.split(" ")[0] || "";
+      const lastName  = profile.lastName  || profile.fullName.split(" ").slice(1).join(" ") || firstName;
+      const nameOnCard = `${firstName} ${lastName}`.trim() || profile.fullName;
+
+      // BitVCard NFC create — no cardholder pre-registration; profile data inline
+      const payload: Record<string, string> = {
+        public_key: strowalletPublicKey,
+        name_on_card: nameOnCard,
+        amount: LOAD_USD.toString(),
+        firstName,
+        lastName,
+        customerEmail: profile.email,
+        phoneNumber: profile.phone || "",
+        dateOfBirth: profile.dateOfBirth || "",
+        country: profile.country || "US",
+        city: profile.city || "Miami",
+      };
+
+      const response = await strowalletFetch(`${STROWALLET_BASE}/create-nfc-card/`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Accept": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await response.json();
+
+      const failed = !response.ok || data.status === "error" || data.status === false || data.success === false;
+      if (failed) {
+        // Only log full request/response on errors — payload contains PII
+        const safePayload = { ...payload, dateOfBirth: "[REDACTED]", phoneNumber: payload.phoneNumber ? "***" + payload.phoneNumber.slice(-4) : "" };
+        console.log("================== [STROWALLET CREATE-NFC-CARD ERROR] ==================");
+        console.log("[NFC] HTTP status:", response.status);
+        console.log("[NFC] Request payload (PII redacted):", JSON.stringify(safePayload, null, 2));
+        console.log("[NFC] Raw response (full):", JSON.stringify(data, null, 2));
+        console.log("=========================================================================");
+      } else {
+        console.log("[NFC] create-nfc-card OK — profile:", profile.id, "http:", response.status);
+      }
+
+      if (failed) {
+        const rawErr = data.message ?? data.error ?? data.errors ?? data;
+        const errMsg = typeof rawErr === "string" ? rawErr : JSON.stringify(rawErr);
+        const lower = errMsg.toLowerCase();
+        const isProviderNoFunds =
+          lower.includes("insufficient") || lower.includes("no fund") ||
+          lower.includes("not enough") || lower.includes("low balance") ||
+          (lower.includes("balance") && lower.includes("wallet"));
+
+        if (isProviderNoFunds) {
+          // Master wallet low — hold funds, mark pending, alert admin
+          const newBalance = balanceUsdt - COST_USD;
+          await storage.updateProfileBalance(profile.id, newBalance);
+          const pending = await storage.createNfcCard({
+            profileId: profile.id,
+            cardId: `pending_nfc_${Date.now()}`,
+            nameOnCard,
+            brand: "Visa",
+            status: "pending",
+            balance: COST_USD.toString(),
+            currency: "USD",
+            cardDetail: { pendingReason: "provider_no_funds", requestedAt: new Date().toISOString() },
+          });
+          await storage.createNotification({
+            profileId: profile.id,
+            type: "custom_message",
+            title: "NFC Card Request Received",
+            message: "Your contactless NFC card is being prepared. Check back within 24 hours for your card details.",
+          }).catch(() => {});
+          sendTelegramMessage(
+            `🚨 <b>NFC CARD — Master Wallet Low</b>\n\n` +
+            `👤 ${profile.fullName} (${profile.email})\n` +
+            `💵 Charged $${COST_USD.toFixed(2)} USDT\n` +
+            `🗂 Pending NFC card #${pending.id}\n\n` +
+            `👉 Fund Strowallet, then issue manually.`
+          ).catch(() => {});
+          return res.status(202).json({
+            pending: true,
+            message: "Your NFC card request was received and is being processed. Check back within 24 hours.",
+            card: pending,
+          });
+        }
+
+        sendTelegramMessage(
+          `❌ <b>NFC Card Creation Failed</b>\n\n` +
+          `👤 ${profile.fullName} (${profile.email})\n` +
+          `⚠️ <b>Error:</b> <code>${errMsg.slice(0, 200)}</code>\n` +
+          `📋 <pre>${JSON.stringify(data, null, 2).slice(0, 600)}</pre>`
+        ).catch(() => {});
+        return res.status(400).json({ message: errMsg || "Failed to create NFC card" });
+      }
+
+      const cardInfo = data.response || data.data || data;
+      const cardId = cardInfo.card_id || cardInfo.id || cardInfo.cardId || `nfc_${Date.now()}`;
+      const last4 = cardInfo.card_number ? String(cardInfo.card_number).slice(-4) : cardInfo.last4 || null;
+
+      const newBalance = balanceUsdt - COST_USD;
+      await storage.updateProfileBalance(profile.id, newBalance);
+
+      const card = await storage.createNfcCard({
+        profileId: profile.id,
+        cardId: String(cardId),
+        nameOnCard,
+        last4,
+        brand: "Visa",
+        status: "active",
+        balance: LOAD_USD.toString(),
+        currency: "USD",
+        cardDetail: cardInfo,
+      });
+
+      await storage.createNfcCardTransaction({
+        cardId: card.id,
+        profileId: profile.id,
+        type: "creation",
+        amount: LOAD_USD.toFixed(2),
+        currency: "USD",
+        description: `NFC card issued — $${LOAD_USD.toFixed(2)} loaded (total charged $${COST_USD.toFixed(2)})`,
+      });
+
+      sendTelegramMessage(
+        `✅ <b>NFC Card Issued</b>\n\n` +
+        `👤 ${profile.fullName} (${profile.email})\n` +
+        `💳 NFC Card ID: ${cardId}\n` +
+        `🔢 Last 4: ${last4 || "N/A"}\n` +
+        `💵 Charged $${COST_USD.toFixed(2)} USDT`
+      ).catch(() => {});
+
+      res.status(201).json(card);
+    } catch (e: any) {
+      console.error("[NFC create]", e);
+      res.status(500).json({ message: e.message || "Internal Error" });
+    }
+  });
+
+  // Fetch NFC card details (PAN, CVV, etc.) live from Strowallet
+  app.get("/api/nfc-cards/:id/details", isAuthenticated, async (req: any, res) => {
+    try {
+      const profile = await getProfileFromReq(req);
+      if (!profile) return res.status(401).json({ message: "Unauthorized" });
+      const card = await storage.getNfcCard(Number(req.params.id), profile.id);
+      if (!card) return res.status(404).json({ message: "NFC card not found" });
+
+      const params = new URLSearchParams({
+        public_key: strowalletPublicKey,
+        card_id: card.cardId,
+      });
+      const response = await strowalletFetch(`${STROWALLET_BASE}/fetch-nfccard-detail/?${params.toString()}`, {
+        method: "GET",
+        headers: { "Accept": "application/json" },
+      });
+      const data = await response.json();
+
+      if (!response.ok || data.status === "error" || data.status === false || data.success === false) {
+        console.log("[NFC DETAIL] Strowallet error:", JSON.stringify(data));
+        return res.json({ card, remoteDetail: null });
+      }
+
+      const detail = data.response?.card_detail || data.response || data.data || data;
+      if (detail?.balance !== undefined && detail?.balance !== null) {
+        await storage.updateNfcCard(card.id, { balance: String(detail.balance), cardDetail: detail });
+      }
+      res.json({ card, remoteDetail: detail });
+    } catch (e: any) {
+      console.error("[NFC details]", e);
+      res.status(500).json({ message: e.message || "Internal Error" });
+    }
+  });
+
+  // NFC card transactions (Strowallet spending records merged with local fund/withdraw logs)
+  app.get("/api/nfc-cards/:id/transactions", isAuthenticated, async (req: any, res) => {
+    try {
+      const profile = await getProfileFromReq(req);
+      if (!profile) return res.status(401).json({ message: "Unauthorized" });
+      const card = await storage.getNfcCard(Number(req.params.id), profile.id);
+      if (!card) return res.status(404).json({ message: "NFC card not found" });
+
+      const params = new URLSearchParams({
+        public_key: strowalletPublicKey,
+        card_id: card.cardId,
+      });
+      const response = await strowalletFetch(`${STROWALLET_BASE}/nfc-card-transactions/?${params.toString()}`, {
+        method: "GET",
+        headers: { "Accept": "application/json" },
+      });
+      const data = await response.json();
+
+      const local = await storage.getNfcCardTransactions(card.id, profile.id);
+      const localFmt = local.map((lt) => ({
+        id: `local_${lt.id}`,
+        type: lt.type,
+        amount: lt.amount,
+        currency: lt.currency,
+        description: lt.description,
+        date: lt.createdAt,
+        source: "local",
+      }));
+
+      if (!response.ok) {
+        // Log full Strowallet error response for debugging (per spec)
+        console.log("================== [STROWALLET NFC-TRANSACTIONS ERROR] ==================");
+        console.log("[NFC TX] HTTP status:", response.status);
+        console.log("[NFC TX] Card:", card.cardId, "| Profile:", profile.id);
+        console.log("[NFC TX] Raw response (full):", JSON.stringify(data, null, 2));
+        console.log("=========================================================================");
+        return res.json(localFmt);
+      }
+
+      const remoteList: any[] =
+        data.response?.card_transactions ||
+        data.response?.transactions ||
+        data.response?.data ||
+        data.transactions ||
+        data.data ||
+        (Array.isArray(data.response) ? data.response : []) ||
+        [];
+
+      const remoteFmt = (Array.isArray(remoteList) ? remoteList : []).map((tx: any, i: number) => ({
+        id: tx.id || tx.transaction_id || `remote_${i}`,
+        type: tx.type || tx.transaction_type || "spend",
+        amount: tx.amount,
+        currency: tx.currency || "USD",
+        description: tx.description || tx.merchant || tx.merchant_name || "Card transaction",
+        date: tx.created_at || tx.date || tx.transaction_date,
+        source: "strowallet",
+      }));
+
+      res.json([...remoteFmt, ...localFmt].sort((a, b) =>
+        new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime()
+      ));
+    } catch (e: any) {
+      console.error("[NFC tx]", e);
+      res.status(500).json({ message: e.message || "Internal Error" });
+    }
+  });
+
+  // Top-up an NFC card — user pays ALL fees + $0.25 Izichanj profit
+  app.post("/api/nfc-cards/:id/fund", isAuthenticated, async (req: any, res) => {
+    try {
+      const profile = await getProfileFromReq(req);
+      if (!profile) return res.status(401).json({ message: "Unauthorized" });
+      const card = await storage.getNfcCard(Number(req.params.id), profile.id);
+      if (!card) return res.status(404).json({ message: "NFC card not found" });
+      if (card.status !== "active") return res.status(400).json({ message: "Card is not active" });
+
+      const fundAmount = parseFloat(req.body?.amount);
+      if (isNaN(fundAmount) || fundAmount < NFC_TOPUP_MIN_USD) {
+        return res.status(400).json({ message: `Minimum top-up is $${NFC_TOPUP_MIN_USD.toFixed(2)} USD` });
+      }
+
+      const breakdown = calcNfcCardTopUpCost(fundAmount);
+      const totalCharge = breakdown.total;
+
+      const balanceUsdt = parseFloat(profile.balance || "0");
+      if (totalCharge > balanceUsdt) {
+        return res.status(400).json({
+          message: `Insufficient balance. You need $${totalCharge.toFixed(2)} USDT ($${fundAmount.toFixed(2)} to card + $${breakdown.fixedFee.toFixed(2)} fee + $${breakdown.variableFee.toFixed(2)} variable). Balance: $${balanceUsdt.toFixed(2)} USDT.`,
+        });
+      }
+
+      const payload = {
+        public_key: strowalletPublicKey,
+        card_id: card.cardId,
+        amount: fundAmount.toString(),
+        type: "fund",
+      };
+      const response = await strowalletFetch(`${STROWALLET_BASE}/fund-withdraw-nfccard/`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Accept": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await response.json();
+      const fundFailed = !response.ok || data.status === "error" || data.status === false || data.success === false;
+      if (fundFailed) {
+        console.log("================== [STROWALLET NFC FUND ERROR] ==================");
+        console.log("[NFC FUND] HTTP:", response.status, "| Profile:", profile.id, "| Card:", card.cardId);
+        console.log("[NFC FUND] Payload:", JSON.stringify({ ...payload, public_key: "[REDACTED]" }));
+        console.log("[NFC FUND] Raw response (full):", JSON.stringify(data, null, 2));
+        console.log("=================================================================");
+      } else {
+        console.log("[NFC FUND] OK — profile:", profile.id, "| card:", card.cardId, "| amount:", fundAmount);
+      }
+
+      if (fundFailed) {
+        const rawErr = data.message ?? data.error ?? data.errors ?? data;
+        const errMsg = typeof rawErr === "string" ? rawErr : JSON.stringify(rawErr);
+        return res.status(400).json({ message: errMsg || "Failed to fund NFC card" });
+      }
+
+      // Charge user fully
+      await storage.updateProfileBalance(profile.id, balanceUsdt - totalCharge);
+      const updated = await storage.updateNfcCard(card.id, {
+        balance: (parseFloat(card.balance || "0") + fundAmount).toString(),
+      });
+      await storage.createNfcCardTransaction({
+        cardId: card.id,
+        profileId: profile.id,
+        type: "fund",
+        amount: fundAmount.toFixed(2),
+        currency: "USD",
+        description: `NFC card funded — $${fundAmount.toFixed(2)} (total charged $${totalCharge.toFixed(2)} incl. $${breakdown.fixedFee.toFixed(2)} fee + $${breakdown.variableFee.toFixed(2)} variable)`,
+      });
+      res.json(updated);
+    } catch (e: any) {
+      console.error("[NFC fund]", e);
+      res.status(500).json({ message: e.message || "Internal Error" });
+    }
+  });
+
+  // Withdraw from NFC card back to user's Izichanj wallet
+  app.post("/api/nfc-cards/:id/withdraw", isAuthenticated, async (req: any, res) => {
+    try {
+      const profile = await getProfileFromReq(req);
+      if (!profile) return res.status(401).json({ message: "Unauthorized" });
+      const card = await storage.getNfcCard(Number(req.params.id), profile.id);
+      if (!card) return res.status(404).json({ message: "NFC card not found" });
+      if (card.status !== "active") return res.status(400).json({ message: "Card is not active" });
+
+      const amount = parseFloat(req.body?.amount);
+      if (isNaN(amount) || amount < NFC_WITHDRAW_MIN_USD) {
+        return res.status(400).json({ message: `Minimum withdrawal is $${NFC_WITHDRAW_MIN_USD.toFixed(2)} USD` });
+      }
+      const cardBal = parseFloat(card.balance || "0");
+      if (amount > cardBal) {
+        return res.status(400).json({ message: `Insufficient card balance. Available: $${cardBal.toFixed(2)}` });
+      }
+
+      const breakdown = calcNfcCardWithdrawCost(amount);
+      if (breakdown.netToWallet <= 0) {
+        return res.status(400).json({ message: `Amount too small after $${breakdown.fee.toFixed(2)} service fee` });
+      }
+
+      const payload = {
+        public_key: strowalletPublicKey,
+        card_id: card.cardId,
+        amount: amount.toString(),
+        type: "withdraw",
+      };
+      const response = await strowalletFetch(`${STROWALLET_BASE}/fund-withdraw-nfccard/`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Accept": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await response.json();
+      const wdFailed = !response.ok || data.status === "error" || data.status === false || data.success === false;
+      if (wdFailed) {
+        console.log("================== [STROWALLET NFC WITHDRAW ERROR] ==================");
+        console.log("[NFC WITHDRAW] HTTP:", response.status, "| Profile:", profile.id, "| Card:", card.cardId);
+        console.log("[NFC WITHDRAW] Payload:", JSON.stringify({ ...payload, public_key: "[REDACTED]" }));
+        console.log("[NFC WITHDRAW] Raw response (full):", JSON.stringify(data, null, 2));
+        console.log("=====================================================================");
+      } else {
+        console.log("[NFC WITHDRAW] OK — profile:", profile.id, "| card:", card.cardId, "| amount:", amount);
+      }
+
+      if (wdFailed) {
+        const rawErr = data.message ?? data.error ?? data.errors ?? data;
+        const errMsg = typeof rawErr === "string" ? rawErr : JSON.stringify(rawErr);
+        return res.status(400).json({ message: errMsg || "Failed to withdraw from NFC card" });
+      }
+
+      // Credit wallet (net) and reduce card balance (full amount)
+      const balanceUsdt = parseFloat(profile.balance || "0");
+      await storage.updateProfileBalance(profile.id, balanceUsdt + breakdown.netToWallet);
+      const updated = await storage.updateNfcCard(card.id, {
+        balance: (cardBal - amount).toString(),
+      });
+      await storage.createNfcCardTransaction({
+        cardId: card.id,
+        profileId: profile.id,
+        type: "withdraw",
+        amount: amount.toFixed(2),
+        currency: "USD",
+        description: `NFC withdrawal — $${amount.toFixed(2)} pulled from card, $${breakdown.netToWallet.toFixed(2)} credited to wallet (− $${breakdown.fee.toFixed(2)} fee)`,
+      });
+
+      res.json({ card: updated, credited: breakdown.netToWallet, fee: breakdown.fee });
+    } catch (e: any) {
+      console.error("[NFC withdraw]", e);
+      res.status(500).json({ message: e.message || "Internal Error" });
+    }
+  });
+
+  // Refresh NFC card balance from Strowallet
+  app.post("/api/nfc-cards/:id/refresh-balance", isAuthenticated, async (req: any, res) => {
+    try {
+      const profile = await getProfileFromReq(req);
+      if (!profile) return res.status(401).json({ message: "Unauthorized" });
+      const card = await storage.getNfcCard(Number(req.params.id), profile.id);
+      if (!card) return res.status(404).json({ message: "NFC card not found" });
+      if (card.status === "pending" || card.status === "cancelled") {
+        return res.status(400).json({ message: "Cannot refresh balance for a pending or cancelled card" });
+      }
+
+      const params = new URLSearchParams({
+        public_key: strowalletPublicKey,
+        card_id: card.cardId,
+      });
+      const response = await strowalletFetch(`${STROWALLET_BASE}/fetch-nfccard-detail/?${params.toString()}`, {
+        method: "GET",
+        headers: { "Accept": "application/json" },
+      });
+      const data = await response.json();
+      const detail = data.response?.card_detail || data.response || data.data || data;
+
+      if (detail?.balance !== undefined && detail?.balance !== null) {
+        const newBalance = String(detail.balance);
+        await storage.updateNfcCard(card.id, { balance: newBalance, cardDetail: detail });
+        return res.json({ balance: newBalance, synced: true });
+      }
+      return res.json({ balance: card.balance, synced: false });
+    } catch (e: any) {
+      console.error("[NFC refresh]", e);
       res.status(500).json({ message: e.message || "Internal Error" });
     }
   });

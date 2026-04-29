@@ -50,6 +50,7 @@ export function LayoutShell({ children }: LayoutShellProps) {
     { href: "/security", label: t.security.title, icon: Shield },
     { href: "/send-funds", label: t.nav.sendFunds ?? "Send Funds", icon: Send },
     { href: "/virtual-cards", label: t.nav.virtualCard ?? "Virtual Card", icon: CreditCard },
+    { href: "/nfc-cards", label: "NFC Virtual Card", icon: Smartphone },
     { href: "/top-up", label: "Mobile Top-Up", icon: Smartphone },
     { href: "/report", label: "Report a User", icon: Flag },
     { href: "/p2p", label: "P2P Market", icon: Store },
