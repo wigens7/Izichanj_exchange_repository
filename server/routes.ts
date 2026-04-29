@@ -4763,6 +4763,37 @@ export async function registerRoutes(
     }
   });
 
+  // Pre-flight readiness — check that profile + KYC have all fields Strowallet needs
+  app.get("/api/nfc-cards/readiness", isAuthenticated, async (req: any, res) => {
+    try {
+      const profile = await getProfileFromReq(req);
+      if (!profile) return res.status(401).json({ message: "Unauthorized" });
+
+      const kycDoc = await storage.getKyc(profile.id);
+      const nameParts = (profile.fullName || "").trim().split(/\s+/);
+      const firstName = (profile.firstName || nameParts[0] || "").trim();
+      const lastName  = (profile.lastName  || nameParts.slice(1).join(" ") || "").trim();
+
+      const missing: string[] = [];
+      if (!firstName)               missing.push("First name");
+      if (!lastName)                missing.push("Last name");
+      if (!profile.dateOfBirth)     missing.push("Date of birth");
+      if (!profile.phone)           missing.push("Phone");
+      if (!kycDoc?.idType)          missing.push("ID type");
+      if (!kycDoc?.idNumber)        missing.push("ID number");
+      if (!kycDoc?.addressLine1)    missing.push("Address (line 1)");
+
+      res.json({
+        ready: missing.length === 0,
+        kycVerified: profile.kycStatus === "verified",
+        missingFields: missing,
+      });
+    } catch (e: any) {
+      console.error("[NFC readiness]", e);
+      res.status(500).json({ message: e.message || "Internal Error" });
+    }
+  });
+
   // Create a new NFC card — flat $19 charge, $5 to card, no separate cardholder needed
   app.post("/api/nfc-cards/create", isAuthenticated, async (req: any, res) => {
     try {
@@ -4784,22 +4815,69 @@ export async function registerRoutes(
         return res.status(400).json({ message: `Insufficient balance. NFC cards cost $${COST_USD.toFixed(2)} USDT. Your balance: $${balanceUsdt.toFixed(2)} USDT.` });
       }
 
-      const firstName = profile.firstName || profile.fullName.split(" ")[0] || "";
-      const lastName  = profile.lastName  || profile.fullName.split(" ").slice(1).join(" ") || firstName;
+      // ── Auto-map profile + KYC into Strowallet payload ──
+      const kycDoc = await storage.getKyc(profile.id);
+      const nameParts = (profile.fullName || "").trim().split(/\s+/);
+      const firstName = (profile.firstName || nameParts[0] || "").trim();
+      const lastName  = (profile.lastName  || nameParts.slice(1).join(" ") || firstName).trim();
       const nameOnCard = `${firstName} ${lastName}`.trim() || profile.fullName;
+      const dob       = (profile.dateOfBirth || "").trim();
+      const phone     = (profile.phone || "").trim();
+      const idType    = (kycDoc?.idType    || "").trim();
+      const idNumber  = (kycDoc?.idNumber  || "").trim();
+      const line1     = (kycDoc?.addressLine1 || "").trim();
+      const city      = (profile.city || "Miami").trim();
+      const country   = (profile.country || "US").trim();
+      // Strowallet requires US billing — fall back to issuing-address defaults for state/zip
+      const state     = "FL";
+      const zipCode   = "33127";
 
-      // BitVCard NFC create — no cardholder pre-registration; profile data inline
+      // Pre-flight: refuse to call provider with missing required fields
+      const missing: string[] = [];
+      if (!firstName) missing.push("First name");
+      if (!lastName)  missing.push("Last name");
+      if (!dob)       missing.push("Date of birth");
+      if (!phone)     missing.push("Phone");
+      if (!idType)    missing.push("ID type");
+      if (!idNumber)  missing.push("ID number");
+      if (!line1)     missing.push("Address (line 1)");
+      if (missing.length > 0) {
+        return res.status(400).json({
+          message: `Please complete your Profile & KYC first to enable NFC Card creation. Missing: ${missing.join(", ")}.`,
+          missingFields: missing,
+        });
+      }
+
+      // BitVCard NFC create — send BOTH camelCase and snake_case so we satisfy
+      // whichever naming convention the endpoint validates against.
       const payload: Record<string, string> = {
         public_key: strowalletPublicKey,
         name_on_card: nameOnCard,
         amount: LOAD_USD.toString(),
+        // camelCase (matches /create-user/ convention)
         firstName,
         lastName,
         customerEmail: profile.email,
-        phoneNumber: profile.phone || "",
-        dateOfBirth: profile.dateOfBirth || "",
-        country: profile.country || "US",
-        city: profile.city || "Miami",
+        phoneNumber: phone,
+        dateOfBirth: dob,
+        country,
+        line1,
+        houseNumber: line1.split(" ")[0] || "",
+        city,
+        state,
+        zipCode,
+        idType,
+        idNumber,
+        // snake_case aliases (matches /create-nfc-card/ validation messages)
+        first_name: firstName,
+        last_name:  lastName,
+        email:      profile.email,
+        phone,
+        dob,
+        id_type:    idType,
+        id_number:  idNumber,
+        address:    line1,
+        zip_code:   zipCode,
       };
 
       const response = await strowalletFetch(`${STROWALLET_BASE}/create-nfc-card/`, {
@@ -4812,12 +4890,22 @@ export async function registerRoutes(
 
       const failed = !response.ok || data.status === "error" || data.status === false || data.success === false;
       if (failed) {
-        // Only log full request/response on errors — payload contains PII
-        const safePayload = { ...payload, dateOfBirth: "[REDACTED]", phoneNumber: payload.phoneNumber ? "***" + payload.phoneNumber.slice(-4) : "" };
+        // Strict allowlist of payload keys we are willing to log — no PII leaves logs.
+        const SAFE_KEYS = new Set([
+          "public_key", "amount", "country", "city", "state", "zipCode", "zip_code", "id_type", "idType",
+        ]);
+        const safePayload: Record<string, string> = {};
+        for (const k of Object.keys(payload)) {
+          if (SAFE_KEYS.has(k)) safePayload[k] = payload[k];
+        }
+        // Only the field names that were sent (not values) for the rest, so we can debug schema mismatches.
+        safePayload._sentKeys = Object.keys(payload).join(",");
         console.log("================== [STROWALLET CREATE-NFC-CARD ERROR] ==================");
-        console.log("[NFC] HTTP status:", response.status);
-        console.log("[NFC] Request payload (PII redacted):", JSON.stringify(safePayload, null, 2));
-        console.log("[NFC] Raw response (full):", JSON.stringify(data, null, 2));
+        console.log("[NFC] HTTP status:", response.status, "| profile:", profile.id);
+        console.log("[NFC] Request payload (safe):", JSON.stringify(safePayload, null, 2));
+        // Log only provider error message/code — never echo back the full response (it may contain submitted PII).
+        const provMsg = (data && (data.message || data.error || data.errors)) ?? "(no message)";
+        console.log("[NFC] Provider error:", typeof provMsg === "string" ? provMsg.slice(0, 500) : JSON.stringify(provMsg).slice(0, 500));
         console.log("=========================================================================");
       } else {
         console.log("[NFC] create-nfc-card OK — profile:", profile.id, "http:", response.status);

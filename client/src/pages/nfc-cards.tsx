@@ -55,6 +55,14 @@ export default function NfcCardsPage() {
   const qc = useQueryClient();
   const kycVerified = user?.kycStatus === "verified";
 
+  // Pre-flight: check that profile + KYC fields needed by Strowallet are present
+  const { data: readiness } = useQuery<{ ready: boolean; kycVerified: boolean; missingFields: string[] }>({
+    queryKey: ["/api/nfc-cards/readiness"],
+    enabled: kycVerified,
+  });
+  const profileReady = readiness?.ready ?? false;
+  const missingFields = readiness?.missingFields ?? [];
+
   const [revealId, setRevealId] = useState<number | null>(null);
   const [fundOpen, setFundOpen] = useState<NfcCard | null>(null);
   const [withdrawOpen, setWithdrawOpen] = useState<NfcCard | null>(null);
@@ -187,6 +195,35 @@ export default function NfcCardsPage() {
         </Card>
       )}
 
+      {/* Profile completeness gate (KYC verified but missing fields) */}
+      {kycVerified && readiness && !profileReady && (
+        <Card className="border-amber-300 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-800" data-testid="card-nfc-profile-incomplete">
+          <CardContent className="p-4 flex items-start gap-3">
+            <AlertTriangle className="w-5 h-5 text-amber-600 mt-0.5 shrink-0" />
+            <div className="flex-1">
+              <p className="font-semibold text-amber-900 dark:text-amber-200">Complete your Profile & KYC</p>
+              <p className="text-sm text-amber-800 dark:text-amber-300/80">
+                Please complete your Profile & KYC first to enable NFC Card creation.
+              </p>
+              {missingFields.length > 0 && (
+                <ul className="text-sm text-amber-800 dark:text-amber-300/80 mt-2 list-disc list-inside" data-testid="list-nfc-missing-fields">
+                  {missingFields.map((f) => <li key={f}>{f}</li>)}
+                </ul>
+              )}
+              <Button
+                size="sm"
+                variant="outline"
+                className="mt-3 border-amber-400 text-amber-900 hover:bg-amber-100 dark:text-amber-200 dark:hover:bg-amber-900/40"
+                onClick={() => { window.location.href = "/profile"; }}
+                data-testid="button-go-to-profile"
+              >
+                Go to Profile & KYC
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Cards list / empty state */}
       {isLoading ? (
         <div className="space-y-3">
@@ -207,13 +244,18 @@ export default function NfcCardsPage() {
             </div>
             <Button
               size="lg"
-              disabled={!kycVerified}
+              disabled={!kycVerified || !profileReady}
               onClick={() => setConfirmCreate(true)}
               data-testid="button-create-nfc-card"
               className="bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white"
             >
               <Plus className="w-4 h-4 mr-2" /> Get my NFC card
             </Button>
+            {kycVerified && !profileReady && readiness && (
+              <p className="text-xs text-amber-600 dark:text-amber-400 mt-2" data-testid="text-nfc-button-disabled-reason">
+                Complete your Profile & KYC to enable this button.
+              </p>
+            )}
           </CardContent>
         </Card>
       ) : (
