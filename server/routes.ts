@@ -1592,6 +1592,56 @@ export async function registerRoutes(
     }
   });
 
+  // Admin: edit user's first/last name (typo correction tool)
+  app.patch("/api/admin/users/:id/name", isAuthenticated, isAdmin, async (req: any, res) => {
+    try {
+      const profileId = Number(req.params.id);
+      const target = await storage.getProfile(profileId);
+      if (!target) return res.status(404).json({ message: "User not found" });
+
+      const firstName = String(req.body?.firstName ?? "").trim();
+      const lastName  = String(req.body?.lastName  ?? "").trim();
+      if (!firstName || !lastName) {
+        return res.status(400).json({ message: "First name and last name are required" });
+      }
+      if (firstName.length > 60 || lastName.length > 60) {
+        return res.status(400).json({ message: "Names must be 60 characters or fewer" });
+      }
+      // Reject obvious junk — only letters, spaces, hyphens, apostrophes, accents
+      const nameRegex = /^[\p{L}\s'\-.]+$/u;
+      if (!nameRegex.test(firstName) || !nameRegex.test(lastName)) {
+        return res.status(400).json({ message: "Names contain invalid characters" });
+      }
+
+      const oldFirst = target.firstName || "";
+      const oldLast  = target.lastName  || "";
+      const newFull  = `${firstName} ${lastName}`.trim();
+
+      await storage.updateProfile(profileId, {
+        firstName,
+        lastName,
+        fullName: newFull,
+      });
+
+      const adminProfile = await getProfileFromReq(req);
+      console.log(`[ADMIN] Renamed user #${profileId}: "${oldFirst} ${oldLast}" → "${newFull}" by admin ${adminProfile?.email}`);
+
+      sendTelegramMessage(
+        `✏️ <b>User Name Edited by Admin</b>\n\n` +
+        `🆔 <b>User ID:</b> ${target.referenceId || target.id}\n` +
+        `📧 <b>Email:</b> ${target.email}\n` +
+        `🔄 <b>Old:</b> <code>${oldFirst} ${oldLast}</code>\n` +
+        `✅ <b>New:</b> <code>${newFull}</code>\n` +
+        `👮 <b>By:</b> ${adminProfile?.email || "—"}`
+      ).catch(() => {});
+
+      res.json({ success: true, firstName, lastName, fullName: newFull });
+    } catch (e: any) {
+      console.error("Admin edit name error:", e);
+      res.status(500).json({ message: e.message || "Internal Error" });
+    }
+  });
+
   // Admin: set TxtID on a deposit before approving
   app.patch("/api/admin/deposits/:id/set-txhash", isAuthenticated, isAdmin, async (req: any, res) => {
     try {

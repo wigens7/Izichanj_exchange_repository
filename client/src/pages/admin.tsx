@@ -545,6 +545,28 @@ function UserRow({ user, onUpdateBalance, isPending, hasDownloaded }: { user: an
     },
   });
 
+  // Edit user first/last name (typo fixes)
+  const [editingName, setEditingName] = useState(false);
+  const [editFirstName, setEditFirstName] = useState(user.firstName || "");
+  const [editLastName, setEditLastName]   = useState(user.lastName  || "");
+  const editNameMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("PATCH", `/api/admin/users/${user.id}/name`, {
+        firstName: editFirstName.trim(),
+        lastName:  editLastName.trim(),
+      });
+      return res.json();
+    },
+    onSuccess: (data: any) => {
+      toast({ title: "Name updated", description: `Saved as "${data.fullName}".` });
+      setEditingName(false);
+      qc.invalidateQueries({ queryKey: ["/api/admin/users"] });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Failed to update name", description: error.message, variant: "destructive" });
+    },
+  });
+
   return (
     <>
       <TableRow data-testid={`row-user-${user.id}`} className="cursor-pointer" onClick={() => setExpanded(!expanded)}>
@@ -746,18 +768,75 @@ function UserRow({ user, onUpdateBalance, isPending, hasDownloaded }: { user: an
                     <p className="font-mono font-medium">{user.referenceId || "Not assigned"}</p>
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 col-span-2">
                   <User className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
-                  <div>
-                    <p className="text-muted-foreground text-xs">First Name</p>
-                    <p className="font-medium">{user.firstName || "—"}</p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <User className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
-                  <div>
-                    <p className="text-muted-foreground text-xs">Last Name</p>
-                    <p className="font-medium">{user.lastName || "—"}</p>
+                  <div className="flex-1">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-muted-foreground text-xs">First & Last Name</p>
+                      {!editingName && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-6 px-2 text-[11px] gap-1 text-indigo-600 hover:text-indigo-700"
+                          onClick={() => {
+                            setEditFirstName(user.firstName || "");
+                            setEditLastName(user.lastName || "");
+                            setEditingName(true);
+                          }}
+                          data-testid={`button-edit-name-${user.id}`}
+                        >
+                          <Pencil className="w-3 h-3" /> Fix typo
+                        </Button>
+                      )}
+                    </div>
+                    {editingName ? (
+                      <div className="mt-1 flex flex-col sm:flex-row gap-2 items-stretch sm:items-center">
+                        <Input
+                          value={editFirstName}
+                          onChange={(e) => setEditFirstName(e.target.value)}
+                          placeholder="First name"
+                          className="h-8 text-sm"
+                          data-testid={`input-edit-firstname-${user.id}`}
+                        />
+                        <Input
+                          value={editLastName}
+                          onChange={(e) => setEditLastName(e.target.value)}
+                          placeholder="Last name"
+                          className="h-8 text-sm"
+                          data-testid={`input-edit-lastname-${user.id}`}
+                        />
+                        <div className="flex gap-1">
+                          <Button
+                            size="sm"
+                            className="h-8 bg-indigo-600 hover:bg-indigo-700 text-white"
+                            onClick={() => editNameMutation.mutate()}
+                            disabled={
+                              editNameMutation.isPending ||
+                              !editFirstName.trim() ||
+                              !editLastName.trim() ||
+                              (editFirstName.trim() === (user.firstName || "") &&
+                               editLastName.trim()  === (user.lastName  || ""))
+                            }
+                            data-testid={`button-save-name-${user.id}`}
+                          >
+                            {editNameMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : "Save"}
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-8"
+                            onClick={() => setEditingName(false)}
+                            data-testid={`button-cancel-edit-name-${user.id}`}
+                          >
+                            Cancel
+                          </Button>
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="font-medium" data-testid={`text-user-name-${user.id}`}>
+                        {(user.firstName || "—") + " " + (user.lastName || "")}
+                      </p>
+                    )}
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
