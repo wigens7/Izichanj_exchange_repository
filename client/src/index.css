@@ -230,20 +230,49 @@
 
   /* ── Sidebar nav items ───────────────────────────────── */
   .nav-item {
-    @apply flex items-center gap-3 px-3 py-2.5 rounded-md transition-all duration-150 font-medium text-sm;
+    @apply flex items-center gap-2.5 px-3 py-2 rounded-md transition-all duration-150 font-medium text-sm;
     color: hsl(218 11% 65%);
+    position: relative;
   }
   .nav-item:hover {
     background: var(--iz-surface);
     color: var(--iz-text);
   }
   .nav-item.active {
-    background: rgba(247, 166, 0, 0.12);
+    background: rgba(247, 166, 0, 0.14);
     color: var(--iz-accent);
     font-weight: 600;
   }
+  .nav-item.active::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 6px;
+    bottom: 6px;
+    width: 3px;
+    border-radius: 0 3px 3px 0;
+    background: var(--iz-accent);
+  }
   .nav-item.active svg,
   .nav-item.active .lucide {
+    color: var(--iz-accent);
+  }
+  /* ── Sidebar nav sub-items (under expandable groups like Settings) */
+  .nav-subitem {
+    @apply flex items-center gap-2.5 pl-9 pr-3 py-1.5 rounded-md transition-all duration-150 text-[13px];
+    color: hsl(218 11% 60%);
+    position: relative;
+  }
+  .nav-subitem:hover {
+    background: var(--iz-surface);
+    color: var(--iz-text);
+  }
+  .nav-subitem.active {
+    background: rgba(247, 166, 0, 0.10);
+    color: var(--iz-accent);
+    font-weight: 600;
+  }
+  .nav-subitem.active svg {
     color: var(--iz-accent);
   }
 

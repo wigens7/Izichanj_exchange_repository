@@ -1,19 +1,18 @@
-import { ReactNode, useState } from "react";
+import { ReactNode, useState, useEffect } from "react";
 import { Link, useLocation } from "wouter";
 import { useUser, useLogout } from "@/hooks/use-auth";
 import { useLanguage } from "@/lib/i18n";
 import { formatHtg } from "@shared/constants";
 import { useRates } from "@/hooks/use-rates";
-import { 
-  LayoutDashboard, 
-  ArrowDownCircle, 
-  ArrowUpCircle, 
-  UserCircle, 
+import {
+  LayoutDashboard,
+  ArrowDownCircle,
+  ArrowUpCircle,
+  UserCircle,
   Shield,
-  ShieldCheck, 
+  ShieldCheck,
   LogOut,
   Menu,
-  Wallet,
   CreditCard,
   Send,
   Smartphone,
@@ -23,6 +22,11 @@ import {
   Tv,
   Briefcase,
   Code,
+  Settings,
+  ChevronDown,
+  ChevronRight,
+  Share2,
+  Nfc,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
@@ -35,6 +39,12 @@ interface LayoutShellProps {
   children: ReactNode;
 }
 
+interface NavItem {
+  href: string;
+  label: string;
+  icon: any;
+}
+
 export function LayoutShell({ children }: LayoutShellProps) {
   const [location] = useLocation();
   const { data: user } = useUser();
@@ -42,50 +52,66 @@ export function LayoutShell({ children }: LayoutShellProps) {
   const { t } = useLanguage();
   const [isOpen, setIsOpen] = useState(false);
 
-  const navItems: { href: string; label: string; icon: any }[] = [
+  // Main scrollable nav items
+  const navItems: NavItem[] = [
     { href: "/", label: t.nav.dashboard, icon: LayoutDashboard },
     { href: "/deposit", label: t.nav.deposit, icon: ArrowDownCircle },
     { href: "/withdraw", label: t.nav.withdraw, icon: ArrowUpCircle },
-    { href: "/profile", label: t.nav.profileKyc, icon: UserCircle },
-    { href: "/security", label: t.security.title, icon: Shield },
     { href: "/send-funds", label: t.nav.sendFunds ?? "Send Funds", icon: Send },
     { href: "/virtual-cards", label: t.nav.virtualCard ?? "Virtual Card", icon: CreditCard },
-    { href: "/nfc-cards", label: "NFC Virtual Card", icon: Smartphone },
+    { href: "/nfc-cards", label: "NFC Virtual Card", icon: Nfc },
     { href: "/top-up", label: "Mobile Top-Up", icon: Smartphone },
-    { href: "/report", label: "Report a User", icon: Flag },
-    { href: "/p2p", label: "P2P Market", icon: Store },
     { href: "/canal-plus", label: "Canal+", icon: Tv },
+    { href: "/p2p", label: "P2P Market", icon: Store },
     { href: "/merchant", label: "Merchant Tools", icon: Briefcase },
     { href: "/developers", label: "Developers", icon: Code },
+    { href: "/report", label: "Report a User", icon: Flag },
   ];
 
-  if (user?.role === "admin") {
-    navItems.push({ href: "/admin", label: t.nav.adminPanel, icon: ShieldCheck });
-  }
+  // Settings sub-menu items
+  const settingsItems: NavItem[] = [
+    { href: "/profile", label: t.nav.profileKyc, icon: UserCircle },
+    { href: "/security", label: t.security.title, icon: Shield },
+  ];
+  const isOnSettingsPage = settingsItems.some((s) => s.href === location);
+  const [settingsOpen, setSettingsOpen] = useState<boolean>(isOnSettingsPage);
+  // Auto-expand Settings whenever the route changes to a settings sub-page
+  useEffect(() => {
+    if (isOnSettingsPage) setSettingsOpen(true);
+  }, [isOnSettingsPage]);
 
   const { depositRate } = useRates();
   const balanceHtg = Number(user?.balance || 0) * depositRate;
 
   const NavContent = () => (
-    <div className="flex flex-col h-full bg-sidebar text-sidebar-foreground">
-      <div className="px-5 pt-7 pb-5">
-        <div className="flex items-center gap-2.5">
-          <img src={logoImg} alt="Izichanj Logo" className="h-8 w-auto" />
-          <div>
-            <h1 className="text-lg font-display font-bold text-white tracking-tight">
-              Izichanj
-            </h1>
-            <p className="text-[11px] text-sidebar-foreground/50 leading-none">{t.nav.cryptoToCash}</p>
+    <div className="flex flex-col h-full bg-sidebar text-sidebar-foreground overflow-hidden">
+      {/* ── Fixed header: logo + balance ── */}
+      <div className="shrink-0">
+        <div className="px-5 pt-7 pb-4">
+          <div className="flex items-center gap-2.5">
+            <img src={logoImg} alt="Izichanj Logo" className="h-8 w-auto" />
+            <div>
+              <h1 className="text-lg font-display font-bold text-white tracking-tight">Izichanj</h1>
+              <p className="text-[11px] text-sidebar-foreground/50 leading-none">{t.nav.cryptoToCash}</p>
+            </div>
           </div>
+        </div>
+
+        <div className="mx-4 mb-4 p-3 rounded-md bg-sidebar-accent">
+          <p className="text-[11px] uppercase tracking-wider text-sidebar-foreground/40 font-medium mb-1">
+            {t.dashboard.currentBalance}
+          </p>
+          <p className="text-xl font-display font-bold text-white" data-testid="text-sidebar-balance">
+            {formatHtg(balanceHtg)} <span className="text-sm font-normal text-sidebar-foreground/50">HTG</span>
+          </p>
         </div>
       </div>
 
-      <div className="mx-4 mb-5 p-3.5 rounded-md bg-sidebar-accent">
-        <p className="text-[11px] uppercase tracking-wider text-sidebar-foreground/40 font-medium mb-1">{t.dashboard.currentBalance}</p>
-        <p className="text-xl font-display font-bold text-white" data-testid="text-sidebar-balance">{formatHtg(balanceHtg)} <span className="text-sm font-normal text-sidebar-foreground/50">HTG</span></p>
-      </div>
-
-      <nav className="flex-1 px-3 space-y-0.5">
+      {/* ── Scrollable middle: main menu ── */}
+      <nav
+        className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-3 py-1 space-y-0.5"
+        data-testid="nav-scroll-area"
+      >
         {navItems.map((item) => {
           const isActive = location === item.href;
           return (
@@ -95,51 +121,114 @@ export function LayoutShell({ children }: LayoutShellProps) {
                 onClick={() => setIsOpen(false)}
                 data-testid={`nav-${item.href.replace("/", "") || "dashboard"}`}
               >
-                <item.icon className={`w-[18px] h-[18px] ${isActive ? "text-sidebar-primary" : "text-sidebar-foreground/40"}`} />
-                <span>{item.label}</span>
+                <item.icon className={`w-[18px] h-[18px] shrink-0 ${isActive ? "text-sidebar-primary" : "text-sidebar-foreground/40"}`} />
+                <span className="truncate">{item.label}</span>
               </div>
             </Link>
           );
         })}
+
+        {/* ── Settings parent (collapsible) ── */}
+        <div className="pt-1">
+          <button
+            type="button"
+            onClick={() => setSettingsOpen((v) => !v)}
+            className={`nav-item cursor-pointer w-full text-left ${isOnSettingsPage ? "active" : ""}`}
+            data-testid="nav-settings-toggle"
+            aria-expanded={settingsOpen}
+            aria-controls="nav-settings-submenu"
+          >
+            <Settings className={`w-[18px] h-[18px] shrink-0 ${isOnSettingsPage ? "text-sidebar-primary" : "text-sidebar-foreground/40"}`} />
+            <span className="flex-1 truncate">Settings</span>
+            {settingsOpen ? (
+              <ChevronDown className="w-4 h-4 shrink-0 text-sidebar-foreground/40" />
+            ) : (
+              <ChevronRight className="w-4 h-4 shrink-0 text-sidebar-foreground/40" />
+            )}
+          </button>
+
+          {settingsOpen && (
+            <div id="nav-settings-submenu" className="mt-1 mb-2 space-y-0.5" data-testid="nav-settings-submenu">
+              {settingsItems.map((item) => {
+                const isActive = location === item.href;
+                return (
+                  <Link key={item.href} href={item.href}>
+                    <div
+                      className={`nav-subitem cursor-pointer ${isActive ? "active" : ""}`}
+                      onClick={() => setIsOpen(false)}
+                      data-testid={`nav-sub-${item.href.replace("/", "")}`}
+                    >
+                      <item.icon className={`w-4 h-4 shrink-0 ${isActive ? "text-sidebar-primary" : "text-sidebar-foreground/40"}`} />
+                      <span className="truncate">{item.label}</span>
+                    </div>
+                  </Link>
+                );
+              })}
+
+              {/* Social media inside Settings */}
+              <div className="pl-9 pr-3 pt-2 pb-1">
+                <p className="text-[10px] uppercase tracking-wider text-sidebar-foreground/40 font-medium mb-1.5 flex items-center gap-1.5">
+                  <Share2 className="w-3 h-3" />
+                  Social Media
+                </p>
+                <SocialLinks compact />
+              </div>
+            </div>
+          )}
+        </div>
       </nav>
 
-      <div className="px-3 pb-2">
-        <a
-          href="/api/download-app"
-          target="_blank"
-          rel="noopener noreferrer"
-          data-testid="link-download-apk"
-          className="flex items-center gap-2.5 w-full rounded-md px-3 py-2.5 bg-green-600 hover:bg-green-500 active:bg-green-700 transition-colors text-white font-semibold text-sm shadow-md"
-          onClick={() => setIsOpen(false)}
-        >
-          <Download className="w-4 h-4 shrink-0" />
-          <span className="leading-tight">Download Android App (APK)</span>
-        </a>
-      </div>
+      {/* ── Fixed footer: Admin / APK / User+Logout ── */}
+      <div className="shrink-0 border-t border-sidebar-border bg-sidebar">
+        {user?.role === "admin" && (
+          <div className="px-3 pt-3">
+            <Link href="/admin">
+              <div
+                className={`nav-item cursor-pointer ${location === "/admin" ? "active" : ""}`}
+                onClick={() => setIsOpen(false)}
+                data-testid="nav-admin"
+              >
+                <ShieldCheck className={`w-[18px] h-[18px] shrink-0 ${location === "/admin" ? "text-sidebar-primary" : "text-sidebar-foreground/40"}`} />
+                <span className="truncate">{t.nav.adminPanel}</span>
+              </div>
+            </Link>
+          </div>
+        )}
 
-      <div className="px-3 pb-3">
-        <SocialLinks compact />
-      </div>
+        <div className="px-3 pt-3">
+          <a
+            href="/api/download-app"
+            target="_blank"
+            rel="noopener noreferrer"
+            data-testid="link-download-apk"
+            className="flex items-center gap-2.5 w-full rounded-md px-3 py-2 bg-green-600 hover:bg-green-500 active:bg-green-700 transition-colors text-white font-semibold text-sm shadow-md"
+            onClick={() => setIsOpen(false)}
+          >
+            <Download className="w-4 h-4 shrink-0" />
+            <span className="leading-tight truncate">Download APK</span>
+          </a>
+        </div>
 
-      <div className="p-4 border-t border-sidebar-border">
-        <div className="flex items-center gap-3 px-2 py-2 mb-2">
-            <div className="w-9 h-9 rounded-md bg-sidebar-accent flex items-center justify-center text-sidebar-primary font-bold text-sm">
-                {(user?.fullName || user?.email || "U").charAt(0).toUpperCase()}
+        <div className="p-3">
+          <div className="flex items-center gap-2.5 px-2 py-2">
+            <div className="w-9 h-9 rounded-md bg-sidebar-accent flex items-center justify-center text-sidebar-primary font-bold text-sm shrink-0">
+              {(user?.fullName || user?.email || "U").charAt(0).toUpperCase()}
             </div>
             <div className="overflow-hidden flex-1 min-w-0">
-                <p className="text-sm font-medium truncate text-white">{user?.fullName || "User"}</p>
-                <p className="text-[11px] text-sidebar-foreground/40 truncate">{user?.email}</p>
+              <p className="text-sm font-medium truncate text-white">{user?.fullName || "User"}</p>
+              <p className="text-[11px] text-sidebar-foreground/40 truncate">{user?.email}</p>
             </div>
-        </div>
-        <Button 
-            variant="ghost" 
-            className="w-full justify-start text-sidebar-foreground/50"
+          </div>
+          <Button
+            variant="ghost"
+            className="w-full justify-start text-sidebar-foreground/60 hover:text-white h-9"
             onClick={() => logout()}
             data-testid="button-logout"
-        >
-          <LogOut className="w-4 h-4 mr-2" />
-          {t.nav.signOut}
-        </Button>
+          >
+            <LogOut className="w-4 h-4 mr-2" />
+            {t.nav.signOut}
+          </Button>
+        </div>
       </div>
     </div>
   );
