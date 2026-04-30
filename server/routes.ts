@@ -4821,6 +4821,7 @@ export async function registerRoutes(
       const firstName = (profile.firstName || nameParts[0] || "").trim();
       const lastName  = (profile.lastName  || nameParts.slice(1).join(" ") || firstName).trim();
       const fullName  = `${firstName} ${lastName}`.trim() || profile.fullName;
+      const nameOnCard = fullName; // alias used by storage.createNfcCard below
       const dob       = (profile.dateOfBirth || "").trim();
       const phone     = (profile.phone || "").trim();
       const idType    = (kycDoc?.idType    || "").trim();
