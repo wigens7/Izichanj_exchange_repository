@@ -516,6 +516,47 @@ function UserRow({ user, onUpdateBalance, isPending, hasDownloaded }: { user: an
   const [showStrowalletModal, setShowStrowalletModal] = useState(false);
   const [strowalletInput, setStrowalletInput] = useState(user.strowalletCustomerId || "");
 
+  // Password management (admin tools)
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [pwTab, setPwTab] = useState<"reset" | "custom">("reset");
+  const [tempPassword, setTempPassword] = useState<string | null>(null);
+  const [customPw, setCustomPw] = useState("");
+  const [confirmCustomPw, setConfirmCustomPw] = useState("");
+
+  const resetPasswordMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/admin/users/${user.id}/reset-password`);
+      return res.json();
+    },
+    onSuccess: (data: any) => {
+      setTempPassword(data.tempPassword);
+      toast({ title: "Temporary password generated", description: "Copy it now — it won't be shown again." });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Reset failed", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const setPasswordMutation = useMutation({
+    mutationFn: async (newPassword: string) => {
+      const res = await apiRequest("POST", `/api/admin/users/${user.id}/set-password`, { newPassword });
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Password updated", description: `${user.fullName} can now sign in with the new password.` });
+      // Wipe ALL password material from client state before closing.
+      setCustomPw("");
+      setConfirmCustomPw("");
+      setTempPassword(null);
+      setShowPasswordModal(false);
+    },
+    onError: (error: Error) => {
+      toast({ title: "Update failed", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const [showCustomPw, setShowCustomPw] = useState(false);
+
   const setStrowalletMutation = useMutation({
     mutationFn: async (customerId: string) => {
       const res = await apiRequest("PATCH", `/api/admin/users/${user.id}/strowallet-customer-id`, { strowalletCustomerId: customerId });
@@ -692,6 +733,18 @@ function UserRow({ user, onUpdateBalance, isPending, hasDownloaded }: { user: an
               <Button variant="outline" size="sm" onClick={() => disable2faMutation.mutate()} disabled={disable2faMutation.isPending} data-testid={`button-disable-2fa-${user.id}`}>
                 {disable2faMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <KeyRound className="w-3 h-3 mr-1" />}
                 Disable 2FA
+              </Button>
+            )}
+            {user.role !== "admin" && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => { setTempPassword(null); setCustomPw(""); setConfirmCustomPw(""); setPwTab("reset"); setShowPasswordModal(true); }}
+                data-testid={`button-password-${user.id}`}
+                title="Generate a temporary password or set a custom one"
+              >
+                <KeyRound className="w-3 h-3 mr-1" />
+                Password
               </Button>
             )}
             <Button
@@ -985,6 +1038,146 @@ function UserRow({ user, onUpdateBalance, isPending, hasDownloaded }: { user: an
           </Card>
         </div>
       )}
+
+      {/* Password management modal */}
+      <Dialog open={showPasswordModal} onOpenChange={(open) => { if (!open) { setShowPasswordModal(false); setTempPassword(null); setCustomPw(""); setConfirmCustomPw(""); } }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <KeyRound className="w-5 h-5" />
+              Password — {user.fullName}
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="rounded-md bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900 p-3 text-xs text-amber-900 dark:text-amber-200">
+            For your security and the user's, real passwords are never stored — only a one-way encrypted version is. So you can't view the existing password, but you can give the user a new one with the tools below.
+          </div>
+
+          <div className="flex gap-2 border-b">
+            <button
+              type="button"
+              className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px ${pwTab === "reset" ? "border-indigo-600 text-indigo-700 dark:text-indigo-300" : "border-transparent text-muted-foreground"}`}
+              onClick={() => setPwTab("reset")}
+              data-testid={`tab-reset-password-${user.id}`}
+            >
+              Generate Temporary
+            </button>
+            <button
+              type="button"
+              className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px ${pwTab === "custom" ? "border-indigo-600 text-indigo-700 dark:text-indigo-300" : "border-transparent text-muted-foreground"}`}
+              onClick={() => { setPwTab("custom"); setTempPassword(null); }}
+              data-testid={`tab-set-password-${user.id}`}
+            >
+              Set Custom
+            </button>
+          </div>
+
+          {pwTab === "reset" && (
+            <div className="space-y-3">
+              {!tempPassword ? (
+                <>
+                  <p className="text-sm text-muted-foreground">
+                    Generates a strong, random password and replaces the current one. The user must use it to log in next time.
+                  </p>
+                  <Button
+                    onClick={() => resetPasswordMutation.mutate()}
+                    disabled={resetPasswordMutation.isPending}
+                    className="w-full bg-indigo-600 hover:bg-indigo-700 text-white"
+                    data-testid={`button-generate-temp-password-${user.id}`}
+                  >
+                    {resetPasswordMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <KeyRound className="w-4 h-4 mr-2" />}
+                    Generate Temporary Password
+                  </Button>
+                </>
+              ) : (
+                <div className="space-y-2">
+                  <p className="text-sm font-medium">New temporary password (shown ONCE):</p>
+                  <div className="flex gap-2">
+                    <code
+                      className="flex-1 px-3 py-2 rounded bg-muted font-mono text-base tracking-wider select-all"
+                      data-testid={`text-temp-password-${user.id}`}
+                    >
+                      {tempPassword}
+                    </code>
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        navigator.clipboard.writeText(tempPassword);
+                        toast({ title: "Copied", description: "Temporary password copied to clipboard." });
+                      }}
+                      data-testid={`button-copy-temp-password-${user.id}`}
+                    >
+                      Copy
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Send this to the user securely (e.g. WhatsApp/email). Once you close this dialog, it cannot be retrieved — generate a new one if lost.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {pwTab === "custom" && (
+            <div className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                Set a specific password (e.g. fraud lockout). Min. 8 characters. The user is not notified automatically.
+              </p>
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <label className="text-sm font-medium">New password</label>
+                  <button
+                    type="button"
+                    className="text-xs text-indigo-600 dark:text-indigo-300 hover:underline"
+                    onClick={() => setShowCustomPw((s) => !s)}
+                    data-testid={`button-toggle-show-password-${user.id}`}
+                  >
+                    {showCustomPw ? "Hide" : "Show"}
+                  </button>
+                </div>
+                <Input
+                  type={showCustomPw ? "text" : "password"}
+                  placeholder="At least 8 characters"
+                  value={customPw}
+                  onChange={(e) => setCustomPw(e.target.value)}
+                  autoComplete="new-password"
+                  data-testid={`input-custom-password-${user.id}`}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">Confirm password</label>
+                <Input
+                  type={showCustomPw ? "text" : "password"}
+                  placeholder="Re-enter the same password"
+                  value={confirmCustomPw}
+                  onChange={(e) => setConfirmCustomPw(e.target.value)}
+                  autoComplete="new-password"
+                  data-testid={`input-confirm-custom-password-${user.id}`}
+                />
+              </div>
+              <Button
+                onClick={() => {
+                  if (customPw.length < 8) {
+                    toast({ title: "Too short", description: "Password must be at least 8 characters.", variant: "destructive" });
+                    return;
+                  }
+                  if (customPw !== confirmCustomPw) {
+                    toast({ title: "Mismatch", description: "Passwords do not match.", variant: "destructive" });
+                    return;
+                  }
+                  setPasswordMutation.mutate(customPw);
+                }}
+                disabled={setPasswordMutation.isPending || !customPw || !confirmCustomPw}
+                className="w-full bg-indigo-600 hover:bg-indigo-700 text-white"
+                data-testid={`button-save-custom-password-${user.id}`}
+              >
+                {setPasswordMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
+                Set New Password
+              </Button>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

@@ -1577,6 +1577,64 @@ export async function registerRoutes(
     }
   });
 
+  // Admin: Reset a user's password to a freshly-generated temporary one.
+  // Plaintext is returned ONCE in the response so the admin can hand it to the user.
+  // We never store nor log the plaintext anywhere — only the bcrypt hash hits the DB.
+  app.post("/api/admin/users/:id/reset-password", isAuthenticated, isAdmin, async (req: any, res) => {
+    try {
+      const profileId = Number(req.params.id);
+      const target = await storage.getProfile(profileId);
+      if (!target) return res.status(404).json({ message: "User not found" });
+      if (target.role === "admin") return res.status(403).json({ message: "Cannot reset another admin's password from this tool." });
+
+      // Strong, easy-to-read temp password: 12 chars, mixed case + digits, no ambiguous chars (0/O/1/l/I).
+      const ALPHA = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789";
+      const bytes = crypto.randomBytes(12);
+      let tempPassword = "";
+      for (let i = 0; i < 12; i++) tempPassword += ALPHA[bytes[i] % ALPHA.length];
+
+      const passwordHash = await bcrypt.hash(tempPassword, 12);
+      await storage.updateProfilePassword(profileId, passwordHash);
+
+      const adminProfile = await getProfileFromReq(req);
+      sendTelegramMessage(
+        `🔑 <b>Password Reset by Admin</b>\n\n👤 Target: ${target.fullName} (${target.email})\n👮 Admin: ${adminProfile?.email || "?"}\nA temporary password was generated and shown to admin once.`
+      ).catch(() => {});
+
+      res.json({ message: "Temporary password generated. Share it with the user securely; it will not be shown again.", tempPassword });
+    } catch (e: any) {
+      console.error("Admin reset-password error:", e);
+      res.status(500).json({ message: e.message || "Internal Error" });
+    }
+  });
+
+  // Admin: Set a user's password to an admin-chosen value (e.g. fraud lockout, forced rotation).
+  app.post("/api/admin/users/:id/set-password", isAuthenticated, isAdmin, async (req: any, res) => {
+    try {
+      const profileId = Number(req.params.id);
+      const { newPassword } = req.body || {};
+      if (typeof newPassword !== "string" || newPassword.length < 8) {
+        return res.status(400).json({ message: "Password must be at least 8 characters." });
+      }
+      const target = await storage.getProfile(profileId);
+      if (!target) return res.status(404).json({ message: "User not found" });
+      if (target.role === "admin") return res.status(403).json({ message: "Cannot change another admin's password from this tool." });
+
+      const passwordHash = await bcrypt.hash(newPassword, 12);
+      await storage.updateProfilePassword(profileId, passwordHash);
+
+      const adminProfile = await getProfileFromReq(req);
+      sendTelegramMessage(
+        `🔐 <b>Password Set by Admin</b>\n\n👤 Target: ${target.fullName} (${target.email})\n👮 Admin: ${adminProfile?.email || "?"}\nAdmin manually set a new password (custom).`
+      ).catch(() => {});
+
+      res.json({ message: "Password updated successfully." });
+    } catch (e: any) {
+      console.error("Admin set-password error:", e);
+      res.status(500).json({ message: e.message || "Internal Error" });
+    }
+  });
+
   app.patch("/api/admin/users/:id/disable-2fa", isAuthenticated, isAdmin, async (req: any, res) => {
     try {
       const profileId = Number(req.params.id);
