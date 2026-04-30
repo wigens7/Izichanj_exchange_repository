@@ -4832,7 +4832,7 @@ export async function registerRoutes(
       const HARDCODED_CITY    = "Miami";
       const HARDCODED_STATE   = "FL";
       const HARDCODED_POSTAL  = "33127";
-      const HARDCODED_COUNTRY = "US";
+      const HARDCODED_COUNTRY = "USA";
 
       // Pre-flight: refuse to call provider with missing required user fields
       const missing: string[] = [];
