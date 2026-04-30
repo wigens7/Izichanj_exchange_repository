@@ -186,6 +186,35 @@ const isAdmin = async (req: any, res: any, next: any) => {
   next();
 };
 
+// Standard message shown to banned users when they hit a restricted action.
+const BANNED_MESSAGE = "Your account is restricted. Please contact support.";
+
+// notBanned — global gate that blocks any banned user from a restricted action.
+// Stashes the loaded profile on req so downstream handlers can reuse it without re-querying.
+const notBanned = async (req: any, res: any, next: any) => {
+  const profile = await getProfileFromReq(req);
+  if (!profile) return res.status(401).json({ message: "Unauthorized" });
+  if (profile.isBanned) return res.status(403).json({ message: BANNED_MESSAGE, restricted: true });
+  req._profile = profile;
+  next();
+};
+
+// notBannedOrCanSell — P2P-specific gate. Banned users are normally blocked, but if
+// they still hold a positive balance they're allowed through SO THEY CAN SELL IT OFF.
+// Once their balance reaches 0, P2P access is fully revoked.
+// Note: this app's P2P ads are sell-only by design (creating an ad requires balance ≥ amount),
+// so allowing through is sufficient — there's no separate "buy ad" path to filter out here.
+const notBannedOrCanSell = async (req: any, res: any, next: any) => {
+  const profile = await getProfileFromReq(req);
+  if (!profile) return res.status(401).json({ message: "Unauthorized" });
+  if (profile.isBanned) {
+    const balance = parseFloat(profile.balance || "0");
+    if (balance <= 0) return res.status(403).json({ message: BANNED_MESSAGE, restricted: true });
+  }
+  req._profile = profile;
+  next();
+};
+
 export async function registerRoutes(
   httpServer: Server,
   app: Express
@@ -1848,13 +1877,14 @@ export async function registerRoutes(
   });
 
   // POST submit manual deposit (MonCash or NatCash)
+  // NOTE: Banned users ARE allowed to deposit per policy (so they can clear obligations,
+  // top up to sell on P2P, etc). Restriction only applies to money-OUT actions.
   app.post("/api/deposits/manual", isAuthenticated, async (req: any, res) => {
     try {
       const profileId = req.session.profileId;
       const profile = await storage.getProfile(profileId);
       if (!profile) return res.status(401).json({ message: "Unauthorized" });
       if (profile.kycStatus !== "verified") return res.status(403).json({ message: "KYC verification required to make deposits" });
-      if (profile.isBanned) return res.status(403).json({ message: "Account suspended" });
       if ((profile as any).frozenUntil && new Date((profile as any).frozenUntil) > new Date()) {
         const frozenUntilDate = haitiDate((profile as any).frozenUntil);
         return res.status(403).json({ message: `Your account is frozen until ${frozenUntilDate}. Withdrawals are not permitted during this period. Contact support if you believe this is an error.`, errorCode: "ACCOUNT_FROZEN", frozenUntil: (profile as any).frozenUntil });
@@ -3582,17 +3612,13 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/transfers/send", isAuthenticated, async (req: any, res) => {
+  app.post("/api/transfers/send", isAuthenticated, notBanned, async (req: any, res) => {
     try {
       const profile = await getProfileFromReq(req);
       if (!profile) return res.status(401).json({ message: "Unauthorized" });
 
       if (profile.kycStatus !== "verified") {
         return res.status(403).json({ message: "KYC verification required to send funds" });
-      }
-
-      if (profile.isBanned) {
-        return res.status(403).json({ message: "Your account is restricted" });
       }
 
       const { recipientId, amount, note } = req.body;
@@ -3899,7 +3925,7 @@ export async function registerRoutes(
   });
 
   // POST /api/cards/register-cardholder — submit KYC to Strowallet
-  app.post("/api/cards/register-cardholder", isAuthenticated, async (req: any, res) => {
+  app.post("/api/cards/register-cardholder", isAuthenticated, notBanned, async (req: any, res) => {
     try {
       let profile = await getProfileFromReq(req);
       if (!profile) return res.status(401).json({ message: "Unauthorized" });
@@ -4080,7 +4106,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/cards/create", isAuthenticated, async (req: any, res) => {
+  app.post("/api/cards/create", isAuthenticated, notBanned, async (req: any, res) => {
     try {
       const profile = await getProfileFromReq(req);
       if (!profile) return res.status(401).json({ message: "Unauthorized" });
@@ -4372,7 +4398,7 @@ export async function registerRoutes(
   });
 
   // POST /api/cards/:id/user-retry — user retries Strowallet card creation (no balance re-deduction)
-  app.post("/api/cards/:id/user-retry", isAuthenticated, async (req: any, res) => {
+  app.post("/api/cards/:id/user-retry", isAuthenticated, notBanned, async (req: any, res) => {
     try {
       const profile = await getProfileFromReq(req);
       if (!profile) return res.status(401).json({ message: "Unauthorized" });
@@ -4552,7 +4578,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/cards/:id/fund", isAuthenticated, async (req: any, res) => {
+  app.post("/api/cards/:id/fund", isAuthenticated, notBanned, async (req: any, res) => {
     try {
       const profile = await getProfileFromReq(req);
       if (!profile) return res.status(401).json({ message: "Unauthorized" });
@@ -4870,7 +4896,7 @@ export async function registerRoutes(
   });
 
   // Create a new NFC card — flat $19 charge, $5 to card, no separate cardholder needed
-  app.post("/api/nfc-cards/create", isAuthenticated, async (req: any, res) => {
+  app.post("/api/nfc-cards/create", isAuthenticated, notBanned, async (req: any, res) => {
     try {
       const profile = await getProfileFromReq(req);
       if (!profile) return res.status(401).json({ message: "Unauthorized" });
@@ -5206,7 +5232,7 @@ export async function registerRoutes(
   });
 
   // Top-up an NFC card — user pays ALL fees + $0.25 Izichanj profit
-  app.post("/api/nfc-cards/:id/fund", isAuthenticated, async (req: any, res) => {
+  app.post("/api/nfc-cards/:id/fund", isAuthenticated, notBanned, async (req: any, res) => {
     try {
       const profile = await getProfileFromReq(req);
       if (!profile) return res.status(401).json({ message: "Unauthorized" });
@@ -5502,7 +5528,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/topup", isAuthenticated, async (req: any, res) => {
+  app.post("/api/topup", isAuthenticated, notBanned, async (req: any, res) => {
     try {
       const profile = await getProfileFromReq(req);
       if (!profile) return res.status(401).json({ message: "Unauthorized" });
@@ -6528,7 +6554,10 @@ export async function registerRoutes(
   });
 
   // POST /api/p2p/ads — create a new ad (locks USDT from balance)
-  app.post("/api/p2p/ads", isAuthenticated, isKycVerified, async (req: any, res) => {
+  // Sellers create ads to sell their USDT — banned users with leftover balance are
+  // still allowed here so they can wind down (sell) their position. Once balance hits 0,
+  // notBannedOrCanSell rejects them.
+  app.post("/api/p2p/ads", isAuthenticated, isKycVerified, notBannedOrCanSell, async (req: any, res) => {
     try {
       const profileId = req.session.profileId;
       const { amountUsdt, rateHtg, marginPct, currency, paymentMethods, minOrderUsdt, maxOrderUsdt, termsNote } = req.body;
@@ -6608,7 +6637,7 @@ export async function registerRoutes(
   });
 
   // PATCH /api/p2p/ads/:id/toggle-pause — pause or resume an ad
-  app.patch("/api/p2p/ads/:id/toggle-pause", isAuthenticated, async (req: any, res) => {
+  app.patch("/api/p2p/ads/:id/toggle-pause", isAuthenticated, notBannedOrCanSell, async (req: any, res) => {
     try {
       const profileId = req.session.profileId;
       const adId = Number(req.params.id);
@@ -6623,8 +6652,11 @@ export async function registerRoutes(
     }
   });
 
-  // DELETE /api/p2p/ads/:id — cancel an ad (refund available USDT)
-  app.delete("/api/p2p/ads/:id", isAuthenticated, async (req: any, res) => {
+  // DELETE /api/p2p/ads/:id — cancel an ad (refund available USDT).
+  // Banned users with balance>0 are allowed; balance=0 means full P2P revoke.
+  // (We intentionally do NOT gate order-completion endpoints — chat/release/cancel/dispute —
+  // so banned users can still settle in-flight trades.)
+  app.delete("/api/p2p/ads/:id", isAuthenticated, notBannedOrCanSell, async (req: any, res) => {
     try {
       const profileId = req.session.profileId;
       const adId = Number(req.params.id);
@@ -6665,7 +6697,9 @@ export async function registerRoutes(
   });
 
   // POST /api/p2p/orders — buyer creates an order
-  app.post("/api/p2p/orders", isAuthenticated, isKycVerified, async (req: any, res) => {
+  // Buyers create orders to BUY USDT from a sell ad — never allowed for banned users
+  // (this would credit them more balance, defeating the purpose of restriction).
+  app.post("/api/p2p/orders", isAuthenticated, isKycVerified, notBanned, async (req: any, res) => {
     try {
       const buyerId = req.session.profileId;
       const { adId, amountUsdt, paymentMethod } = req.body;
@@ -7313,7 +7347,7 @@ export async function registerRoutes(
     })));
   });
 
-  app.post("/api/canalplus/subscribe", isAuthenticated, async (req: any, res) => {
+  app.post("/api/canalplus/subscribe", isAuthenticated, notBanned, async (req: any, res) => {
     try {
       const { planName, cardNumber, autoRenew } = req.body;
       const profileId = req.session.profileId;
