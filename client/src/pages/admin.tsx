@@ -2999,6 +2999,130 @@ function PendingCardsSection() {
   );
 }
 
+function PendingNfcCardsSection() {
+  const { toast } = useToast();
+  const qc = useQueryClient();
+  const { data: pendingNfcCards, isLoading } = useQuery<any[]>({ queryKey: ["/api/admin/pending-nfc-cards"] });
+  const [cancelLoadingId, setCancelLoadingId] = useState<number | null>(null);
+  const [confirmCancelId, setConfirmCancelId] = useState<number | null>(null);
+
+  const handleCancelRefund = async (card: any) => {
+    setCancelLoadingId(card.id);
+    setConfirmCancelId(null);
+    try {
+      const res = await apiRequest("POST", `/api/admin/nfc-cards/${card.id}/cancel-refund`);
+      const data = await res.json();
+      if (!res.ok) {
+        toast({ title: "Cancel failed", description: data.message, variant: "destructive" });
+      } else {
+        toast({
+          title: "NFC request cancelled & refunded",
+          description: `$${Number(data.refunded || 19).toFixed(2)} USDT refunded to ${data.userName || card.profileName}.`,
+        });
+        qc.invalidateQueries({ queryKey: ["/api/admin/pending-nfc-cards"] });
+      }
+    } catch {
+      toast({ title: "Network error", variant: "destructive" });
+    } finally {
+      setCancelLoadingId(null);
+    }
+  };
+
+  if (isLoading) return <Skeleton className="h-24 w-full" />;
+  if (!pendingNfcCards?.length) return null;
+
+  return (
+    <Card className="border-amber-300 dark:border-amber-700">
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base flex items-center gap-2">
+          <Clock className="w-4 h-4 text-amber-500" />
+          Pending NFC Card Requests
+          <Badge className="ml-2 bg-amber-500 text-white">{pendingNfcCards.length}</Badge>
+        </CardTitle>
+        <p className="text-xs text-muted-foreground mt-0.5">
+          These users paid for an NFC card but issuance failed (often due to a low Strowallet master balance). Cancel the request to refund the user, or fund Strowallet and have the user retry.
+        </p>
+      </CardHeader>
+      <CardContent>
+        <div className="overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>DB&nbsp;ID</TableHead>
+                <TableHead>User</TableHead>
+                <TableHead>Email</TableHead>
+                <TableHead>Phone</TableHead>
+                <TableHead>Amount Held</TableHead>
+                <TableHead>Requested</TableHead>
+                <TableHead>Action</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {pendingNfcCards.map((card: any) => {
+                const heldAmount = Number(card.cardDetail?.amountHeld) || 19;
+                return (
+                  <TableRow key={card.id} data-testid={`row-pending-nfc-card-${card.id}`}>
+                    <TableCell className="font-mono text-xs text-muted-foreground">#{card.id}</TableCell>
+                    <TableCell className="font-medium" data-testid={`text-nfc-user-${card.id}`}>{card.profileName}</TableCell>
+                    <TableCell className="text-sm text-muted-foreground">{card.profileEmail}</TableCell>
+                    <TableCell className="text-sm">{card.profilePhone || <span className="text-muted-foreground">—</span>}</TableCell>
+                    <TableCell>
+                      <Badge variant="outline" className="font-mono text-amber-600 border-amber-300">
+                        ${heldAmount.toFixed(2)} USDT
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-xs text-muted-foreground">
+                      {formatDateShortTime(card.createdAt)}
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex flex-col gap-1.5 min-w-[180px]">
+                        {confirmCancelId === card.id ? (
+                          <div className="flex gap-1">
+                            <Button
+                              size="sm"
+                              variant="destructive"
+                              className="h-8 text-xs flex-1"
+                              onClick={() => handleCancelRefund(card)}
+                              disabled={cancelLoadingId === card.id}
+                              data-testid={`button-confirm-cancel-nfc-${card.id}`}
+                            >
+                              {cancelLoadingId === card.id ? <Loader2 className="w-3 h-3 animate-spin" /> : "Confirm refund"}
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-8 text-xs"
+                              onClick={() => setConfirmCancelId(null)}
+                              data-testid={`button-dismiss-cancel-nfc-${card.id}`}
+                            >
+                              No
+                            </Button>
+                          </div>
+                        ) : (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-8 text-xs text-red-600 border-red-300 hover:bg-red-50 dark:hover:bg-red-950/30 gap-1.5"
+                            onClick={() => setConfirmCancelId(card.id)}
+                            disabled={cancelLoadingId === card.id}
+                            data-testid={`button-cancel-request-nfc-${card.id}`}
+                          >
+                            <XCircle className="w-3 h-3" /> Cancel Request
+                          </Button>
+                        )}
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 function CardProfitTracker() {
   const { data: stats, isLoading } = useQuery<any>({ queryKey: ["/api/admin/card-stats"] });
 
@@ -3084,6 +3208,7 @@ function VirtualCardReadyTab() {
     <div className="space-y-4">
       <CardProfitTracker />
       <PendingCardsSection />
+      <PendingNfcCardsSection />
       <Card>
         <CardHeader className="pb-3">
           <div className="flex items-start justify-between gap-3">

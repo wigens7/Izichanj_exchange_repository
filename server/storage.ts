@@ -92,6 +92,7 @@ export interface IStorage {
   getNfcCard(id: number, profileId: number): Promise<NfcCard | undefined>;
   getNfcCardById(id: number): Promise<NfcCard | undefined>;
   updateNfcCard(id: number, data: Partial<NfcCard>): Promise<NfcCard>;
+  getAllPendingNfcCards(): Promise<any[]>;
   createNfcCardTransaction(data: { cardId: number; profileId: number; type: string; amount: string; currency?: string; description?: string }): Promise<NfcCardTransaction>;
   getNfcCardTransactions(cardId: number, profileId: number): Promise<NfcCardTransaction[]>;
   createTopUpTransaction(data: { profileId: number; operatorId: string; operatorName: string; phone: string; amountUsd: string; transactionId?: string; status?: string }): Promise<TopUpTransaction>;
@@ -650,6 +651,28 @@ export class DatabaseStorage implements IStorage {
   async updateNfcCard(id: number, data: Partial<NfcCard>): Promise<NfcCard> {
     const [card] = await db.update(nfcCards).set(data).where(eq(nfcCards.id, id)).returning();
     return card;
+  }
+  async getAllPendingNfcCards(): Promise<any[]> {
+    // Status is the source of truth — once set to 'cancelled' or 'active' the card must
+    // disappear from the pending list even though its placeholder cardId still starts with 'pending_'.
+    return db
+      .select({
+        id: nfcCards.id,
+        cardId: nfcCards.cardId,
+        profileId: nfcCards.profileId,
+        nameOnCard: nfcCards.nameOnCard,
+        balance: nfcCards.balance,
+        status: nfcCards.status,
+        cardDetail: nfcCards.cardDetail,
+        createdAt: nfcCards.createdAt,
+        profileName: profiles.fullName,
+        profileEmail: profiles.email,
+        profilePhone: profiles.phone,
+      })
+      .from(nfcCards)
+      .innerJoin(profiles, eq(nfcCards.profileId, profiles.id))
+      .where(eq(nfcCards.status, "pending"))
+      .orderBy(desc(nfcCards.createdAt));
   }
   async createNfcCardTransaction(data: { cardId: number; profileId: number; type: string; amount: string; currency?: string; description?: string }): Promise<NfcCardTransaction> {
     const [tx] = await db.insert(nfcCardTransactions).values({

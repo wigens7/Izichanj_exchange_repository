@@ -15,13 +15,13 @@ import {
   NETWORK_FEE_CONFIG, MANUAL_DEPOSIT_MIN_HTG, MANUAL_DEPOSIT_MIN_USDT, TOPUP_FEE_USD,
   CARD_LOAD_AMOUNT_USD, CARD_CREATION_FEE_USD, CARD_TOPUP_FIXED_FEE_USD, CARD_TOPUP_MIN_USD,
   calcCardCreationCost, calcCardTopUpCost,
-  NFC_CARD_LOAD_AMOUNT_USD, NFC_TOPUP_MIN_USD, NFC_WITHDRAW_MIN_USD,
+  NFC_CARD_LOAD_AMOUNT_USD, NFC_CARD_TOTAL_PRICE_USD, NFC_TOPUP_MIN_USD, NFC_WITHDRAW_MIN_USD,
   calcNfcCardCreationCost, calcNfcCardTopUpCost, calcNfcCardWithdrawCost,
 } from "@shared/constants";
 import { getDepositRate, getWithdrawalRate, setRates, rateUsdtToHtg, rateHtgToUsdt, rateUsdtToHtgWithdrawal } from "./rates";
 import { generateReceiptPDF, generateAdjustmentReceiptPDF } from "./receipt";
 import { ensureKycImageSize } from "./image-compress";
-import { deposits, profiles, virtualCards } from "@shared/schema";
+import { deposits, profiles, virtualCards, nfcCards } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, sql } from "drizzle-orm";
 import * as otplibModule from "otplib";
@@ -2487,6 +2487,81 @@ export async function registerRoutes(
     }
   });
 
+  // GET /api/admin/pending-nfc-cards — list all pending NFC card requests with user info
+  app.get("/api/admin/pending-nfc-cards", isAuthenticated, isAdmin, async (req: any, res) => {
+    try {
+      const pending = await storage.getAllPendingNfcCards();
+      res.json(pending);
+    } catch (e: any) {
+      console.error("[admin pending-nfc-cards]", e);
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // POST /api/admin/nfc-cards/:id/cancel-refund — cancel a pending NFC card and refund the user.
+  // Atomic on the status flip (only cancels if currently pending) AND on the balance credit
+  // (UPDATE ... SET balance = balance + X RETURNING balance) so concurrent ops can't clobber it.
+  app.post("/api/admin/nfc-cards/:id/cancel-refund", isAuthenticated, isAdmin, async (req: any, res) => {
+    try {
+      const cardDbId = Number(req.params.id);
+
+      const cancelled = await db
+        .update(nfcCards)
+        .set({ status: "cancelled" })
+        .where(and(eq(nfcCards.id, cardDbId), eq(nfcCards.status, "pending")))
+        .returning({ profileId: nfcCards.profileId, cardDetail: nfcCards.cardDetail });
+
+      if (cancelled.length === 0) {
+        return res.status(409).json({ message: "Card is not pending or was already cancelled." });
+      }
+
+      const { profileId, cardDetail } = cancelled[0];
+      const detail: any = cardDetail || {};
+      const refundAmount = Number(detail.amountHeld) || NFC_CARD_TOTAL_PRICE_USD;
+
+      // Atomic credit — read-modify-write would race with concurrent deposits/withdrawals.
+      const credited = await db
+        .update(profiles)
+        .set({ balance: sql`(${profiles.balance})::numeric + ${refundAmount}` })
+        .where(eq(profiles.id, profileId))
+        .returning({ balance: profiles.balance, fullName: profiles.fullName, email: profiles.email });
+
+      if (credited.length === 0) {
+        return res.status(404).json({ message: "User not found" });
+      }
+      const newBalance = parseFloat(credited[0].balance || "0");
+
+      await storage.createNfcCardTransaction({
+        cardId: cardDbId,
+        profileId,
+        type: "refund",
+        amount: refundAmount.toFixed(2),
+        currency: "USD",
+        description: `NFC card request cancelled by admin — $${refundAmount.toFixed(2)} USDT refunded`,
+      }).catch(() => {});
+
+      await storage.createNotification({
+        profileId,
+        type: "custom_message",
+        title: "NFC Card Request Cancelled — Refund Issued",
+        message: `Your NFC card request was cancelled by support. $${refundAmount.toFixed(2)} USDT has been refunded to your wallet.`,
+      }).catch(() => {});
+
+      sendTelegramMessage(
+        `🔴 <b>Pending NFC Card Cancelled (Admin)</b>\n\n` +
+        `👤 ${credited[0].fullName} (${credited[0].email})\n` +
+        `💵 Refunded: $${refundAmount.toFixed(2)} USDT\n` +
+        `💰 New Balance: $${newBalance.toFixed(2)} USDT\n` +
+        `🗂 Card DB ID: #${cardDbId}`
+      ).catch(() => {});
+
+      res.json({ success: true, refunded: refundAmount, newBalance, userName: credited[0].fullName });
+    } catch (e: any) {
+      console.error("[admin cancel-refund nfc-card]", e);
+      res.status(500).json({ message: e.message });
+    }
+  });
+
   // GET /api/admin/card-stats — profit tracker for virtual cards
   app.get("/api/admin/card-stats", isAuthenticated, isAdmin, async (req: any, res) => {
     try {
@@ -4946,9 +5021,16 @@ export async function registerRoutes(
             nameOnCard,
             brand: "Visa",
             status: "pending",
-            balance: COST_USD.toString(),
+            // Balance shown to user = the load amount that will arrive on the card ($5).
+            // The full $19 we collected is recorded under cardDetail.amountHeld for refunds.
+            balance: LOAD_USD.toString(),
             currency: "USD",
-            cardDetail: { pendingReason: "provider_no_funds", requestedAt: new Date().toISOString() },
+            cardDetail: {
+              pendingReason: "provider_no_funds",
+              requestedAt: new Date().toISOString(),
+              amountHeld: COST_USD,
+              loadAmount: LOAD_USD,
+            },
           });
           await storage.createNotification({
             profileId: profile.id,
@@ -5147,37 +5229,68 @@ export async function registerRoutes(
         });
       }
 
+      // ── Charge user FIRST so funds can't be double-spent during the provider call ──
+      // Atomic conditional debit: only succeeds if balance is still >= totalCharge.
+      // This is race-free against any other concurrent debit (P2P, fund, withdrawal, etc).
+      const debited = await db
+        .update(profiles)
+        .set({ balance: sql`(${profiles.balance})::numeric - ${totalCharge}` })
+        .where(and(eq(profiles.id, profile.id), sql`(${profiles.balance})::numeric >= ${totalCharge}`))
+        .returning({ balance: profiles.balance });
+
+      if (debited.length === 0) {
+        return res.status(400).json({ message: "Insufficient balance for this top-up." });
+      }
+
       const payload = {
         public_key: strowalletPublicKey,
         card_id: card.cardId,
         amount: fundAmount.toString(),
         type: "fund",
       };
-      const response = await strowalletFetch(`${STROWALLET_BASE}/fund-withdraw-nfccard/`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "Accept": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      const data = await response.json();
+
+      // Atomic credit helper for refund-on-failure paths
+      const refundUser = async () => {
+        await db
+          .update(profiles)
+          .set({ balance: sql`(${profiles.balance})::numeric + ${totalCharge}` })
+          .where(eq(profiles.id, profile.id));
+      };
+
+      let response: Response;
+      let data: any;
+      try {
+        response = await strowalletFetch(`${STROWALLET_BASE}/fund-withdraw-nfccard/`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Accept": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        data = await response.json();
+      } catch (netErr: any) {
+        // Network failure — instantly refund the user
+        await refundUser();
+        console.error("[NFC FUND] Network error — refunded:", netErr?.message);
+        return res.status(502).json({ message: "Could not reach card provider. No funds were charged." });
+      }
+
       const fundFailed = !response.ok || data.status === "error" || data.status === false || data.success === false;
       if (fundFailed) {
-        console.log("================== [STROWALLET NFC FUND ERROR] ==================");
+        // Provider rejected — refund the user immediately
+        await refundUser();
+        console.log("================== [STROWALLET NFC FUND ERROR — REFUNDED] ==================");
         console.log("[NFC FUND] HTTP:", response.status, "| Profile:", profile.id, "| Card:", card.cardId);
-        console.log("[NFC FUND] Payload:", JSON.stringify({ ...payload, public_key: "[REDACTED]" }));
-        console.log("[NFC FUND] Raw response (full):", JSON.stringify(data, null, 2));
-        console.log("=================================================================");
-      } else {
-        console.log("[NFC FUND] OK — profile:", profile.id, "| card:", card.cardId, "| amount:", fundAmount);
-      }
+        console.log("[NFC FUND] Payload keys:", Object.keys(payload).join(","));
+        const provMsg = (data && (data.message || data.error || data.errors)) ?? "(no message)";
+        console.log("[NFC FUND] Provider error:", typeof provMsg === "string" ? provMsg.slice(0, 500) : JSON.stringify(provMsg).slice(0, 500));
+        console.log("=========================================================================");
 
-      if (fundFailed) {
         const rawErr = data.message ?? data.error ?? data.errors ?? data;
         const errMsg = typeof rawErr === "string" ? rawErr : JSON.stringify(rawErr);
-        return res.status(400).json({ message: errMsg || "Failed to fund NFC card" });
+        return res.status(400).json({ message: errMsg || "Failed to fund NFC card. Charge refunded." });
       }
 
-      // Charge user fully
-      await storage.updateProfileBalance(profile.id, balanceUsdt - totalCharge);
+      // Success — apply card balance update and log the transaction
+      console.log("[NFC FUND] OK — profile:", profile.id, "| card:", card.cardId, "| amount:", fundAmount);
       const updated = await storage.updateNfcCard(card.id, {
         balance: (parseFloat(card.balance || "0") + fundAmount).toString(),
       });
