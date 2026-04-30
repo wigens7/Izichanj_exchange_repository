@@ -4820,19 +4820,21 @@ export async function registerRoutes(
       const nameParts = (profile.fullName || "").trim().split(/\s+/);
       const firstName = (profile.firstName || nameParts[0] || "").trim();
       const lastName  = (profile.lastName  || nameParts.slice(1).join(" ") || firstName).trim();
-      const nameOnCard = `${firstName} ${lastName}`.trim() || profile.fullName;
+      const fullName  = `${firstName} ${lastName}`.trim() || profile.fullName;
       const dob       = (profile.dateOfBirth || "").trim();
       const phone     = (profile.phone || "").trim();
       const idType    = (kycDoc?.idType    || "").trim();
       const idNumber  = (kycDoc?.idNumber  || "").trim();
-      const line1     = (kycDoc?.addressLine1 || "").trim();
-      const city      = (profile.city || "Miami").trim();
-      const country   = (profile.country || "US").trim();
-      // Strowallet requires US billing — fall back to issuing-address defaults for state/zip
-      const state     = "FL";
-      const zipCode   = "33127";
 
-      // Pre-flight: refuse to call provider with missing required fields
+      // Hardcoded US billing address — Strowallet requires a US address for issuance.
+      // Use ISO country code "US" (Strowallet rejects "United States").
+      const HARDCODED_LINE1   = "3401 N. Miami Ave. Ste 230";
+      const HARDCODED_CITY    = "Miami";
+      const HARDCODED_STATE   = "FL";
+      const HARDCODED_POSTAL  = "33127";
+      const HARDCODED_COUNTRY = "US";
+
+      // Pre-flight: refuse to call provider with missing required user fields
       const missing: string[] = [];
       if (!firstName) missing.push("First name");
       if (!lastName)  missing.push("Last name");
@@ -4840,7 +4842,6 @@ export async function registerRoutes(
       if (!phone)     missing.push("Phone");
       if (!idType)    missing.push("ID type");
       if (!idNumber)  missing.push("ID number");
-      if (!line1)     missing.push("Address (line 1)");
       if (missing.length > 0) {
         return res.status(400).json({
           message: `Please complete your Profile & KYC first to enable NFC Card creation. Missing: ${missing.join(", ")}.`,
@@ -4848,36 +4849,50 @@ export async function registerRoutes(
         });
       }
 
-      // BitVCard NFC create — send BOTH camelCase and snake_case so we satisfy
-      // whichever naming convention the endpoint validates against.
+      // BitVCard NFC create payload — POST body to /create-nfc-card/
+      // Address is fully hardcoded; user identity fields come from profile + KYC.
+      // Both camelCase and snake_case keys are sent so we satisfy whichever the
+      // provider validates against.
       const payload: Record<string, string> = {
+        // Required auth — Strowallet expects public_key in the request body
         public_key: strowalletPublicKey,
-        name_on_card: nameOnCard,
-        amount: LOAD_USD.toString(),
-        // camelCase (matches /create-user/ convention)
-        firstName,
-        lastName,
-        customerEmail: profile.email,
-        phoneNumber: phone,
-        dateOfBirth: dob,
-        country,
-        line1,
-        houseNumber: line1.split(" ")[0] || "",
-        city,
-        state,
-        zipCode,
-        idType,
-        idNumber,
-        // snake_case aliases (matches /create-nfc-card/ validation messages)
-        first_name: firstName,
-        last_name:  lastName,
-        email:      profile.email,
+
+        // Required by the user's spec
+        name:        fullName,
+        first_name:  firstName,
+        last_name:   lastName,
+        email:       profile.email,
+        amount_usd:  String(LOAD_USD),
+
+        // Hardcoded billing address (snake_case per spec)
+        line1:       HARDCODED_LINE1,
+        city:        HARDCODED_CITY,
+        state:       HARDCODED_STATE,
+        postal_code: HARDCODED_POSTAL,
+        country:     HARDCODED_COUNTRY,
+
+        // KYC + contact (snake_case)
         phone,
         dob,
-        id_type:    idType,
-        id_number:  idNumber,
-        address:    line1,
-        zip_code:   zipCode,
+        id_type:     idType,
+        id_number:   idNumber,
+
+        // ── Aliases (camelCase / alt names) for backward compatibility ──
+        firstName,
+        lastName,
+        fullName,
+        nameOnCard:    fullName,
+        name_on_card:  fullName,
+        customerEmail: profile.email,
+        phoneNumber:   phone,
+        dateOfBirth:   dob,
+        idType,
+        idNumber,
+        houseNumber:   HARDCODED_LINE1.split(" ")[0],
+        zipCode:       HARDCODED_POSTAL,
+        zip_code:      HARDCODED_POSTAL,
+        amount:        String(LOAD_USD),
+        address:       HARDCODED_LINE1,
       };
 
       const response = await strowalletFetch(`${STROWALLET_BASE}/create-nfc-card/`, {
