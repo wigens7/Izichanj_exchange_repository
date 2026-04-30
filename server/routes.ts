@@ -6443,9 +6443,8 @@ export async function registerRoutes(
         return res.status(403).json({ message: "You must set a withdrawal PIN before releasing funds. Go to Security settings." });
       }
 
-      // 4. Verify PIN
-      const bcryptLib = await import("bcrypt");
-      const valid = await bcryptLib.compare(String(pin), seller.withdrawal_pin_hash);
+      // 4. Verify PIN (use the already-imported bcryptjs — matches the rest of the codebase)
+      const valid = await bcrypt.compare(String(pin), seller.withdrawal_pin_hash);
       if (!valid) {
         state.attempts += 1;
         const remaining = 5 - state.attempts;
