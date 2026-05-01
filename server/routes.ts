@@ -5095,6 +5095,30 @@ export async function registerRoutes(
           lower.includes("not enough") || lower.includes("low balance") ||
           (lower.includes("balance") && lower.includes("wallet"));
 
+        // ── Strowallet KYC not yet approved on their side ───────────────────────
+        // Two signals: (1) explicit KYC-pending message; (2) generic upstream error
+        // ("internal server error" / 500) — Strowallet's NFC endpoint returns this
+        // exact string when the cardholder isn't fully approved on their platform.
+        // We surface the SAME friendly response as /api/cards/create so the UI behaves
+        // consistently. No funds are deducted (we never charged the user yet).
+        const isKycExplicit =
+          lower.includes("kyc") && (lower.includes("not approved") || lower.includes("complete") || lower.includes("process"));
+        const isProviderGenericError =
+          lower.includes("internal server error") ||
+          (response.status >= 500 && response.status < 600);
+        if (isKycExplicit || isProviderGenericError) {
+          sendTelegramMessage(
+            `❌ <b>NFC Card Creation Failed — Likely KYC Pending</b>\n\n` +
+            `👤 ${profile.fullName} (${profile.email})\n` +
+            `⚠️ Provider message: <code>${errMsg.slice(0, 200)}</code>\n` +
+            `ℹ️ Returned the standard "card application under review" message to the user.`
+          ).catch(() => {});
+          return res.status(422).json({
+            code: "STROWALLET_KYC_PENDING",
+            message: "Your card application is under review by our card provider. This process can take up to 48 hours after KYC approval. You will be notified once you can apply.",
+          });
+        }
+
         if (isProviderNoFunds) {
           // Master wallet low — hold funds, mark pending, alert admin
           const newBalance = balanceUsdt - COST_USD;
