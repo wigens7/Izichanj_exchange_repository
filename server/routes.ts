@@ -898,6 +898,9 @@ export async function registerRoutes(
       const existing = await storage.getProfileByEmail(input.email);
       if (existing) {
         if (!existing.emailVerified) {
+          if (existing.otpBlocked) {
+            return res.status(403).json({ message: "Your account is under investigation. OTP code is inactive. Please contact support." });
+          }
           const code = crypto.randomInt(100000, 999999).toString();
           await storage.createOtp(existing.id, code);
           await sendOtpToProfile(existing, code, existing.phone || input.phone);
@@ -973,6 +976,9 @@ export async function registerRoutes(
       const profile = await storage.getProfile(profileId);
       if (!profile) return res.status(401).json({ message: "Unauthorized" });
       if (profile.emailVerified) return res.json({ message: "Email already verified" });
+      if (profile.otpBlocked) {
+        return res.status(403).json({ message: "Your account is under investigation. OTP code is inactive. Please contact support." });
+      }
       const code = crypto.randomInt(100000, 999999).toString();
       await storage.createOtp(profile.id, code);
       await sendOtpToProfile(profile, code);
@@ -1008,6 +1014,9 @@ export async function registerRoutes(
       }
 
       if (!profile.emailVerified) {
+        if (profile.otpBlocked) {
+          return res.status(403).json({ message: "Your account is under investigation. OTP code is inactive. Please contact support." });
+        }
         req.session.profileId = profile.id;
         const code = crypto.randomInt(100000, 999999).toString();
         await storage.createOtp(profile.id, code);
@@ -1041,6 +1050,9 @@ export async function registerRoutes(
       const profile = await storage.getProfileByPhone(input.phone);
       if (!profile) {
         return res.json({ message: "If an account exists with this number, you will receive a code." });
+      }
+      if (profile.otpBlocked) {
+        return res.status(403).json({ message: "Your account is under investigation. OTP code is inactive. Please contact support." });
       }
       const code = crypto.randomInt(100000, 999999).toString();
       await storage.createOtp(profile.id, code);
@@ -1208,6 +1220,9 @@ export async function registerRoutes(
     const profile = await getProfileFromReq(req);
     if (!profile) return res.sendStatus(401);
     if (profile.kycStatus !== "verified") return res.status(403).json({ message: "KYC verification required before making withdrawals" });
+    if (profile.otpBlocked) {
+      return res.status(403).json({ message: "Your account is under investigation. OTP code is inactive. Please contact support." });
+    }
     const code = crypto.randomInt(100000, 999999).toString();
     await storage.createOtp(profile.id, code);
     await sendOtpToProfile(profile, code);
@@ -3642,6 +3657,9 @@ export async function registerRoutes(
       }
       if (!profile.pinHash) {
         return res.json({ message: "If an account exists with this number, you will receive a code." });
+      }
+      if (profile.otpBlocked) {
+        return res.status(403).json({ message: "Your account is under investigation. OTP code is inactive. Please contact support." });
       }
       const code = crypto.randomInt(100000, 999999).toString();
       await storage.createOtp(profile.id, code);
