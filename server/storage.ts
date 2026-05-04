@@ -43,6 +43,7 @@ export interface IStorage {
   updateKycStatus(profileId: number, status: "verified" | "rejected"): Promise<void>;
   updateProfile(id: number, data: Partial<Profile>): Promise<Profile>;
   setUserBanStatus(id: number, isBanned: boolean): Promise<Profile>;
+  setOtpBlocked(id: number, otpBlocked: boolean): Promise<Profile>;
   freezeUser(id: number, frozenUntil: Date): Promise<Profile>;
   getAllProfiles(): Promise<Profile[]>;
 
@@ -368,6 +369,12 @@ export class DatabaseStorage implements IStorage {
 
   async setUserBanStatus(id: number, isBanned: boolean): Promise<Profile> {
     const [profile] = await db.update(profiles).set({ isBanned }).where(eq(profiles.id, id)).returning();
+    if (!profile) throw new Error("Profile not found");
+    return profile;
+  }
+
+  async setOtpBlocked(id: number, otpBlocked: boolean): Promise<Profile> {
+    const [profile] = await db.update(profiles).set({ otpBlocked }).where(eq(profiles.id, id)).returning();
     if (!profile) throw new Error("Profile not found");
     return profile;
   }

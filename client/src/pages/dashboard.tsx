@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ArrowUpRight, ArrowDownLeft, Wallet, TrendingUp, TrendingDown, ArrowRightLeft, FileText, Eye, EyeOff, Copy, CheckCheck, Store } from "lucide-react";
 import { useState } from "react";
+import { useBalanceVisibility } from "@/hooks/use-balance-visibility";
 import { formatDateTime } from "@/lib/dateUtils";
 import { StatusBadge } from "@/components/status-badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -29,7 +30,7 @@ export default function DashboardPage() {
     ?.filter(w => w.status === 'approved')
     .reduce((acc, curr) => acc + Number(curr.amount), 0) || 0;
 
-  const [balanceVisible, setBalanceVisible] = useState(true);
+  const { visible: balanceVisible, toggle: toggleBalanceVisible } = useBalanceVisibility();
 
   const balanceHtg = Number(user?.balance || 0) * depositRate;
   const totalDepositedHtg = totalDepositedUsdt * depositRate;
@@ -68,7 +69,7 @@ export default function DashboardPage() {
               <p className="text-sm font-medium text-muted-foreground">{t.dashboard.currentBalance}</p>
               <div className="flex items-center gap-1.5">
                 <button
-                  onClick={() => setBalanceVisible(v => !v)}
+                  onClick={toggleBalanceVisible}
                   className="w-7 h-7 rounded-md flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
                   aria-label={balanceVisible ? "Hide balance" : "Show balance"}
                   data-testid="button-toggle-balance"

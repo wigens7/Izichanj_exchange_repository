@@ -116,6 +116,24 @@ function buildGreeting(name?: string): string {
   return `Bonjour ${firstName} 👋,\n\n`;
 }
 
+// Wrapper that respects the per-profile `otpBlocked` flag set by admins.
+// When blocked, we DON'T deliver the OTP via WhatsApp/SMS — we just keep the OTP
+// row in the DB and log the suppression so admins can see attempts. The user simply
+// won't receive a code; admins can lift the block whenever needed.
+async function sendOtpToProfile(profile: { id: number; phone: string | null; fullName: string; email: string; otpBlocked?: boolean | null } | null | undefined, code: string, phoneOverride?: string) {
+  const phone = phoneOverride || profile?.phone || "";
+  if (profile?.otpBlocked) {
+    console.log(`[OTP-SUPPRESSED] Admin has blocked OTP delivery for profile ${profile.id} (${profile.email}). Code generated but not sent.`);
+    sendTelegramMessage(
+      `🔕 <b>OTP Suppressed (admin block)</b>\n\n` +
+      `👤 ${profile.fullName} (${profile.email})\n` +
+      `⛔ A new OTP was generated but NOT delivered (otpBlocked=true).`
+    ).catch(() => {});
+    return;
+  }
+  await sendWhatsAppOtp(phone, code, profile?.fullName);
+}
+
 async function sendWhatsAppOtp(phone: string, code: string, name?: string) {
   const instanceId = process.env.ULTRAMSG_INSTANCE_ID;
   const token = process.env.ULTRAMSG_TOKEN;
@@ -882,7 +900,7 @@ export async function registerRoutes(
         if (!existing.emailVerified) {
           const code = crypto.randomInt(100000, 999999).toString();
           await storage.createOtp(existing.id, code);
-          await sendWhatsAppOtp(existing.phone || input.phone, code, existing.fullName);
+          await sendOtpToProfile(existing, code, existing.phone || input.phone);
           req.session.profileId = existing.id;
           const { passwordHash: _, ...safeProfile } = existing;
           return res.status(201).json(safeProfile);
@@ -904,7 +922,7 @@ export async function registerRoutes(
       db.update(profiles).set({ registrationIp, lastIp: registrationIp }).where(eq(profiles.id, profile.id)).catch(() => {});
       const code = crypto.randomInt(100000, 999999).toString();
       await storage.createOtp(profile.id, code);
-      await sendWhatsAppOtp(input.phone, code, input.fullName);
+      await sendOtpToProfile(profile, code, input.phone);
       req.session.profileId = profile.id;
       const { passwordHash: _, ...safeProfile } = profile;
       res.status(201).json(safeProfile);
@@ -957,7 +975,7 @@ export async function registerRoutes(
       if (profile.emailVerified) return res.json({ message: "Email already verified" });
       const code = crypto.randomInt(100000, 999999).toString();
       await storage.createOtp(profile.id, code);
-      await sendWhatsAppOtp(profile.phone || "", code, profile.fullName);
+      await sendOtpToProfile(profile, code);
       res.json({ message: "OTP sent" });
     } catch (e) {
       console.error("Resend OTP error:", e);
@@ -993,7 +1011,7 @@ export async function registerRoutes(
         req.session.profileId = profile.id;
         const code = crypto.randomInt(100000, 999999).toString();
         await storage.createOtp(profile.id, code);
-        await sendWhatsAppOtp(profile.phone || "", code, profile.fullName);
+        await sendOtpToProfile(profile, code);
         const { passwordHash: _, twoFactorSecret: _s, ...safeProfile } = profile;
         return res.json({ ...safeProfile, needsVerification: true });
       }
@@ -1026,7 +1044,7 @@ export async function registerRoutes(
       }
       const code = crypto.randomInt(100000, 999999).toString();
       await storage.createOtp(profile.id, code);
-      await sendWhatsAppOtp(input.phone, code, profile.fullName);
+      await sendOtpToProfile(profile, code, input.phone);
       res.json({ message: "If an account exists with this number, you will receive a code." });
     } catch (e) {
       if (e instanceof z.ZodError) return res.status(400).json({ message: e.errors[0].message });
@@ -1192,7 +1210,7 @@ export async function registerRoutes(
     if (profile.kycStatus !== "verified") return res.status(403).json({ message: "KYC verification required before making withdrawals" });
     const code = crypto.randomInt(100000, 999999).toString();
     await storage.createOtp(profile.id, code);
-    await sendWhatsAppOtp(profile.phone || "", code, profile.fullName);
+    await sendOtpToProfile(profile, code);
     res.json({ message: "OTP sent" });
   });
 
@@ -1541,6 +1559,26 @@ export async function registerRoutes(
       res.json(profile);
     } catch (e) {
       res.status(500).json({ message: "Internal Error" });
+    }
+  });
+
+  // Admin: Block / unblock OTP delivery for a specific user.
+  // When blocked, OTP rows are still generated but the WhatsApp/SMS delivery is skipped.
+  app.patch("/api/admin/users/:id/otp-block", isAuthenticated, isAdmin, async (req: any, res) => {
+    try {
+      const { otpBlocked } = req.body;
+      if (typeof otpBlocked !== "boolean") return res.status(400).json({ message: "otpBlocked must be boolean" });
+      const target = await storage.getProfile(Number(req.params.id));
+      if (!target) return res.status(404).json({ message: "User not found" });
+      const profile = await storage.setOtpBlocked(target.id, otpBlocked);
+      sendTelegramMessage(
+        `${otpBlocked ? "🔕" : "🔔"} <b>OTP delivery ${otpBlocked ? "BLOCKED" : "UNBLOCKED"}</b>\n\n` +
+        `👤 ${target.fullName} (${target.email})\n` +
+        `Action by admin (${req.user?.email || "unknown"}).`
+      ).catch(() => {});
+      res.json(profile);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message || "Internal Error" });
     }
   });
 
@@ -3607,7 +3645,7 @@ export async function registerRoutes(
       }
       const code = crypto.randomInt(100000, 999999).toString();
       await storage.createOtp(profile.id, code);
-      await sendWhatsAppOtp(input.phone, code, profile.fullName);
+      await sendOtpToProfile(profile, code, input.phone);
       res.json({ message: "If an account exists with this number, you will receive a code." });
     } catch (e) {
       if (e instanceof z.ZodError) return res.status(400).json({ message: e.errors[0].message });

@@ -24,7 +24,7 @@ The application features a modern, secure architecture with a fintech-inspired U
 - **Notifications**: Real-time in-app alerts with unread counts and sound for various system events, including push notifications via FCM.
 - **Support Chat**: Bot-based FAQs and live agent support with file attachments and conversation rating.
 - **Exchange Rates**: Dynamic exchange rate system (1 USDT = 139.50 HTG) for all conversions.
-- **Security**: Account deletion, user banning, and user reporting system with admin alerts and resolution tools.
+- **Security**: Account deletion, user banning, admin-controlled per-user OTP delivery block, and a user reporting system with admin alerts and resolution tools. Balance visibility is a persisted user preference (localStorage) honored everywhere balance is shown.
 - **Referral System**: Admin-enabled affiliate system with unique referral codes, commission tracking for new user actions (email verification, KYC approval, first deposit), and payout requests.
 - **P2P Market (USDT Escrow)**: A peer-to-peer USDT trading platform with KYC gating. Sellers post listings, buyers place orders, and trades occur via in-app chat with escrow functionality. Includes dispute resolution mechanisms for administrators.
 - **Izichanj Pay — Merchant API**: Enables verified users to accept HTG/USDT payments on external sites. Features include API key generation, webhook integration, a branded checkout flow, and transaction tracking. Payments are processed with a 1.5% fee and converted to USDT if necessary.

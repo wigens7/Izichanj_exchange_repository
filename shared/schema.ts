@@ -34,6 +34,9 @@ export const profiles = pgTable("profiles", {
   withdrawalPinHash: text("withdrawal_pin_hash"),
   strowalletCustomerId: text("strowallet_customer_id"),
   isBanned: boolean("is_banned").default(false).notNull(),
+  // When true, suppress all OTP deliveries (WhatsApp/SMS) for this profile.
+  // Used by admins to stop sending OTPs to abusive or compromised accounts.
+  otpBlocked: boolean("otp_blocked").default(false).notNull(),
   isDeleted: boolean("is_deleted").default(false).notNull(),
   canEditProfile: boolean("can_edit_profile").default(false).notNull(),
   frozenUntil: timestamp("frozen_until"),

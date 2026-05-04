@@ -121,6 +121,14 @@ app.use((req, res, next) => {
     console.warn("[startup migration] frozen_until column skipped:", (e as Error).message);
   }
 
+  // Add otp_blocked column — admin-controlled suppression of OTP delivery
+  try {
+    await db.execute(sql`ALTER TABLE profiles ADD COLUMN IF NOT EXISTS otp_blocked BOOLEAN NOT NULL DEFAULT false`);
+    console.log("[startup migration] otp_blocked column ensured");
+  } catch (e) {
+    console.warn("[startup migration] otp_blocked column skipped:", (e as Error).message);
+  }
+
   // Add withdrawal_pin_hash for 6-digit withdrawal authorization PIN
   try {
     await db.execute(sql`ALTER TABLE profiles ADD COLUMN IF NOT EXISTS withdrawal_pin_hash TEXT`);

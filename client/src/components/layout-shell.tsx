@@ -27,7 +27,10 @@ import {
   ChevronRight,
   Share2,
   Nfc,
+  Eye,
+  EyeOff,
 } from "lucide-react";
+import { useBalanceVisibility } from "@/hooks/use-balance-visibility";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { NotificationBell } from "@/components/notification-bell";
@@ -82,6 +85,7 @@ export function LayoutShell({ children }: LayoutShellProps) {
 
   const { depositRate } = useRates();
   const balanceHtg = Number(user?.balance || 0) * depositRate;
+  const { visible: balanceVisible, toggle: toggleBalanceVisible } = useBalanceVisibility();
 
   const NavContent = () => (
     <div className="flex flex-col h-full bg-sidebar text-sidebar-foreground overflow-hidden">
@@ -98,11 +102,26 @@ export function LayoutShell({ children }: LayoutShellProps) {
         </div>
 
         <div className="mx-4 mb-4 p-3 rounded-md bg-sidebar-accent">
-          <p className="text-[11px] uppercase tracking-wider text-sidebar-foreground/40 font-medium mb-1">
-            {t.dashboard.currentBalance}
-          </p>
+          <div className="flex items-center justify-between mb-1">
+            <p className="text-[11px] uppercase tracking-wider text-sidebar-foreground/40 font-medium">
+              {t.dashboard.currentBalance}
+            </p>
+            <button
+              type="button"
+              onClick={toggleBalanceVisible}
+              className="p-1 -m-1 text-sidebar-foreground/50 hover:text-white transition-colors"
+              aria-label={balanceVisible ? "Hide balance" : "Show balance"}
+              data-testid="button-toggle-sidebar-balance"
+            >
+              {balanceVisible ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+            </button>
+          </div>
           <p className="text-xl font-display font-bold text-white" data-testid="text-sidebar-balance">
-            {formatHtg(balanceHtg)} <span className="text-sm font-normal text-sidebar-foreground/50">HTG</span>
+            {balanceVisible ? (
+              <>{formatHtg(balanceHtg)} <span className="text-sm font-normal text-sidebar-foreground/50">HTG</span></>
+            ) : (
+              <>••••• <span className="text-sm font-normal text-sidebar-foreground/50">HTG</span></>
+            )}
           </p>
         </div>
       </div>

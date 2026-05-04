@@ -86,6 +86,8 @@ import {
   Smartphone,
   Tv,
   Wallet,
+  Bell,
+  BellOff,
 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -481,6 +483,23 @@ function UserRow({ user, onUpdateBalance, isPending, hasDownloaded }: { user: an
     },
   });
 
+  const otpBlockMutation = useMutation({
+    mutationFn: async (otpBlocked: boolean) => {
+      const res = await apiRequest("PATCH", `/api/admin/users/${user.id}/otp-block`, { otpBlocked });
+      return res.json();
+    },
+    onSuccess: (data) => {
+      toast({
+        title: data.otpBlocked ? "OTP delivery blocked" : "OTP delivery enabled",
+        description: `${user.fullName} will ${data.otpBlocked ? "no longer receive" : "now receive"} OTP codes.`,
+      });
+      qc.invalidateQueries({ queryKey: ["/api/admin/users"] });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
+  });
+
   const grantEditMutation = useMutation({
     mutationFn: async (allow: boolean) => {
       const res = await apiRequest("PATCH", `/api/admin/users/${user.id}/grant-edit`, { allow });
@@ -756,6 +775,17 @@ function UserRow({ user, onUpdateBalance, isPending, hasDownloaded }: { user: an
             >
               {banMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : user.isBanned ? <Unlock className="w-3 h-3 mr-1" /> : <Ban className="w-3 h-3 mr-1" />}
               {user.isBanned ? "Unban" : "Ban"}
+            </Button>
+            <Button
+              variant={user.otpBlocked ? "default" : "outline"}
+              size="sm"
+              onClick={() => otpBlockMutation.mutate(!user.otpBlocked)}
+              disabled={otpBlockMutation.isPending}
+              data-testid={`button-otp-block-${user.id}`}
+              title={user.otpBlocked ? "Re-enable OTP delivery for this user" : "Stop sending OTP codes to this user"}
+            >
+              {otpBlockMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : user.otpBlocked ? <Bell className="w-3 h-3 mr-1" /> : <BellOff className="w-3 h-3 mr-1" />}
+              {user.otpBlocked ? "Enable OTP" : "Block OTP"}
             </Button>
             <Button
               variant={user.canEditProfile ? "default" : "outline"}
