@@ -19,7 +19,7 @@ import {
   calcNfcCardCreationCost, calcNfcCardTopUpCost, calcNfcCardWithdrawCost,
 } from "@shared/constants";
 import { getDepositRate, getWithdrawalRate, setRates, rateUsdtToHtg, rateHtgToUsdt, rateUsdtToHtgWithdrawal } from "./rates";
-import { generateReceiptPDF, generateAdjustmentReceiptPDF } from "./receipt";
+import { generateReceiptPDF, generateAdjustmentReceiptPDF, generateCardStatementPDF, type CardStatementTxn } from "./receipt";
 import { ensureKycImageSize } from "./image-compress";
 import { deposits, profiles, virtualCards, nfcCards } from "@shared/schema";
 import { db } from "./db";
@@ -4936,6 +4936,131 @@ export async function registerRoutes(
     } catch (e: any) {
       console.error("Card transactions error:", e);
       res.status(500).json({ message: e.message || "Internal Error" });
+    }
+  });
+
+  // ────────────────────────────────────────────────────────────────────
+  // Virtual Card Statement (PDF download)
+  // GET /api/cards/:id/statement?from=YYYY-MM-DD&to=YYYY-MM-DD
+  // Defaults: last 30 days. Combines local funding events with Strowallet
+  // spending events and renders a branded multi-page PDF statement.
+  // ────────────────────────────────────────────────────────────────────
+  app.get("/api/cards/:id/statement", isAuthenticated, async (req: any, res) => {
+    try {
+      const profile = await getProfileFromReq(req);
+      if (!profile) return res.status(401).json({ message: "Unauthorized" });
+
+      const card = await storage.getVirtualCard(Number(req.params.id), profile.id);
+      if (!card) return res.status(404).json({ message: "Card not found" });
+      if (card.status === "pending" || card.status === "cancelled") {
+        return res.status(400).json({ message: "Statements are only available once your card is active." });
+      }
+
+      // Parse date range — defaults to the last 30 days
+      const now = new Date();
+      const defaultFrom = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+      const fromParam = (req.query.from as string) || "";
+      const toParam = (req.query.to as string) || "";
+      const periodStart = fromParam && !isNaN(Date.parse(fromParam)) ? new Date(fromParam + "T00:00:00") : defaultFrom;
+      const periodEnd   = toParam   && !isNaN(Date.parse(toParam))   ? new Date(toParam   + "T23:59:59") : now;
+      if (periodEnd < periodStart) {
+        return res.status(400).json({ message: "Invalid date range — 'to' must be after 'from'." });
+      }
+
+      // 1) Local funding/creation events (always reliable)
+      const localTxns = await storage.getCardTransactions(card.id, profile.id);
+
+      // 2) Strowallet spending events (best effort — never fail the statement on API issues)
+      let stroTxns: any[] = [];
+      try {
+        const response = await strowalletFetch(`${STROWALLET_BASE}/card-transactions/`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Accept": "application/json" },
+          body: JSON.stringify({ card_id: card.cardId, public_key: strowalletPublicKey }),
+        });
+        if (response.ok) {
+          const data = await response.json();
+          function findArray(obj: any, depth = 0): any[] | null {
+            if (depth > 4) return null;
+            if (Array.isArray(obj)) return obj;
+            if (obj && typeof obj === "object") {
+              for (const key of ["transactions", "data", "items", "records", "list", "response", "card_transactions"]) {
+                const found = findArray(obj[key], depth + 1);
+                if (found) return found;
+              }
+            }
+            return null;
+          }
+          stroTxns = findArray(data) ?? [];
+        }
+      } catch (e) {
+        console.warn("[statement] Strowallet card-transactions fetch failed; continuing with local-only data:", (e as Error).message);
+      }
+
+      // Normalise everything into CardStatementTxn shape
+      const cardCurrency = card.currency || "USD";
+      const localFmt: CardStatementTxn[] = localTxns.map((t) => ({
+        date: new Date(t.createdAt as any),
+        description:
+          t.description ||
+          (t.type === "fund" ? "Card top-up" : t.type === "creation" ? "Card creation & initial load" : t.type),
+        type: "credit",
+        amount: Number(t.amount),
+        currency: t.currency || cardCurrency,
+        reference: `local-${t.id}`,
+        source: "local",
+      }));
+      const stroFmt: CardStatementTxn[] = stroTxns.map((t: any) => {
+        const amt = Math.abs(Number(t.amount ?? t.amt ?? t.value ?? 0));
+        const rawType = String(t.type || t.transaction_type || t.txn_type || "").toLowerCase();
+        const isCredit = ["credit", "topup", "fund", "deposit", "load", "refund", "reversal"].some((k) => rawType.includes(k));
+        const dateStr = t.date || t.created_at || t.transaction_date || t.createdAt || t.timestamp;
+        return {
+          date: dateStr ? new Date(dateStr) : new Date(),
+          description: t.description || t.narrative || t.merchant || t.merchant_name || t.title || rawType || "Card transaction",
+          type: isCredit ? "credit" : "debit",
+          amount: isNaN(amt) ? 0 : amt,
+          currency: (t.currency || cardCurrency) as string,
+          reference: t.id || t.reference || t.txn_ref || null,
+          source: "strowallet",
+        } as CardStatementTxn;
+      });
+
+      // Merge, filter to period, sort oldest → newest for statement chronology
+      const inRange = [...localFmt, ...stroFmt].filter(
+        (t) => t.date >= periodStart && t.date <= periodEnd && !isNaN(t.date.getTime())
+      );
+      inRange.sort((a, b) => a.date.getTime() - b.date.getTime());
+
+      const statementId = `STMT-${card.id}-${Date.now().toString(36).toUpperCase()}`;
+      const pdf = await generateCardStatementPDF({
+        statementId,
+        generatedAt: now,
+        periodStart,
+        periodEnd,
+        userName: profile.fullName,
+        userEmail: profile.email,
+        userId: profile.id,
+        cardBrand: card.brand || "Visa",
+        cardLast4: (card.last4 || "0000").slice(-4),
+        cardholderName: card.nameOnCard,
+        cardCurrency,
+        cardStatus: card.status,
+        cardOpenedAt: new Date(card.createdAt as any),
+        endingBalance: Number(card.balance || 0),
+        transactions: inRange,
+      });
+
+      const filename = `izichanj-card-${(card.last4 || "0000").slice(-4)}-statement-${periodStart.toISOString().slice(0,10)}_to_${periodEnd.toISOString().slice(0,10)}.pdf`;
+      res.set({
+        "Content-Type": "application/pdf",
+        "Content-Disposition": `attachment; filename="${filename}"`,
+        "Cache-Control": "no-store",
+      });
+      res.send(pdf);
+    } catch (e: any) {
+      console.error("[card statement] error:", e);
+      res.status(500).json({ message: e.message || "Failed to generate statement" });
     }
   });
 

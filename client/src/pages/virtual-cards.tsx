@@ -43,6 +43,7 @@ import {
   XOctagon,
   AlertTriangle,
   Trash2,
+  Download,
 } from "lucide-react";
 import { formatDateTime } from "@/lib/dateUtils";
 import type { VirtualCard } from "@shared/schema";
@@ -542,6 +543,39 @@ function CardItem({ card }: { card: VirtualCard }) {
   const [showTxModal, setShowTxModal] = useState(false);
   const [localBalance, setLocalBalance] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [showStatement, setShowStatement] = useState(false);
+  const today = new Date().toISOString().slice(0, 10);
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const [stmtFrom, setStmtFrom] = useState(thirtyDaysAgo);
+  const [stmtTo, setStmtTo] = useState(today);
+  const [downloadingStmt, setDownloadingStmt] = useState(false);
+
+  const downloadStatement = async () => {
+    try {
+      setDownloadingStmt(true);
+      const params = new URLSearchParams({ from: stmtFrom, to: stmtTo });
+      const res = await fetch(`/api/cards/${card.id}/statement?${params.toString()}`, { credentials: "include" });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ message: "Failed to generate statement" }));
+        throw new Error(err.message || "Failed to generate statement");
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `izichanj-card-${(card.last4 || "0000").slice(-4)}-statement-${stmtFrom}_to_${stmtTo}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      toast({ title: "Statement downloaded", description: `Period: ${stmtFrom} → ${stmtTo}` });
+      setShowStatement(false);
+    } catch (e: any) {
+      toast({ title: "Download failed", description: e.message, variant: "destructive" });
+    } finally {
+      setDownloadingStmt(false);
+    }
+  };
 
   const transactionsQuery = useQuery<any[]>({
     queryKey: ["/api/cards", card.id, "transactions"],
@@ -849,6 +883,108 @@ function CardItem({ card }: { card: VirtualCard }) {
             );
           })()}
 
+          {/* Card Statement Download Modal */}
+          <Dialog open={showStatement} onOpenChange={setShowStatement}>
+            <DialogContent className="max-w-md w-full">
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <Download className="w-5 h-5 text-primary" />
+                  Download Card Statement
+                </DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4 pt-2">
+                <p className="text-sm text-muted-foreground">
+                  Generate a branded PDF statement of all funding and spending activity on
+                  <span className="font-semibold"> •••• {(card.last4 || "0000").slice(-4)}</span> for the period below.
+                </p>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label htmlFor={`stmt-from-${card.id}`}>From</Label>
+                    <Input
+                      id={`stmt-from-${card.id}`}
+                      type="date"
+                      value={stmtFrom}
+                      max={stmtTo || today}
+                      onChange={(e) => setStmtFrom(e.target.value)}
+                      data-testid={`input-statement-from-${card.id}`}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor={`stmt-to-${card.id}`}>To</Label>
+                    <Input
+                      id={`stmt-to-${card.id}`}
+                      type="date"
+                      value={stmtTo}
+                      min={stmtFrom}
+                      max={today}
+                      onChange={(e) => setStmtTo(e.target.value)}
+                      data-testid={`input-statement-to-${card.id}`}
+                    />
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setStmtFrom(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10));
+                      setStmtTo(today);
+                    }}
+                    data-testid={`button-statement-preset-30-${card.id}`}
+                  >
+                    Last 30 days
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setStmtFrom(new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10));
+                      setStmtTo(today);
+                    }}
+                    data-testid={`button-statement-preset-90-${card.id}`}
+                  >
+                    Last 90 days
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setStmtFrom(new Date(card.createdAt as any).toISOString().slice(0, 10));
+                      setStmtTo(today);
+                    }}
+                    data-testid={`button-statement-preset-all-${card.id}`}
+                  >
+                    All time
+                  </Button>
+                </div>
+                <div className="flex justify-end gap-2 pt-2">
+                  <Button
+                    variant="ghost"
+                    onClick={() => setShowStatement(false)}
+                    disabled={downloadingStmt}
+                    data-testid={`button-statement-cancel-${card.id}`}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    onClick={downloadStatement}
+                    disabled={downloadingStmt || !stmtFrom || !stmtTo}
+                    data-testid={`button-statement-download-${card.id}`}
+                  >
+                    {downloadingStmt ? (
+                      <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Generating…</>
+                    ) : (
+                      <><Download className="w-4 h-4 mr-2" /> Download PDF</>
+                    )}
+                  </Button>
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
+
           {/* Transaction History Modal */}
           <Dialog open={showTxModal} onOpenChange={(open) => {
             setShowTxModal(open);
@@ -1098,6 +1234,16 @@ function CardItem({ card }: { card: VirtualCard }) {
             >
               <History className="w-3.5 h-3.5 mr-1.5" />
               {vc.transactions}
+            </Button>
+
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowStatement(true)}
+              data-testid={`button-statement-${card.id}`}
+            >
+              <Download className="w-3.5 h-3.5 mr-1.5" />
+              Statement
             </Button>
 
             <Button
