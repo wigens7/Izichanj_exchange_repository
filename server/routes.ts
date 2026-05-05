@@ -191,6 +191,65 @@ async function sendWhatsAppNotification(phone: string, message: string, name?: s
   }
 }
 
+// ────────────────────────────────────────────────────────────────────
+// Sanitises raw provider/Strowallet error payloads into a friendly,
+// professional message. Never leaks JSON, status codes, stack traces,
+// or generic "Failed to ..." style strings to the user.
+// ────────────────────────────────────────────────────────────────────
+function sanitizeProviderError(raw: any, fallback: string): string {
+  // Pull out a candidate string from common shapes
+  let msg: any = raw;
+  if (raw && typeof raw === "object") {
+    msg = raw.message ?? raw.error ?? raw.errors ?? raw.detail ?? raw.reason ?? "";
+    if (msg && typeof msg === "object") msg = msg.message ?? JSON.stringify(msg);
+  }
+  let s = String(msg ?? "").trim();
+
+  // Reject obviously unhelpful payloads → use friendly fallback
+  if (!s || s === "{}" || s === "[]" || s === "null" || s === "undefined") return fallback;
+  if (s.startsWith("{") || s.startsWith("[")) return fallback;
+  if (/<html|<!doctype/i.test(s)) return fallback;
+  if (s.length > 220) s = s.slice(0, 200).trim() + "…";
+
+  const lower = s.toLowerCase();
+
+  // Pattern-match on common provider phrases and rewrite them in our voice
+  if (lower.includes("kyc") && (lower.includes("not approved") || lower.includes("pending") || lower.includes("incomplete"))) {
+    return "Your card identity verification is still being reviewed by our card provider. Please try again later.";
+  }
+  if (lower.includes("insufficient") || lower.includes("not enough") || lower.includes("low balance")) {
+    return "We couldn't complete this card transaction at the moment. Please try a smaller amount or try again shortly.";
+  }
+  if (lower.includes("invalid card") || lower.includes("card not found") || lower.includes("card_id")) {
+    return "We couldn't reach this card right now. Please refresh and try again.";
+  }
+  if (lower.includes("frozen") || lower.includes("blocked") || lower.includes("inactive") || lower.includes("terminated")) {
+    return "This card cannot accept transactions at the moment. Please check the card status.";
+  }
+  if (lower.includes("limit") && (lower.includes("exceed") || lower.includes("reached"))) {
+    return "This transaction exceeds the card limit. Please try a smaller amount.";
+  }
+  if (lower.includes("timeout") || lower.includes("timed out") || lower.includes("network")) {
+    return "The card service is taking longer than usual to respond. Please try again in a moment.";
+  }
+  if (lower.includes("duplicate") || lower.includes("already")) {
+    return "This action has already been processed. Please refresh to see the latest status.";
+  }
+  if (lower.includes("unauthor") || lower.includes("forbidden") || lower.includes("permission")) {
+    return "You're not authorized to perform this action right now. Please contact support if this seems wrong.";
+  }
+  if (lower.includes("amount") && (lower.includes("invalid") || lower.includes("min") || lower.includes("max"))) {
+    return "The amount entered isn't accepted for this card. Please review and try again.";
+  }
+  if (lower.includes("server error") || lower.includes("internal") || lower.includes("500")) {
+    return "Our card service is temporarily unavailable. Please try again in a few minutes.";
+  }
+
+  // If the raw text looks like a clean human sentence, surface it; otherwise fallback
+  const looksClean = /^[A-Z]/.test(s) && /[.!?]$/.test(s) && !/[{}<>\\]/.test(s) && s.split(" ").length <= 30;
+  return looksClean ? s : fallback;
+}
+
 async function getProfileFromReq(req: any) {
   const profileId = req.session?.profileId;
   if (!profileId) return null;
@@ -2565,13 +2624,17 @@ export async function registerRoutes(
 
       // Check both status and success fields — Strowallet uses {success:false} not always {status:"error"}
       if (!stroRes.ok || data.success === false || data.status === "error" || data.status === false) {
-        const errMsg = typeof data.message === "object" ? JSON.stringify(data.message) : (data.message || data.error || "Strowallet registration failed");
-        return res.status(400).json({ message: errMsg });
+        return res.status(400).json({
+          message: sanitizeProviderError(
+            data,
+            "We couldn't complete the cardholder registration with our card provider. Please review the customer's KYC details and try again."
+          ),
+        });
       }
 
       const customerId = data.response?.customerId || data.response?.customer_id || data.customer_id || data.customerId || data.data?.customer_id;
       if (!customerId) {
-        return res.status(500).json({ message: "Strowallet registration returned no customer_id. Raw: " + JSON.stringify(data) });
+        return res.status(500).json({ message: "We couldn't finalise the cardholder registration with our card provider. Please try again shortly." });
       }
       await storage.updateProfile(profileId, { strowalletCustomerId: customerId });
 
@@ -2919,7 +2982,13 @@ export async function registerRoutes(
           `📋 <b>Full response:</b>\n<pre>${rawDump.slice(0, 800)}</pre>\n\n` +
           `👉 Card remains pending. Fix the issue above and retry again.`
         ).catch(() => {});
-        return res.status(400).json({ success: false, message: errMsg });
+        return res.status(400).json({
+          success: false,
+          message: sanitizeProviderError(
+            data,
+            "We couldn't complete the card retry with our card provider. Please review the issue and try again shortly."
+          ),
+        });
       }
 
       // Success — activate the card
@@ -4144,12 +4213,17 @@ export async function registerRoutes(
             message: "This email is already registered in Strowallet. Please use the 'Already Registered?' option below and enter your Strowallet Customer ID.",
           });
         }
-        return res.status(400).json({ message: `KYC registration failed: ${msgStr}` });
+        return res.status(400).json({
+          message: sanitizeProviderError(
+            data,
+            "We couldn't complete your card identity verification right now. Please review your details and try again, or contact support."
+          ),
+        });
       }
 
       const customerId = data.response?.customerId || data.response?.customer_id || data.customer_id || data.customerId || data.data?.customer_id;
       if (!customerId) {
-        return res.status(500).json({ message: "Strowallet returned no customer_id. Raw: " + JSON.stringify(data) });
+        return res.status(500).json({ message: "We couldn't finalise your card identity verification. Please try again shortly." });
       }
       await storage.updateProfile(profile.id, { strowalletCustomerId: customerId });
 
@@ -4362,7 +4436,12 @@ export async function registerRoutes(
           `👉 Review this card request manually or contact Strowallet support.`
         ).catch(() => {});
 
-        return res.status(400).json({ message: friendlyErr || "Failed to create virtual card" });
+        return res.status(400).json({
+          message: sanitizeProviderError(
+            data,
+            "We couldn't process your card application right now. Our team has been notified — please try again shortly."
+          ),
+        });
       }
 
       const cardInfo = data.response || data.data || data;
@@ -4552,9 +4631,13 @@ export async function registerRoutes(
       console.log("[USER RETRY CARD] Strowallet response:", JSON.stringify(data, null, 2));
 
       if (!response.ok || data.status === "error" || data.status === false) {
-        const rawErr = data.message ?? data.error ?? data.errors ?? data;
-        const errMsg = typeof rawErr === "string" ? rawErr : JSON.stringify(rawErr);
-        return res.status(400).json({ success: false, message: errMsg });
+        return res.status(400).json({
+          success: false,
+          message: sanitizeProviderError(
+            data,
+            "Your card isn't ready just yet. Please try again in a little while."
+          ),
+        });
       }
 
       // Success — activate card in DB
@@ -4730,7 +4813,12 @@ export async function registerRoutes(
       console.log("[STROWALLET] Fund card response:", JSON.stringify(data));
 
       if (!response.ok || data.status === "error" || data.status === false) {
-        return res.status(400).json({ message: data.message || data.error || "Failed to fund card" });
+        return res.status(400).json({
+          message: sanitizeProviderError(
+            data,
+            "We couldn't fund your card right now. No charge was made — please try again in a moment."
+          ),
+        });
       }
 
       // Deduct the FULL charge (load + fixed + variable fees) from user's wallet
@@ -5347,7 +5435,12 @@ export async function registerRoutes(
           `⚠️ <b>Error:</b> <code>${errMsg.slice(0, 200)}</code>\n` +
           `📋 <pre>${JSON.stringify(data, null, 2).slice(0, 600)}</pre>`
         ).catch(() => {});
-        return res.status(400).json({ message: errMsg || "Failed to create NFC card" });
+        return res.status(400).json({
+          message: sanitizeProviderError(
+            data,
+            "We couldn't process your NFC card request right now. Our team has been notified — please try again shortly."
+          ),
+        });
       }
 
       const cardInfo = data.response || data.data || data;
@@ -5573,9 +5666,12 @@ export async function registerRoutes(
         console.log("[NFC FUND] Provider error:", typeof provMsg === "string" ? provMsg.slice(0, 500) : JSON.stringify(provMsg).slice(0, 500));
         console.log("=========================================================================");
 
-        const rawErr = data.message ?? data.error ?? data.errors ?? data;
-        const errMsg = typeof rawErr === "string" ? rawErr : JSON.stringify(rawErr);
-        return res.status(400).json({ message: errMsg || "Failed to fund NFC card. Charge refunded." });
+        return res.status(400).json({
+          message: sanitizeProviderError(
+            data,
+            "We couldn't fund your NFC card right now. Your charge has been refunded — please try again in a moment."
+          ),
+        });
       }
 
       // Success — apply card balance update and log the transaction
@@ -5645,9 +5741,12 @@ export async function registerRoutes(
       }
 
       if (wdFailed) {
-        const rawErr = data.message ?? data.error ?? data.errors ?? data;
-        const errMsg = typeof rawErr === "string" ? rawErr : JSON.stringify(rawErr);
-        return res.status(400).json({ message: errMsg || "Failed to withdraw from NFC card" });
+        return res.status(400).json({
+          message: sanitizeProviderError(
+            data,
+            "We couldn't move funds off your NFC card right now. Please try again in a moment."
+          ),
+        });
       }
 
       // Credit wallet (net) and reduce card balance (full amount)
