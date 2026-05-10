@@ -6864,7 +6864,9 @@ export async function registerRoutes(
   });
 
   // GET /api/p2p/ads — marketplace listing (filtered by buyer's country group)
-  app.get("/api/p2p/ads", isAuthenticated, isKycVerified, async (req: any, res) => {
+  // Browsing is open to any authenticated user; KYC is only enforced on
+  // POST /api/p2p/ads and POST /api/p2p/orders (i.e. when actually trading).
+  app.get("/api/p2p/ads", isAuthenticated, async (req: any, res) => {
     try {
       await autoExpireOrders();
       const profileId = req.session.profileId;

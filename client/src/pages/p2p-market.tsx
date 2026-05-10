@@ -84,27 +84,13 @@ export default function P2PMarketPage() {
   const isKycVerified = user?.kycStatus === "verified";
   const isBanned = banData?.banned;
 
-  if (!isKycVerified) {
-    return (
-      <div className="p-4 space-y-4 max-w-lg mx-auto mt-8">
-        <Card className="border-yellow-500/30 bg-yellow-500/5">
-          <CardContent className="pt-6 text-center space-y-4">
-            <ShieldOff className="w-12 h-12 text-yellow-500 mx-auto" />
-            <div>
-              <h2 className="text-lg font-semibold">KYC Required</h2>
-              <p className="text-sm text-muted-foreground mt-1">
-                You must complete identity verification to access the P2P Market.
-                Go to your Profile to submit KYC documents.
-              </p>
-            </div>
-            <Button variant="outline" onClick={() => window.location.href = "/profile"} className="gap-2">
-              <ShieldCheck className="w-4 h-4" /> Go to Profile
-            </Button>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
+  const requireKyc = (action: string) => {
+    toast({
+      title: "Identity verification required",
+      description: `Please complete KYC in your Profile to ${action} on the P2P Market.`,
+      variant: "destructive",
+    });
+  };
 
   if (isBanned) {
     const until = banData?.bannedUntil ? new Date(banData.bannedUntil) : null;
@@ -133,10 +119,30 @@ export default function P2PMarketPage() {
           <Store className="w-5 h-5 text-primary" />
           <h1 className="text-xl font-bold">P2P Market</h1>
         </div>
-        <Button size="sm" onClick={() => setShowPostAd(true)} className="gap-2" data-testid="button-post-ad">
+        <Button
+          size="sm"
+          onClick={() => isKycVerified ? setShowPostAd(true) : requireKyc("post an ad")}
+          className="gap-2"
+          data-testid="button-post-ad"
+        >
           <Plus className="w-4 h-4" /> Post Ad
         </Button>
       </div>
+
+      {!isKycVerified && (
+        <Card className="border-yellow-500/30 bg-yellow-500/5">
+          <CardContent className="py-3 px-4 flex items-center gap-3">
+            <ShieldOff className="w-5 h-5 text-yellow-500 shrink-0" />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium">Identity verification required to trade</p>
+              <p className="text-xs text-muted-foreground">You can browse offers below, but you'll need to complete KYC before posting or placing orders.</p>
+            </div>
+            <Button size="sm" variant="outline" onClick={() => window.location.href = "/profile"} className="gap-1 shrink-0" data-testid="button-go-kyc">
+              <ShieldCheck className="w-4 h-4" /> Verify
+            </Button>
+          </CardContent>
+        </Card>
+      )}
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="w-full" data-testid="p2p-tabs">
@@ -146,7 +152,10 @@ export default function P2PMarketPage() {
         </TabsList>
 
         <TabsContent value="marketplace">
-          <MarketplaceTab onBuy={(ad) => setShowBuyDialog(ad)} currentUserId={user?.id} />
+          <MarketplaceTab
+            onBuy={(ad) => isKycVerified ? setShowBuyDialog(ad) : requireKyc("buy USDT")}
+            currentUserId={user?.id}
+          />
         </TabsContent>
 
         <TabsContent value="my-orders">
