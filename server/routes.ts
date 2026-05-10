@@ -7060,22 +7060,33 @@ export async function registerRoutes(
 
       const available = parseFloat(ad.available_usdt);
 
-      // Refund available USDT back to seller
-      await db.execute(sql`UPDATE profiles SET balance = balance + ${available} WHERE id = ${profileId}`);
-      await db.execute(sql`UPDATE p2p_ads SET status = 'cancelled', updated_at = NOW() WHERE id = ${adId}`);
+      // Sum the USDT still reserved by any pending orders on this ad —
+      // those funds were deducted from `available_usdt` when the order
+      // was placed and must also be refunded when we cancel the ad.
+      const pendingRows = await db.execute(sql`
+        SELECT COALESCE(SUM(amount_usdt), 0) AS reserved
+        FROM p2p_orders
+        WHERE ad_id = ${adId} AND status = 'pending'
+      `);
+      const reserved = parseFloat((pendingRows.rows[0] as any)?.reserved || "0");
+      const refundAmount = available + reserved;
 
-      // Cancel any pending orders for this ad
+      // Refund total locked USDT (available + reserved by pending orders) to seller
+      await db.execute(sql`UPDATE profiles SET balance = balance + ${refundAmount} WHERE id = ${profileId}`);
+      await db.execute(sql`UPDATE p2p_ads SET status = 'cancelled', available_usdt = 0, updated_at = NOW() WHERE id = ${adId}`);
+
+      // Cancel any pending orders for this ad (after we've captured their reserved totals above)
       await db.execute(sql`UPDATE p2p_orders SET status = 'cancelled', cancelled_by = 'seller', cancellation_reason = 'Ad cancelled by seller', cancelled_at = NOW() WHERE ad_id = ${adId} AND status = 'pending'`);
 
       const pRows = await db.execute(sql`SELECT balance FROM profiles WHERE id = ${profileId}`);
       const newBal = (pRows.rows[0] as any)?.balance;
-      const prevBal = newBal - available;
+      const prevBal = newBal - refundAmount;
       await db.execute(sql`
         INSERT INTO balance_logs (profile_id, previous_balance, new_balance, change, action, reference_id)
-        VALUES (${profileId}, ${prevBal}, ${newBal}, ${available}, 'p2p_ad_cancel_refund', ${String(adId)})
+        VALUES (${profileId}, ${prevBal}, ${newBal}, ${refundAmount}, 'p2p_ad_cancel_refund', ${String(adId)})
       `);
 
-      res.json({ success: true });
+      res.json({ success: true, refunded: refundAmount });
     } catch (e: any) {
       res.status(500).json({ message: e.message });
     }
