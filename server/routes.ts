@@ -6599,10 +6599,21 @@ export async function registerRoutes(
     return P2P_PAYMENT_METHODS[country] || P2P_PAYMENT_METHODS.default;
   }
 
+  // Normalize a country string: trim, strip diacritics, uppercase.
+  // Handles "Haïti ", "  haiti", "HAITI" etc. all consistently.
+  function normalizeCountry(country: string | null | undefined): string {
+    if (!country) return "";
+    return String(country)
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .trim()
+      .toUpperCase();
+  }
+
   // Returns "HT" for Haiti, "US" for USA, "default" for others
-  function getCountryGroup(country: string): string {
-    if (!country) return "default";
-    const c = country.toUpperCase();
+  function getCountryGroup(country: string | null | undefined): string {
+    const c = normalizeCountry(country);
+    if (!c) return "default";
     if (c === "HT" || c === "HAITI") return "HT";
     if (c === "US" || c === "USA" || c === "UNITED STATES") return "US";
     return "default";
@@ -6870,10 +6881,13 @@ export async function registerRoutes(
     try {
       await autoExpireOrders();
       const profileId = req.session.profileId;
-      const buyerRows = await db.execute(sql`SELECT country, id FROM profiles WHERE id = ${profileId}`);
+      const buyerRows = await db.execute(sql`SELECT country FROM profiles WHERE id = ${profileId}`);
       const buyer = buyerRows.rows[0] as any;
-      const buyerGroup = getCountryGroup(buyer?.country || "default");
-      // Filter to same market: HT users see HTG ads, US users see USD ads, others see all
+      const buyerGroup = getCountryGroup(buyer?.country);
+
+      // Pull all active ads from other users, then group-filter in JS so we can
+      // robustly normalize country strings (whitespace, accents, casing) instead
+      // of relying on exact SQL string matches that broke for "Haiti " vs "Haiti".
       const ads = await db.execute(sql`
         SELECT a.*,
                COALESCE(p.p2p_merchant_name, 'Anonymous') as seller_name,
@@ -6884,16 +6898,24 @@ export async function registerRoutes(
         WHERE a.status = 'active'
           AND a.available_usdt > 0
           AND a.seller_id != ${profileId}
-          AND (
-            ${buyerGroup === "default"} = true
-            OR a.country = ${buyer?.country || "default"}
-            OR (${buyerGroup} = 'HT' AND a.currency = 'HTG')
-            OR (${buyerGroup} = 'US' AND a.currency = 'USD')
-          )
         ORDER BY a.rate_htg ASC
-        LIMIT 100
+        LIMIT 200
       `);
-      res.json(ads.rows);
+
+      const filtered = (ads.rows as any[]).filter((ad) => {
+        // "default" buyers (international) see every ad
+        if (buyerGroup === "default") return true;
+        // Match by seller's country group OR by ad's own country/currency, all normalized
+        const sellerGroup = getCountryGroup(ad.seller_country);
+        const adCountryGroup = getCountryGroup(ad.country);
+        if (sellerGroup === buyerGroup || adCountryGroup === buyerGroup) return true;
+        // Currency fallback: HT → HTG, US → USD
+        if (buyerGroup === "HT" && ad.currency === "HTG") return true;
+        if (buyerGroup === "US" && ad.currency === "USD") return true;
+        return false;
+      });
+
+      res.json(filtered.slice(0, 100));
     } catch (e: any) {
       res.status(500).json({ message: e.message });
     }
