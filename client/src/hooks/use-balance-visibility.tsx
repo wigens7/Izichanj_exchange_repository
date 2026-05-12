@@ -4,13 +4,13 @@ const STORAGE_KEY = "izichanj_balance_visible";
 const EVENT = "izichanj:balance-visibility-changed";
 
 function read(): boolean {
-  if (typeof window === "undefined") return true;
+  if (typeof window === "undefined") return false;
   try {
     const v = window.localStorage.getItem(STORAGE_KEY);
-    if (v === null) return true;
+    if (v === null) return false;
     return v === "1";
   } catch {
-    return true;
+    return false;
   }
 }
 
@@ -25,7 +25,7 @@ function subscribe(cb: () => void) {
 }
 
 export function useBalanceVisibility() {
-  const visible = useSyncExternalStore(subscribe, read, () => true);
+  const visible = useSyncExternalStore(subscribe, read, () => false);
 
   const setVisible = useCallback((next: boolean) => {
     try {

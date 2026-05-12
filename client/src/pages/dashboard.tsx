@@ -102,8 +102,14 @@ export default function DashboardPage() {
                 <TrendingUp className="w-4 h-4" />
               </div>
             </div>
-            <p className="text-2xl font-display font-bold text-foreground" data-testid="text-deposited-usdt">{formatUsdt(totalDepositedUsdt)} <span className="text-sm font-normal text-muted-foreground">USDT</span></p>
-            <p className="text-xs text-muted-foreground mt-1">{formatHtg(totalDepositedHtg)} HTG</p>
+            <p className="text-2xl font-display font-bold text-foreground" data-testid="text-deposited-usdt">
+              {balanceVisible ? (
+                <>{formatUsdt(totalDepositedUsdt)} <span className="text-sm font-normal text-muted-foreground">USDT</span></>
+              ) : (
+                <><span className="tracking-widest">•••••</span> <span className="text-sm font-normal text-muted-foreground">USDT</span></>
+              )}
+            </p>
+            <p className="text-xs text-muted-foreground mt-1">{balanceVisible ? `${formatHtg(totalDepositedHtg)} HTG` : "••••• HTG"}</p>
           </CardContent>
         </Card>
 
@@ -115,8 +121,14 @@ export default function DashboardPage() {
                 <TrendingDown className="w-4 h-4" />
               </div>
             </div>
-            <p className="text-2xl font-display font-bold text-foreground" data-testid="text-withdrawn-htg">{formatHtg(totalWithdrawnHtg)} <span className="text-sm font-normal text-muted-foreground">HTG</span></p>
-            <p className="text-xs text-muted-foreground mt-1">{formatUsdt(totalWithdrawnUsdt)} USDT</p>
+            <p className="text-2xl font-display font-bold text-foreground" data-testid="text-withdrawn-htg">
+              {balanceVisible ? (
+                <>{formatHtg(totalWithdrawnHtg)} <span className="text-sm font-normal text-muted-foreground">HTG</span></>
+              ) : (
+                <><span className="tracking-widest">•••••</span> <span className="text-sm font-normal text-muted-foreground">HTG</span></>
+              )}
+            </p>
+            <p className="text-xs text-muted-foreground mt-1">{balanceVisible ? `${formatUsdt(totalWithdrawnUsdt)} USDT` : "••••• USDT"}</p>
           </CardContent>
         </Card>
       </div>
