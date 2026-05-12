@@ -6892,7 +6892,8 @@ export async function registerRoutes(
         SELECT a.*,
                COALESCE(p.p2p_merchant_name, 'Anonymous') as seller_name,
                p.country as seller_country,
-               p.kyc_status as seller_kyc
+               p.kyc_status as seller_kyc,
+               p.last_activity as seller_last_activity
         FROM p2p_ads a
         JOIN profiles p ON a.seller_id = p.id
         WHERE a.status = 'active'
@@ -7197,8 +7198,8 @@ export async function registerRoutes(
         SELECT o.*,
           o.amount_local as total_htg,
           o.rate as rate_htg,
-          bp.full_name as buyer_name,
-          COALESCE(sp.p2p_merchant_name, 'Anonymous') as seller_name,
+          bp.full_name as buyer_name, bp.last_activity as buyer_last_activity,
+          COALESCE(sp.p2p_merchant_name, 'Anonymous') as seller_name, sp.last_activity as seller_last_activity,
           a.rate_htg as ad_rate_htg, a.currency as ad_currency
         FROM p2p_orders o
         JOIN profiles bp ON o.buyer_id = bp.id
@@ -7226,8 +7227,8 @@ export async function registerRoutes(
       const orderId = Number(req.params.id);
       const rows = await db.execute(sql`
         SELECT o.*,
-          bp.full_name as buyer_name, bp.phone as buyer_phone,
-          COALESCE(sp.p2p_merchant_name, 'Anonymous') as seller_name, sp.phone as seller_phone,
+          bp.full_name as buyer_name, bp.phone as buyer_phone, bp.last_activity as buyer_last_activity,
+          COALESCE(sp.p2p_merchant_name, 'Anonymous') as seller_name, sp.phone as seller_phone, sp.last_activity as seller_last_activity,
           a.payment_methods as ad_payment_methods, a.terms_note
         FROM p2p_orders o
         JOIN profiles bp ON o.buyer_id = bp.id

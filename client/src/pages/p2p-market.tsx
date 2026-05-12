@@ -21,7 +21,32 @@ import {
   ShieldCheck, Loader2, RefreshCcw, X, Image as ImageIcon, Clock, Check,
   Lock, KeyRound, Settings, MessageCircle, Save
 } from "lucide-react";
-import { formatDistanceToNow } from "date-fns";
+import { formatDistanceToNow, format } from "date-fns";
+
+// ─── Presence Indicator ────────────────────────────────────────────────────
+// Considers a user "online" if last_activity is within the last 2 minutes.
+const ONLINE_WINDOW_MS = 2 * 60 * 1000;
+function PresenceIndicator({ lastActivity, compact = false }: { lastActivity?: string | Date | null; compact?: boolean }) {
+  if (!lastActivity) {
+    return compact ? null : <span className="text-[10px] text-muted-foreground">Offline</span>;
+  }
+  const last = typeof lastActivity === "string" ? new Date(lastActivity) : lastActivity;
+  const isOnline = Date.now() - last.getTime() < ONLINE_WINDOW_MS;
+  if (isOnline) {
+    return (
+      <span className="inline-flex items-center gap-1" data-testid="presence-online">
+        <span className="w-2 h-2 rounded-full bg-emerald-500 ring-2 ring-emerald-500/20 animate-pulse" />
+        {!compact && <span className="text-[10px] text-emerald-500 font-medium">Online</span>}
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground" data-testid="presence-offline" title={last.toLocaleString()}>
+      <span className="w-2 h-2 rounded-full bg-muted-foreground/40" />
+      {!compact && <>Last seen {formatDistanceToNow(last, { addSuffix: true })}</>}
+    </span>
+  );
+}
 
 const STATUS_COLORS: Record<string, string> = {
   active: "text-emerald-400 bg-emerald-400/10 border-emerald-400/30",
@@ -233,8 +258,9 @@ function AdCard({ ad, onBuy, isMine }: { ad: any; onBuy: (ad: any) => void; isMi
       <CardContent className="p-4">
         <div className="flex items-start justify-between gap-3">
           <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 mb-1">
+            <div className="flex items-center gap-2 mb-1 flex-wrap">
               <span className="font-semibold text-sm truncate">{sellerName}</span>
+              <PresenceIndicator lastActivity={ad.seller_last_activity ?? ad.sellerLastActivity} />
               {isMine && <Badge variant="outline" className="text-[10px] py-0">You</Badge>}
             </div>
             <div className="text-2xl font-bold text-primary">{rate.toFixed(2)} <span className="text-sm font-normal text-muted-foreground">{currency}/USDT</span></div>
@@ -926,13 +952,21 @@ function TradeDialog({ open, order, currentUserId, onClose }: { open: boolean; o
         data-testid="dialog-trade"
       >
         {/* Header — shadcn adds its own X button; no custom one needed */}
-        <div className="flex items-center justify-between px-4 pt-4 pb-3 border-b border-border shrink-0">
-          <div>
+        <div className="flex items-center justify-between px-4 pt-4 pb-3 border-b border-border shrink-0 gap-3">
+          <div className="min-w-0">
             <h3 className="font-semibold text-sm">Trade #{order.id}</h3>
-            <div className="flex items-center gap-2 mt-0.5">
+            <div className="flex items-center gap-2 mt-0.5 flex-wrap">
               <StatusBadge status={order.status} />
               <span className="text-xs text-muted-foreground">{isBuyer ? "Buying" : "Selling"}</span>
             </div>
+          </div>
+          <div className="flex flex-col items-end min-w-0 max-w-[55%]">
+            <span className="text-xs font-semibold truncate w-full text-right" data-testid="text-counterparty-name">
+              {isBuyer ? (order.seller_name ?? order.sellerName ?? "Seller") : (order.buyer_name ?? order.buyerName ?? "Buyer")}
+            </span>
+            <PresenceIndicator
+              lastActivity={isBuyer ? (order.seller_last_activity ?? order.sellerLastActivity) : (order.buyer_last_activity ?? order.buyerLastActivity)}
+            />
           </div>
         </div>
 
@@ -1003,8 +1037,12 @@ function TradeDialog({ open, order, currentUserId, onClose }: { open: boolean; o
                     </a>
                   ) : null}
                   <div className={`flex items-center gap-0.5 mt-1 ${isMe ? "justify-end" : "justify-start"}`}>
-                    <span className={`text-[10px] ${isMe ? "text-primary-foreground/60" : "text-muted-foreground"}`}>
-                      {msgDate ? formatDistanceToNow(new Date(msgDate), { addSuffix: true }) : ""}
+                    <span
+                      className={`text-[10px] ${isMe ? "text-primary-foreground/60" : "text-muted-foreground"}`}
+                      title={msgDate ? new Date(msgDate).toLocaleString() : ""}
+                      data-testid={`text-msg-time-${msg.id}`}
+                    >
+                      {msgDate ? format(new Date(msgDate), "p") : ""}
                     </span>
                     {isMe && (
                       readAt

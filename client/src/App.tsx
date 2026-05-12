@@ -160,6 +160,19 @@ function App() {
   useEffect(() => {
     registerAppServiceWorker();
   }, []);
+  // Presence heartbeat — pings every 60s while the tab is visible so the
+  // server's throttled isAuthenticated middleware can refresh last_activity.
+  useEffect(() => {
+    const ping = () => {
+      if (document.visibilityState !== "visible") return;
+      fetch("/api/user", { credentials: "include" }).catch(() => {});
+    };
+    ping();
+    const id = window.setInterval(ping, 60_000);
+    const onVis = () => { if (document.visibilityState === "visible") ping(); };
+    document.addEventListener("visibilitychange", onVis);
+    return () => { window.clearInterval(id); document.removeEventListener("visibilitychange", onVis); };
+  }, []);
   return (
     <QueryClientProvider client={queryClient}>
       <LanguageProvider>

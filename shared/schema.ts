@@ -44,6 +44,7 @@ export const profiles = pgTable("profiles", {
   lastIp: text("last_ip"),
   registrationIp: text("registration_ip"),
   lastLoginAt: timestamp("last_login_at"),
+  lastActivity: timestamp("last_activity"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   trc20DepositAddress: text("trc20_deposit_address"),
   bep20DepositAddress: text("bep20_deposit_address"),

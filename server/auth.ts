@@ -42,9 +42,25 @@ export function setupAuth(app: Express) {
   );
 }
 
+// In-memory throttle: only write last_activity at most once per profile per minute.
+const lastHeartbeatAt = new Map<number, number>();
+const HEARTBEAT_INTERVAL_MS = 60_000;
+
 export const isAuthenticated: RequestHandler = (req, res, next) => {
   if (!req.session.profileId) {
     return res.status(401).json({ message: "Unauthorized" });
+  }
+  // Fire-and-forget heartbeat; throttled so we don't hammer the DB on every request.
+  const pid = req.session.profileId as number;
+  const now = Date.now();
+  const last = lastHeartbeatAt.get(pid) ?? 0;
+  if (now - last >= HEARTBEAT_INTERVAL_MS) {
+    lastHeartbeatAt.set(pid, now);
+    import("./db").then(({ db }) =>
+      import("drizzle-orm").then(({ sql }) =>
+        db.execute(sql`UPDATE profiles SET last_activity = NOW() WHERE id = ${pid}`)
+      )
+    ).catch(() => {});
   }
   next();
 };

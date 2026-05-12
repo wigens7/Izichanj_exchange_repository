@@ -129,6 +129,14 @@ app.use((req, res, next) => {
     console.warn("[startup migration] otp_blocked column skipped:", (e as Error).message);
   }
 
+  // Add last_activity column — presence/online indicator (heartbeat from auth middleware)
+  try {
+    await db.execute(sql`ALTER TABLE profiles ADD COLUMN IF NOT EXISTS last_activity TIMESTAMP`);
+    console.log("[startup migration] last_activity column ensured");
+  } catch (e) {
+    console.warn("[startup migration] last_activity column skipped:", (e as Error).message);
+  }
+
   // Add withdrawal_pin_hash for 6-digit withdrawal authorization PIN
   try {
     await db.execute(sql`ALTER TABLE profiles ADD COLUMN IF NOT EXISTS withdrawal_pin_hash TEXT`);
