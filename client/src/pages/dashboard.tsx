@@ -7,9 +7,8 @@ import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ArrowUpRight, ArrowDownLeft, Wallet, TrendingUp, TrendingDown, ArrowRightLeft, FileText, Eye, EyeOff, Copy, CheckCheck, Store } from "lucide-react";
+import { ArrowUpRight, ArrowDownLeft, Wallet, TrendingUp, TrendingDown, ArrowRightLeft, FileText, Copy, CheckCheck, Store } from "lucide-react";
 import { useState } from "react";
-import { useBalanceVisibility } from "@/hooks/use-balance-visibility";
 import { formatDateTime } from "@/lib/dateUtils";
 import { StatusBadge } from "@/components/status-badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -30,7 +29,6 @@ export default function DashboardPage() {
     ?.filter(w => w.status === 'approved')
     .reduce((acc, curr) => acc + Number(curr.amount), 0) || 0;
 
-  const { visible: balanceVisible, toggle: toggleBalanceVisible } = useBalanceVisibility();
 
   const balanceHtg = Number(user?.balance || 0) * depositRate;
   const totalDepositedHtg = totalDepositedUsdt * depositRate;
@@ -66,30 +64,16 @@ export default function DashboardPage() {
         <Card className="stat-card text-blue-600 dark:text-blue-400">
           <CardContent className="p-5">
             <div className="flex items-center justify-between gap-2 mb-3">
-              <div className="flex items-center gap-1.5">
-                <p className="text-sm font-medium text-muted-foreground">{t.dashboard.currentBalance}</p>
-                <button
-                  onClick={toggleBalanceVisible}
-                  className="w-6 h-6 rounded-md flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
-                  aria-label={balanceVisible ? "Hide balance" : "Show balance"}
-                  data-testid="button-toggle-balance"
-                >
-                  {balanceVisible ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                </button>
-              </div>
+              <p className="text-sm font-medium text-muted-foreground">{t.dashboard.currentBalance}</p>
               <div className="w-9 h-9 rounded-md bg-blue-500/10 flex items-center justify-center">
                 <Wallet className="w-4 h-4" />
               </div>
             </div>
             <p className="text-2xl font-display font-bold text-foreground" data-testid="text-balance-htg">
-              {balanceVisible ? (
-                <>{formatHtg(balanceHtg)} <span className="text-sm font-normal text-muted-foreground">HTG</span></>
-              ) : (
-                <span className="tracking-widest">•••••</span>
-              )}
+              {formatHtg(balanceHtg)} <span className="text-sm font-normal text-muted-foreground">HTG</span>
             </p>
             <p className="text-xs text-muted-foreground mt-1">
-              {balanceVisible ? `${formatUsdt(Number(user.balance))} USDT` : "••••• USDT"}
+              {formatUsdt(Number(user.balance))} USDT
             </p>
           </CardContent>
         </Card>
@@ -102,14 +86,8 @@ export default function DashboardPage() {
                 <TrendingUp className="w-4 h-4" />
               </div>
             </div>
-            <p className="text-2xl font-display font-bold text-foreground" data-testid="text-deposited-usdt">
-              {balanceVisible ? (
-                <>{formatUsdt(totalDepositedUsdt)} <span className="text-sm font-normal text-muted-foreground">USDT</span></>
-              ) : (
-                <><span className="tracking-widest">•••••</span> <span className="text-sm font-normal text-muted-foreground">USDT</span></>
-              )}
-            </p>
-            <p className="text-xs text-muted-foreground mt-1">{balanceVisible ? `${formatHtg(totalDepositedHtg)} HTG` : "••••• HTG"}</p>
+            <p className="text-2xl font-display font-bold text-foreground" data-testid="text-deposited-usdt">{formatUsdt(totalDepositedUsdt)} <span className="text-sm font-normal text-muted-foreground">USDT</span></p>
+            <p className="text-xs text-muted-foreground mt-1">{formatHtg(totalDepositedHtg)} HTG</p>
           </CardContent>
         </Card>
 
@@ -121,14 +99,8 @@ export default function DashboardPage() {
                 <TrendingDown className="w-4 h-4" />
               </div>
             </div>
-            <p className="text-2xl font-display font-bold text-foreground" data-testid="text-withdrawn-htg">
-              {balanceVisible ? (
-                <>{formatHtg(totalWithdrawnHtg)} <span className="text-sm font-normal text-muted-foreground">HTG</span></>
-              ) : (
-                <><span className="tracking-widest">•••••</span> <span className="text-sm font-normal text-muted-foreground">HTG</span></>
-              )}
-            </p>
-            <p className="text-xs text-muted-foreground mt-1">{balanceVisible ? `${formatUsdt(totalWithdrawnUsdt)} USDT` : "••••• USDT"}</p>
+            <p className="text-2xl font-display font-bold text-foreground" data-testid="text-withdrawn-htg">{formatHtg(totalWithdrawnHtg)} <span className="text-sm font-normal text-muted-foreground">HTG</span></p>
+            <p className="text-xs text-muted-foreground mt-1">{formatUsdt(totalWithdrawnUsdt)} USDT</p>
           </CardContent>
         </Card>
       </div>

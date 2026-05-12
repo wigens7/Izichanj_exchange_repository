@@ -27,10 +27,7 @@ import {
   ChevronRight,
   Share2,
   Nfc,
-  Eye,
-  EyeOff,
 } from "lucide-react";
-import { useBalanceVisibility } from "@/hooks/use-balance-visibility";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { NotificationBell } from "@/components/notification-bell";
@@ -85,7 +82,6 @@ export function LayoutShell({ children }: LayoutShellProps) {
 
   const { depositRate } = useRates();
   const balanceHtg = Number(user?.balance || 0) * depositRate;
-  const { visible: balanceVisible, toggle: toggleBalanceVisible } = useBalanceVisibility();
 
   const NavContent = () => (
     <div className="flex flex-col h-full bg-sidebar text-sidebar-foreground overflow-hidden">
@@ -106,11 +102,7 @@ export function LayoutShell({ children }: LayoutShellProps) {
             {t.dashboard.currentBalance}
           </p>
           <p className="text-xl font-display font-bold text-white" data-testid="text-sidebar-balance">
-            {balanceVisible ? (
-              <>{formatHtg(balanceHtg)} <span className="text-sm font-normal text-sidebar-foreground/50">HTG</span></>
-            ) : (
-              <>••••• <span className="text-sm font-normal text-sidebar-foreground/50">HTG</span></>
-            )}
+            {formatHtg(balanceHtg)} <span className="text-sm font-normal text-sidebar-foreground/50">HTG</span>
           </p>
         </div>
       </div>
