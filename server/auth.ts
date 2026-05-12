@@ -43,8 +43,10 @@ export function setupAuth(app: Express) {
 }
 
 // In-memory throttle: only write last_activity at most once per profile per minute.
+// Bounded LRU-style map to avoid unbounded growth on long-lived processes.
 const lastHeartbeatAt = new Map<number, number>();
 const HEARTBEAT_INTERVAL_MS = 60_000;
+const HEARTBEAT_MAP_MAX = 5000;
 
 export const isAuthenticated: RequestHandler = (req, res, next) => {
   if (!req.session.profileId) {
@@ -55,7 +57,12 @@ export const isAuthenticated: RequestHandler = (req, res, next) => {
   const now = Date.now();
   const last = lastHeartbeatAt.get(pid) ?? 0;
   if (now - last >= HEARTBEAT_INTERVAL_MS) {
+    if (lastHeartbeatAt.has(pid)) lastHeartbeatAt.delete(pid);
     lastHeartbeatAt.set(pid, now);
+    if (lastHeartbeatAt.size > HEARTBEAT_MAP_MAX) {
+      const oldest = lastHeartbeatAt.keys().next().value;
+      if (oldest !== undefined) lastHeartbeatAt.delete(oldest);
+    }
     import("./db").then(({ db }) =>
       import("drizzle-orm").then(({ sql }) =>
         db.execute(sql`UPDATE profiles SET last_activity = NOW() WHERE id = ${pid}`)

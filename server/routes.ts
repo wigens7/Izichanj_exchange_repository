@@ -7654,6 +7654,14 @@ export async function registerRoutes(
     try {
       const profileId = req.session.profileId;
       const orderId = Number(req.params.id);
+      const order = await db.execute(sql`
+        SELECT buyer_id, seller_id FROM p2p_orders WHERE id = ${orderId} LIMIT 1
+      `);
+      const row: any = order.rows[0];
+      if (!row) return res.status(404).json({ message: "Order not found" });
+      if (row.buyer_id !== profileId && row.seller_id !== profileId) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
       await db.execute(sql`
         UPDATE p2p_chat_messages SET read_at = NOW()
         WHERE order_id = ${orderId} AND sender_id != ${profileId} AND read_at IS NULL
