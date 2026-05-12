@@ -102,20 +102,9 @@ export function LayoutShell({ children }: LayoutShellProps) {
         </div>
 
         <div className="mx-4 mb-4 p-3 rounded-md bg-sidebar-accent">
-          <div className="flex items-center justify-between mb-1">
-            <p className="text-[11px] uppercase tracking-wider text-sidebar-foreground/40 font-medium">
-              {t.dashboard.currentBalance}
-            </p>
-            <button
-              type="button"
-              onClick={toggleBalanceVisible}
-              className="p-1 -m-1 text-sidebar-foreground/50 hover:text-white transition-colors"
-              aria-label={balanceVisible ? "Hide balance" : "Show balance"}
-              data-testid="button-toggle-sidebar-balance"
-            >
-              {balanceVisible ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-            </button>
-          </div>
+          <p className="text-[11px] uppercase tracking-wider text-sidebar-foreground/40 font-medium mb-1">
+            {t.dashboard.currentBalance}
+          </p>
           <p className="text-xl font-display font-bold text-white" data-testid="text-sidebar-balance">
             {balanceVisible ? (
               <>{formatHtg(balanceHtg)} <span className="text-sm font-normal text-sidebar-foreground/50">HTG</span></>
