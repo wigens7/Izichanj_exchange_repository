@@ -66,19 +66,19 @@ export default function DashboardPage() {
         <Card className="stat-card text-blue-600 dark:text-blue-400">
           <CardContent className="p-5">
             <div className="flex items-center justify-between gap-2 mb-3">
-              <p className="text-sm font-medium text-muted-foreground">{t.dashboard.currentBalance}</p>
               <div className="flex items-center gap-1.5">
+                <p className="text-sm font-medium text-muted-foreground">{t.dashboard.currentBalance}</p>
                 <button
                   onClick={toggleBalanceVisible}
-                  className="w-7 h-7 rounded-md flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
+                  className="w-6 h-6 rounded-md flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
                   aria-label={balanceVisible ? "Hide balance" : "Show balance"}
                   data-testid="button-toggle-balance"
                 >
                   {balanceVisible ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
                 </button>
-                <div className="w-9 h-9 rounded-md bg-blue-500/10 flex items-center justify-center">
-                  <Wallet className="w-4 h-4" />
-                </div>
+              </div>
+              <div className="w-9 h-9 rounded-md bg-blue-500/10 flex items-center justify-center">
+                <Wallet className="w-4 h-4" />
               </div>
             </div>
             <p className="text-2xl font-display font-bold text-foreground" data-testid="text-balance-htg">
