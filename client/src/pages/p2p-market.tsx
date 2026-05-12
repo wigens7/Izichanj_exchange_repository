@@ -856,13 +856,38 @@ function TradeDialog({ open, order, currentUserId, onClose }: { open: boolean; o
   };
 
   const [uploading, setUploading] = useState(false);
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [pendingPreview, setPendingPreview] = useState<string | null>(null);
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const isImageFile = (nameOrUrl?: string | null) =>
+    !!nameOrUrl && /\.(png|jpe?g|gif|webp|bmp|svg|heic|heif)(\?.*)?$/i.test(nameOrUrl);
+
+  const handleFilePick = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    e.target.value = "";
     if (!file) return;
+    setPendingFile(file);
+    if (file.type.startsWith("image/")) {
+      const url = URL.createObjectURL(file);
+      setPendingPreview(url);
+    } else {
+      setPendingPreview(null);
+    }
+  };
+
+  const cancelPendingFile = () => {
+    if (pendingPreview) URL.revokeObjectURL(pendingPreview);
+    setPendingFile(null);
+    setPendingPreview(null);
+  };
+
+  const sendPendingFile = async () => {
+    if (!pendingFile || uploading || sendMsg.isPending) return;
+    const file = pendingFile;
+    const caption = chatMsg.trim();
     setUploading(true);
     try {
-      // Step 1: Get presigned upload URL
       const urlRes = await fetch("/api/p2p/upload-url", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -871,22 +896,25 @@ function TradeDialog({ open, order, currentUserId, onClose }: { open: boolean; o
       });
       if (!urlRes.ok) throw new Error("Failed to get upload URL");
       const { uploadURL, objectPath } = await urlRes.json();
-      // Step 2: Upload file directly to object storage
       const putRes = await fetch(uploadURL, {
         method: "PUT",
         headers: { "Content-Type": file.type },
         body: file,
       });
       if (!putRes.ok) throw new Error("Upload failed");
-      // Step 3: Send message with the stored path as URL
-      sendMsg.mutate({ message: "", fileUrl: objectPath, fileName: file.name });
+      sendMsg.mutate({ message: caption, fileUrl: objectPath, fileName: file.name });
+      setChatMsg("");
+      cancelPendingFile();
     } catch (err: any) {
       toast({ title: "Upload failed.", description: err?.message ?? "Please try again.", variant: "destructive" });
     } finally {
       setUploading(false);
-      e.target.value = "";
     }
   };
+
+  useEffect(() => {
+    return () => { if (pendingPreview) URL.revokeObjectURL(pendingPreview); };
+  }, [pendingPreview]);
 
   const isActive = ["pending", "paid"].includes(order.status);
 
@@ -955,11 +983,25 @@ function TradeDialog({ open, order, currentUserId, onClose }: { open: boolean; o
               <div key={msg.id} className={`flex ${isMe ? "justify-end" : "justify-start"}`}>
                 <div className={`max-w-[78%] rounded-2xl px-3 py-2 text-sm ${isMe ? "bg-primary text-primary-foreground rounded-br-sm" : "bg-muted rounded-bl-sm"}`}>
                   {msg.message && <p className="break-words leading-relaxed">{msg.message}</p>}
-                  {fileUrl && (
+                  {fileUrl && (isImageFile(msg.file_name ?? msg.fileName) || isImageFile(fileUrl)) ? (
+                    <button
+                      type="button"
+                      onClick={() => setLightboxUrl(fileUrl)}
+                      className="block mt-1.5 rounded-lg overflow-hidden focus:outline-none focus:ring-2 focus:ring-ring"
+                      data-testid={`button-chat-image-${msg.id}`}
+                    >
+                      <img
+                        src={fileUrl}
+                        alt={msg.file_name ?? msg.fileName ?? "Attachment"}
+                        loading="lazy"
+                        className="max-w-[200px] max-h-[200px] w-auto h-auto rounded-lg object-cover cursor-zoom-in hover:opacity-90 transition-opacity"
+                      />
+                    </button>
+                  ) : fileUrl ? (
                     <a href={fileUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-xs underline mt-1.5 opacity-80 hover:opacity-100">
-                      <ImageIcon className="w-3 h-3 shrink-0" /> {msg.file_name ?? msg.fileName ?? "View image"}
+                      <ImageIcon className="w-3 h-3 shrink-0" /> {msg.file_name ?? msg.fileName ?? "View attachment"}
                     </a>
-                  )}
+                  ) : null}
                   <div className={`flex items-center gap-0.5 mt-1 ${isMe ? "justify-end" : "justify-start"}`}>
                     <span className={`text-[10px] ${isMe ? "text-primary-foreground/60" : "text-muted-foreground"}`}>
                       {msgDate ? formatDistanceToNow(new Date(msgDate), { addSuffix: true }) : ""}
@@ -981,33 +1023,94 @@ function TradeDialog({ open, order, currentUserId, onClose }: { open: boolean; o
 
         {/* Chat input */}
         {isActive && (
-          <div className="flex items-center gap-2 px-3 py-2.5 border-t border-border shrink-0 bg-background">
-            <input type="file" ref={fileRef} accept="image/*,application/pdf" className="hidden" onChange={handleFileUpload} />
-            <Button
-              variant="ghost" size="icon" className="shrink-0 h-9 w-9 text-muted-foreground hover:text-foreground"
-              onClick={() => fileRef.current?.click()}
-              disabled={uploading}
-              data-testid="button-attach-file"
-              title="Attach image"
+          <div className="border-t border-border shrink-0 bg-background">
+            {pendingFile && (
+              <div className="flex items-center gap-3 px-3 pt-2.5 pb-1">
+                <div className="relative">
+                  {pendingPreview ? (
+                    <img
+                      src={pendingPreview}
+                      alt="Preview"
+                      className="w-14 h-14 rounded-lg object-cover border border-border"
+                      data-testid="img-attach-preview"
+                    />
+                  ) : (
+                    <div className="w-14 h-14 rounded-lg border border-border bg-muted flex items-center justify-center">
+                      <Paperclip className="w-5 h-5 text-muted-foreground" />
+                    </div>
+                  )}
+                  <button
+                    type="button"
+                    onClick={cancelPendingFile}
+                    disabled={uploading}
+                    className="absolute -top-1.5 -right-1.5 bg-background border border-border rounded-full p-0.5 shadow-sm hover:bg-muted disabled:opacity-50"
+                    aria-label="Remove attachment"
+                    data-testid="button-cancel-attachment"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-medium truncate" data-testid="text-attach-name">{pendingFile.name}</p>
+                  <p className="text-[10px] text-muted-foreground">
+                    {(pendingFile.size / 1024).toFixed(1)} KB · ready to send
+                  </p>
+                </div>
+              </div>
+            )}
+            <div className="flex items-center gap-2 px-3 py-2.5">
+              <input type="file" ref={fileRef} accept="image/*,application/pdf" className="hidden" onChange={handleFilePick} />
+              <Button
+                variant="ghost" size="icon" className="shrink-0 h-9 w-9 text-muted-foreground hover:text-foreground"
+                onClick={() => fileRef.current?.click()}
+                disabled={uploading || !!pendingFile}
+                data-testid="button-attach-file"
+                title="Attach image"
+              >
+                <Paperclip className="w-4 h-4" />
+              </Button>
+              <Input
+                value={chatMsg}
+                onChange={e => setChatMsg(e.target.value)}
+                onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); pendingFile ? sendPendingFile() : handleSend(); } }}
+                placeholder={pendingFile ? "Add a caption (optional)…" : "Type a message…"}
+                className="h-9 text-sm flex-1"
+                data-testid="input-chat-message"
+              />
+              <Button
+                size="icon" className="h-9 w-9 shrink-0"
+                onClick={() => pendingFile ? sendPendingFile() : handleSend()}
+                disabled={sendMsg.isPending || uploading || (!pendingFile && !chatMsg.trim())}
+                data-testid="button-send-message"
+              >
+                {(sendMsg.isPending || uploading) ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* Image lightbox */}
+        {lightboxUrl && (
+          <div
+            className="fixed inset-0 z-[100] bg-black/90 backdrop-blur-sm flex items-center justify-center p-4"
+            onClick={() => setLightboxUrl(null)}
+            data-testid="overlay-image-lightbox"
+          >
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); setLightboxUrl(null); }}
+              className="absolute top-4 right-4 text-white/80 hover:text-white bg-black/40 rounded-full p-2"
+              aria-label="Close"
+              data-testid="button-close-lightbox"
             >
-              {uploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Paperclip className="w-4 h-4" />}
-            </Button>
-            <Input
-              value={chatMsg}
-              onChange={e => setChatMsg(e.target.value)}
-              onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
-              placeholder="Type a message…"
-              className="h-9 text-sm flex-1"
-              data-testid="input-chat-message"
+              <X className="w-5 h-5" />
+            </button>
+            <img
+              src={lightboxUrl}
+              alt="Full size"
+              onClick={(e) => e.stopPropagation()}
+              className="max-w-full max-h-full object-contain rounded-lg shadow-2xl"
             />
-            <Button
-              size="icon" className="h-9 w-9 shrink-0"
-              onClick={handleSend}
-              disabled={sendMsg.isPending || !chatMsg.trim()}
-              data-testid="button-send-message"
-            >
-              {sendMsg.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
-            </Button>
           </div>
         )}
 
