@@ -22,6 +22,7 @@ import {
   Lock, KeyRound, Settings, MessageCircle, Save
 } from "lucide-react";
 import { formatDistanceToNow, format } from "date-fns";
+import { parseTs, formatTime } from "@/lib/dateUtils";
 
 // ─── Presence Indicator ────────────────────────────────────────────────────
 // Considers a user "online" if last_activity is within the last 2 minutes.
@@ -30,7 +31,8 @@ function PresenceIndicator({ lastActivity, compact = false }: { lastActivity?: s
   if (!lastActivity) {
     return compact ? null : <span className="text-[10px] text-muted-foreground">Offline</span>;
   }
-  const last = typeof lastActivity === "string" ? new Date(lastActivity) : lastActivity;
+  const last = parseTs(lastActivity);
+  if (!last) return compact ? null : <span className="text-[10px] text-muted-foreground">Offline</span>;
   const isOnline = Date.now() - last.getTime() < ONLINE_WINDOW_MS;
   if (isOnline) {
     return (
@@ -43,7 +45,7 @@ function PresenceIndicator({ lastActivity, compact = false }: { lastActivity?: s
   return (
     <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground" data-testid="presence-offline" title={last.toLocaleString()}>
       <span className="w-2 h-2 rounded-full bg-muted-foreground/40" />
-      {!compact && <>Last seen {formatDistanceToNow(last, { addSuffix: true })}</>}
+      {!compact && <>Last seen {formatDistanceToNow(last as Date, { addSuffix: true })}</>}
     </span>
   );
 }
@@ -68,7 +70,8 @@ function StatusBadge({ status }: { status: string }) {
 }
 
 function TimeAgo({ date }: { date: string }) {
-  return <span className="text-xs text-muted-foreground">{formatDistanceToNow(new Date(date), { addSuffix: true })}</span>;
+  const d = parseTs(date);
+  return <span className="text-xs text-muted-foreground">{d ? formatDistanceToNow(d, { addSuffix: true }) : ""}</span>;
 }
 
 function ExpiryCountdown({ expiresAt }: { expiresAt: string }) {
@@ -1039,10 +1042,10 @@ function TradeDialog({ open, order, currentUserId, onClose }: { open: boolean; o
                   <div className={`flex items-center gap-0.5 mt-1 ${isMe ? "justify-end" : "justify-start"}`}>
                     <span
                       className={`text-[10px] ${isMe ? "text-primary-foreground/60" : "text-muted-foreground"}`}
-                      title={msgDate ? new Date(msgDate).toLocaleString() : ""}
+                      title={msgDate ? (parseTs(msgDate)?.toLocaleString() ?? "") : ""}
                       data-testid={`text-msg-time-${msg.id}`}
                     >
-                      {msgDate ? format(new Date(msgDate), "p") : ""}
+                      {msgDate ? formatTime(msgDate) : ""}
                     </span>
                     {isMe && (
                       readAt

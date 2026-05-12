@@ -1,10 +1,23 @@
 const TZ = "America/Port-au-Prince";
 
-function safe(date: Date | string | number | null | undefined): Date | null {
-  if (!date) return null;
-  const d = new Date(date as any);
+// Matches PostgreSQL `timestamp without time zone` strings like
+// "2026-04-17 04:23:47.942126" (no trailing Z, no offset). These are
+// always stored in UTC by our backend, so we must parse them as UTC —
+// `new Date(str)` would otherwise interpret them as local time.
+const PG_NAIVE_TS = /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(\.\d+)?$/;
+
+export function parseTs(date: Date | string | number | null | undefined): Date | null {
+  if (date === null || date === undefined || date === "") return null;
+  let d: Date;
+  if (typeof date === "string" && PG_NAIVE_TS.test(date)) {
+    d = new Date(date.replace(" ", "T") + "Z");
+  } else {
+    d = new Date(date as any);
+  }
   return isNaN(d.getTime()) ? null : d;
 }
+
+const safe = parseTs;
 
 function fmt(date: Date | string | number | null | undefined, opts: Intl.DateTimeFormatOptions): string {
   const d = safe(date);
