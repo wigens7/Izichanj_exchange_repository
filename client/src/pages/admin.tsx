@@ -556,18 +556,26 @@ function UserRow({ user, onUpdateBalance, isPending, hasDownloaded }: { user: an
     },
   });
 
+  const [blockOtpOnSet, setBlockOtpOnSet] = useState(true);
+
   const setPasswordMutation = useMutation({
     mutationFn: async (newPassword: string) => {
-      const res = await apiRequest("POST", `/api/admin/users/${user.id}/set-password`, { newPassword });
+      const res = await apiRequest("POST", `/api/admin/users/${user.id}/set-password`, { newPassword, blockOtp: blockOtpOnSet });
       return res.json();
     },
-    onSuccess: () => {
-      toast({ title: "Password updated", description: `${user.fullName} can now sign in with the new password.` });
+    onSuccess: (data: any) => {
+      toast({
+        title: "Password updated",
+        description: data?.otpBlocked
+          ? `${user.fullName} cannot use Forgot Password — OTP delivery is now blocked.`
+          : `${user.fullName} can now sign in with the new password.`,
+      });
       // Wipe ALL password material from client state before closing.
       setCustomPw("");
       setConfirmCustomPw("");
       setTempPassword(null);
       setShowPasswordModal(false);
+      qc.invalidateQueries({ queryKey: ["/api/admin/users"] });
     },
     onError: (error: Error) => {
       toast({ title: "Update failed", description: error.message, variant: "destructive" });
@@ -1185,6 +1193,28 @@ function UserRow({ user, onUpdateBalance, isPending, hasDownloaded }: { user: an
                   data-testid={`input-confirm-custom-password-${user.id}`}
                 />
               </div>
+              <label
+                className="flex items-start gap-2.5 p-3 rounded-md border border-amber-300 dark:border-amber-700/60 bg-amber-50 dark:bg-amber-900/20 cursor-pointer"
+                data-testid={`label-block-otp-on-set-${user.id}`}
+              >
+                <input
+                  type="checkbox"
+                  checked={blockOtpOnSet}
+                  onChange={(e) => setBlockOtpOnSet(e.target.checked)}
+                  className="mt-0.5 h-4 w-4 accent-amber-600 cursor-pointer"
+                  data-testid={`checkbox-block-otp-on-set-${user.id}`}
+                />
+                <div className="flex-1">
+                  <p className="text-sm font-medium text-amber-900 dark:text-amber-200">
+                    Also block OTP delivery (recommended for fraud lockout)
+                  </p>
+                  <p className="text-xs text-amber-800/80 dark:text-amber-200/70 mt-0.5">
+                    {blockOtpOnSet
+                      ? "User will NOT be able to use Forgot Password to recover their account."
+                      : "User can still use Forgot Password to bypass this lockout."}
+                  </p>
+                </div>
+              </label>
               <Button
                 onClick={() => {
                   if (customPw.length < 8) {
@@ -1202,7 +1232,7 @@ function UserRow({ user, onUpdateBalance, isPending, hasDownloaded }: { user: an
                 data-testid={`button-save-custom-password-${user.id}`}
               >
                 {setPasswordMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
-                Set New Password
+                {blockOtpOnSet ? "Set Password & Lock Account" : "Set New Password"}
               </Button>
             </div>
           )}

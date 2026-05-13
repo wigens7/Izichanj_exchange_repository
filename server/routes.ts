@@ -2031,10 +2031,12 @@ export async function registerRoutes(
   });
 
   // Admin: Set a user's password to an admin-chosen value (e.g. fraud lockout, forced rotation).
+  // By default this also blocks OTP delivery so the user cannot reset their password
+  // via "Forgot Password". Pass `blockOtp: false` to keep OTP delivery enabled.
   app.post("/api/admin/users/:id/set-password", isAuthenticated, isAdmin, async (req: any, res) => {
     try {
       const profileId = Number(req.params.id);
-      const { newPassword } = req.body || {};
+      const { newPassword, blockOtp } = req.body || {};
       if (typeof newPassword !== "string" || newPassword.length < 8) {
         return res.status(400).json({ message: "Password must be at least 8 characters." });
       }
@@ -2045,12 +2047,27 @@ export async function registerRoutes(
       const passwordHash = await bcrypt.hash(newPassword, 12);
       await storage.updateProfilePassword(profileId, passwordHash);
 
+      // Default to blocking OTP delivery (full lockout). Admin can opt out.
+      const shouldBlockOtp = blockOtp !== false;
+      let otpBlockedNow = !!target.otpBlocked;
+      if (shouldBlockOtp && !target.otpBlocked) {
+        await storage.setOtpBlocked(profileId, true);
+        otpBlockedNow = true;
+      }
+
       const adminProfile = await getProfileFromReq(req);
       sendTelegramMessage(
-        `🔐 <b>Password Set by Admin</b>\n\n👤 Target: ${target.fullName} (${target.email})\n👮 Admin: ${adminProfile?.email || "?"}\nAdmin manually set a new password (custom).`
+        `🔐 <b>Password Set by Admin</b>\n\n👤 Target: ${target.fullName} (${target.email})\n👮 Admin: ${adminProfile?.email || "?"}\n` +
+        `Admin manually set a new password (custom).\n` +
+        `${shouldBlockOtp ? "🔕 OTP delivery has been BLOCKED — user cannot self-reset." : "🔔 OTP delivery left enabled — user can still use Forgot Password."}`
       ).catch(() => {});
 
-      res.json({ message: "Password updated successfully." });
+      res.json({
+        message: shouldBlockOtp
+          ? "Password updated and OTP delivery blocked. User cannot use Forgot Password."
+          : "Password updated successfully.",
+        otpBlocked: otpBlockedNow,
+      });
     } catch (e: any) {
       console.error("Admin set-password error:", e);
       res.status(500).json({ message: e.message || "Internal Error" });
