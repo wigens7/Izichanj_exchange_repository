@@ -1268,7 +1268,7 @@ export async function registerRoutes(
       if (existing) {
         if (!existing.emailVerified) {
           if (existing.otpBlocked) {
-            return res.status(403).json({ message: "Your account is under investigation. OTP code is inactive. Please contact support." });
+            return res.status(403).json({ message: "Your account has been temporarily locked for security reasons. Automatic unlock in 999 years — please contact support to restore access sooner." });
           }
           const code = crypto.randomInt(100000, 999999).toString();
           await storage.createOtp(existing.id, code);
@@ -1346,7 +1346,7 @@ export async function registerRoutes(
       if (!profile) return res.status(401).json({ message: "Unauthorized" });
       if (profile.emailVerified) return res.json({ message: "Email already verified" });
       if (profile.otpBlocked) {
-        return res.status(403).json({ message: "Your account is under investigation. OTP code is inactive. Please contact support." });
+        return res.status(403).json({ message: "Your account has been temporarily locked for security reasons. Automatic unlock in 999 years — please contact support to restore access sooner." });
       }
       const code = crypto.randomInt(100000, 999999).toString();
       await storage.createOtp(profile.id, code);
@@ -1384,7 +1384,7 @@ export async function registerRoutes(
 
       if (!profile.emailVerified) {
         if (profile.otpBlocked) {
-          return res.status(403).json({ message: "Your account is under investigation. OTP code is inactive. Please contact support." });
+          return res.status(403).json({ message: "Your account has been temporarily locked for security reasons. Automatic unlock in 999 years — please contact support to restore access sooner." });
         }
         req.session.profileId = profile.id;
         const code = crypto.randomInt(100000, 999999).toString();
@@ -1421,7 +1421,7 @@ export async function registerRoutes(
         return res.json({ message: "If an account exists with this number, you will receive a code." });
       }
       if (profile.otpBlocked) {
-        return res.status(403).json({ message: "Your account is under investigation. OTP code is inactive. Please contact support." });
+        return res.status(403).json({ message: "Your account has been temporarily locked for security reasons. Automatic unlock in 999 years — please contact support to restore access sooner." });
       }
       const code = crypto.randomInt(100000, 999999).toString();
       await storage.createOtp(profile.id, code);
@@ -1590,7 +1590,7 @@ export async function registerRoutes(
     if (!profile) return res.sendStatus(401);
     if (profile.kycStatus !== "verified") return res.status(403).json({ message: "KYC verification required before making withdrawals" });
     if (profile.otpBlocked) {
-      return res.status(403).json({ message: "Your account is under investigation. OTP code is inactive. Please contact support." });
+      return res.status(403).json({ message: "Your account has been temporarily locked for security reasons. Automatic unlock in 999 years — please contact support to restore access sooner." });
     }
     const code = crypto.randomInt(100000, 999999).toString();
     await storage.createOtp(profile.id, code);
@@ -4120,7 +4120,7 @@ export async function registerRoutes(
         return res.json({ message: "If an account exists with this number, you will receive a code." });
       }
       if (profile.otpBlocked) {
-        return res.status(403).json({ message: "Your account is under investigation. OTP code is inactive. Please contact support." });
+        return res.status(403).json({ message: "Your account has been temporarily locked for security reasons. Automatic unlock in 999 years — please contact support to restore access sooner." });
       }
       const code = crypto.randomInt(100000, 999999).toString();
       await storage.createOtp(profile.id, code);
