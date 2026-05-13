@@ -14,10 +14,14 @@ export const PAYPAL_MIN_DEPOSIT_USD = 20.0;
 export const PAYPAL_FLAT_FEE_USD = 10.0;
 export const PAYPAL_MAX_DEPOSIT_USD = 10000.0;
 
+// Default to sandbox. To go live, explicitly set PAYPAL_ENVIRONMENT=live AND
+// swap the PAYPAL_CLIENT_ID/SECRET to your live merchant credentials.
+// Note: NODE_ENV is intentionally NOT used here — Replit deployments run with
+// NODE_ENV=production by default, but that does not mean PayPal should switch
+// to live. PayPal env must be flipped deliberately and in lockstep with the
+// credentials.
 export const PAYPAL_ENVIRONMENT: "sandbox" | "live" =
-  (process.env.PAYPAL_ENVIRONMENT === "live" || process.env.NODE_ENV === "production")
-    ? "live"
-    : "sandbox";
+  process.env.PAYPAL_ENVIRONMENT === "live" ? "live" : "sandbox";
 
 const paypalClient = new Client({
   clientCredentialsAuthCredentials: {
