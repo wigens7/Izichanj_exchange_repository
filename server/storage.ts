@@ -17,7 +17,7 @@ export interface IStorage {
   getValidOtp(profileId: number, code: string): Promise<typeof otps.$inferSelect | undefined>;
   markOtpVerified(id: number): Promise<void>;
 
-  createDeposit(deposit: InsertDeposit & { profileId: number; depositMethod?: "usdt" | "moncash" | "nowpayments"; amountHtg?: string; moncashTransactionId?: string | null; nowpaymentsPaymentId?: string | null; payAddress?: string | null; payCurrency?: string | null; expiresAt?: Date | null; ipAddress?: string | null }): Promise<Deposit>;
+  createDeposit(deposit: InsertDeposit & { profileId: number; depositMethod?: "usdt" | "moncash" | "nowpayments" | "paypal"; amountHtg?: string; moncashTransactionId?: string | null; nowpaymentsPaymentId?: string | null; paypalOrderId?: string | null; payAddress?: string | null; payCurrency?: string | null; expiresAt?: Date | null; ipAddress?: string | null }): Promise<Deposit>;
   getDeposits(profileId?: number): Promise<Deposit[]>;
   getDepositById(id: number): Promise<Deposit | undefined>;
   updateDepositStatus(id: number, status: "approved" | "rejected" | "expired"): Promise<Deposit>;
@@ -231,7 +231,7 @@ export class DatabaseStorage implements IStorage {
     await db.update(otps).set({ verified: true }).where(eq(otps.id, id));
   }
 
-  async createDeposit(deposit: InsertDeposit & { profileId: number; depositMethod?: "usdt" | "moncash" | "nowpayments"; amountHtg?: string; moncashTransactionId?: string | null; nowpaymentsPaymentId?: string | null; payAddress?: string | null; payCurrency?: string | null; expiresAt?: Date | null }): Promise<Deposit> {
+  async createDeposit(deposit: InsertDeposit & { profileId: number; depositMethod?: "usdt" | "moncash" | "nowpayments" | "paypal"; amountHtg?: string; moncashTransactionId?: string | null; nowpaymentsPaymentId?: string | null; paypalOrderId?: string | null; payAddress?: string | null; payCurrency?: string | null; expiresAt?: Date | null }): Promise<Deposit> {
     const [newDeposit] = await db.insert(deposits).values(deposit).returning();
     return newDeposit;
   }

@@ -113,6 +113,16 @@ app.use((req, res, next) => {
     console.warn("[startup migration] manual deposit columns skipped:", (e as Error).message);
   }
 
+  // Add PayPal deposit support: enum value + paypal_order_id column + UNIQUE index
+  try {
+    await db.execute(sql`ALTER TYPE deposit_method ADD VALUE IF NOT EXISTS 'paypal'`);
+    await db.execute(sql`ALTER TABLE deposits ADD COLUMN IF NOT EXISTS paypal_order_id TEXT`);
+    await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS deposits_paypal_order_id_unique ON deposits(paypal_order_id) WHERE paypal_order_id IS NOT NULL`);
+    console.log("[startup migration] PayPal deposit columns ensured");
+  } catch (e) {
+    console.warn("[startup migration] paypal deposit columns skipped:", (e as Error).message);
+  }
+
   // Add frozen_until column for anti-fraud account freezing
   try {
     await db.execute(sql`ALTER TABLE profiles ADD COLUMN IF NOT EXISTS frozen_until TIMESTAMP`);

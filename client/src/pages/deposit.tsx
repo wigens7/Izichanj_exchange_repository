@@ -47,7 +47,7 @@ export default function DepositPage() {
   const { t } = useLanguage();
   const { depositRate } = useRates();
   const kycVerified = user?.kycStatus === "verified";
-  const [depositMethod, setDepositMethod] = useState<"crypto" | "moncash">("crypto");
+  const [depositMethod, setDepositMethod] = useState<"crypto" | "moncash" | "paypal">("crypto");
   const [selectedNetwork, setSelectedNetwork] = useState<NetworkKey>("trc20");
 
   // ── Crypto (NowPayments) state ─────────────────
@@ -350,11 +350,11 @@ export default function DepositPage() {
       )}
 
       {/* Method selector */}
-      <div className="flex gap-2" data-testid="deposit-method-tabs">
+      <div className="grid grid-cols-3 gap-2" data-testid="deposit-method-tabs">
         <Button
           variant={depositMethod === "crypto" ? "default" : "outline"}
           onClick={() => setDepositMethod("crypto")}
-          className="flex-1"
+          className="w-full"
           data-testid="button-method-crypto"
         >
           <Bitcoin className="w-4 h-4 mr-2" />
@@ -363,7 +363,7 @@ export default function DepositPage() {
         <Button
           variant={depositMethod === "moncash" ? "default" : "outline"}
           onClick={() => setDepositMethod("moncash")}
-          className="flex-1 relative"
+          className="w-full relative"
           data-testid="button-method-moncash"
         >
           <Smartphone className="w-4 h-4 mr-2" />
@@ -372,7 +372,20 @@ export default function DepositPage() {
             Manual
           </Badge>
         </Button>
+        <Button
+          variant={depositMethod === "paypal" ? "default" : "outline"}
+          onClick={() => setDepositMethod("paypal")}
+          className="w-full"
+          data-testid="button-method-paypal"
+        >
+          <CreditCard className="w-4 h-4 mr-2" />
+          PayPal
+        </Button>
       </div>
+
+      {depositMethod === "paypal" && (
+        <PaypalDepositSection kycVerified={kycVerified} depositRate={depositRate} />
+      )}
 
       {/* ── Crypto (NowPayments) — Amount Entry ─────────────────────────── */}
       {depositMethod === "crypto" && !paymentInfo && (
@@ -821,5 +834,263 @@ export default function DepositPage() {
         </div>
       )}
     </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PayPal deposit section — separate component so the SDK only loads when the
+// user actually opens the PayPal tab. Uses the standard PayPal Buttons JS SDK
+// on the client; the server (server/paypal.ts + /api/paypal/*) handles order
+// creation, capture, balance crediting, and the $10 flat fee.
+// ─────────────────────────────────────────────────────────────────────────────
+interface PaypalConfig {
+  clientId: string;
+  environment: "sandbox" | "live";
+  minDeposit: number;
+  fee: number;
+  maxDeposit: number;
+}
+
+function PaypalDepositSection({ kycVerified, depositRate }: { kycVerified: boolean; depositRate: number }) {
+  const { toast } = useToast();
+  const [amount, setAmount] = useState<string>("");
+  const [success, setSuccess] = useState<{ creditedUsdt: number; creditedHtg: number; totalCharged: number; fee: number } | null>(null);
+  const buttonsContainerRef = useRef<HTMLDivElement>(null);
+  const renderedButtonsRef = useRef<any>(null);
+  const sdkLoadedRef = useRef(false);
+  const amountRef = useRef<string>("");
+  amountRef.current = amount;
+
+  const { data: config, isLoading: configLoading } = useQuery<PaypalConfig>({
+    queryKey: ["/api/paypal/client-id"],
+    enabled: kycVerified,
+  });
+
+  const depositAmt = parseFloat(amount) || 0;
+  const minDeposit = config?.minDeposit ?? 20;
+  const fee = config?.fee ?? 10;
+  const maxDeposit = config?.maxDeposit ?? 10000;
+  const totalCharge = depositAmt > 0 ? depositAmt + fee : 0;
+  const creditedHtg = depositAmt * depositRate;
+  const belowMin = depositAmt > 0 && depositAmt < minDeposit;
+  const aboveMax = depositAmt > maxDeposit;
+  const validAmount = depositAmt >= minDeposit && depositAmt <= maxDeposit;
+
+  // Load PayPal SDK once we have client-id
+  useEffect(() => {
+    if (!config?.clientId || sdkLoadedRef.current) return;
+    if ((window as any).paypal) { sdkLoadedRef.current = true; return; }
+    const script = document.createElement("script");
+    script.src = `https://www.paypal.com/sdk/js?client-id=${encodeURIComponent(config.clientId)}&currency=USD&intent=capture`;
+    script.async = true;
+    script.onload = () => { sdkLoadedRef.current = true; setTimeout(() => renderButtons(), 0); };
+    script.onerror = () => toast({ title: "PayPal SDK failed to load", description: "Check your internet connection and retry.", variant: "destructive" });
+    document.body.appendChild(script);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [config?.clientId]);
+
+  // (Re)render PayPal Buttons when amount becomes valid
+  useEffect(() => {
+    if (!sdkLoadedRef.current || !validAmount || success) return;
+    renderButtons();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [validAmount, success]);
+
+  const renderButtons = () => {
+    const paypal = (window as any).paypal;
+    const container = buttonsContainerRef.current;
+    if (!paypal || !container) return;
+    container.innerHTML = "";
+    renderedButtonsRef.current = paypal.Buttons({
+      style: { layout: "vertical", color: "blue", shape: "rect", label: "paypal" },
+      onClick: (_data: any, actions: any) => {
+        const amt = parseFloat(amountRef.current);
+        if (!amt || amt < minDeposit) {
+          toast({ title: "Invalid amount", description: `Minimum PayPal deposit is $${minDeposit.toFixed(2)} USD.`, variant: "destructive" });
+          return actions.reject();
+        }
+        if (amt > maxDeposit) {
+          toast({ title: "Amount too large", description: `Maximum PayPal deposit is $${maxDeposit.toLocaleString()} USD.`, variant: "destructive" });
+          return actions.reject();
+        }
+        return actions.resolve();
+      },
+      createOrder: async () => {
+        const res = await apiRequest("POST", "/api/paypal/create-order", { amount: parseFloat(amountRef.current) });
+        const data = await res.json();
+        if (!res.ok) {
+          toast({ title: "Failed to create order", description: data.message || "Please try again", variant: "destructive" });
+          throw new Error(data.message || "Create order failed");
+        }
+        return data.id;
+      },
+      onApprove: async (data: any) => {
+        try {
+          const res = await apiRequest("POST", "/api/paypal/capture-order", { orderID: data.orderID });
+          const result = await res.json();
+          if (!res.ok || result.status !== "COMPLETED") {
+            toast({ title: "Payment not completed", description: result.message || "Please contact support.", variant: "destructive" });
+            return;
+          }
+          setSuccess({
+            creditedUsdt: result.amountCreditedUsdt,
+            creditedHtg: result.amountCreditedHtg,
+            totalCharged: result.totalChargedUsd,
+            fee: result.feeUsd,
+          });
+          queryClient.invalidateQueries({ queryKey: ["/api/deposits"] });
+          queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
+          queryClient.invalidateQueries({ queryKey: ["/api/user"] });
+          toast({
+            title: result.alreadyProcessed ? "Deposit already credited" : "Deposit successful",
+            description: `$${result.amountCreditedUsdt.toFixed(2)} USDT credited to your balance.`,
+          });
+        } catch (e: any) {
+          toast({ title: "Capture failed", description: e?.message || "Failed to capture payment", variant: "destructive" });
+        }
+      },
+      onError: (err: any) => {
+        console.error("[PayPal] onError", err);
+        toast({ title: "PayPal error", description: "Payment could not be completed. Please try again.", variant: "destructive" });
+      },
+      onCancel: () => {
+        toast({ title: "Payment cancelled", description: "You cancelled the PayPal payment." });
+      },
+    });
+    try { renderedButtonsRef.current.render(container); } catch (e) { console.error("[PayPal] render error:", e); }
+  };
+
+  const reset = () => {
+    setSuccess(null);
+    setAmount("");
+  };
+
+  if (!kycVerified) {
+    return (
+      <Card className="opacity-60">
+        <CardContent className="p-6 text-center text-sm text-muted-foreground">
+          Complete KYC verification to enable PayPal deposits.
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (success) {
+    return (
+      <Card data-testid="card-paypal-success">
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <CheckCircle2 className="w-5 h-5 text-emerald-500" />
+            PayPal Deposit Successful
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="rounded-lg border border-border bg-emerald-500/5 divide-y divide-border overflow-hidden text-sm">
+            <div className="flex items-center justify-between px-4 py-2.5">
+              <span className="text-muted-foreground">Total Charged</span>
+              <span className="font-medium">${success.totalCharged.toFixed(2)} USD</span>
+            </div>
+            <div className="flex items-center justify-between px-4 py-2.5">
+              <span className="text-muted-foreground">Processing Fee</span>
+              <span className="font-medium text-red-500">−${success.fee.toFixed(2)} USD</span>
+            </div>
+            <div className="flex items-center justify-between px-4 py-2.5 bg-emerald-500/10">
+              <span className="font-semibold text-emerald-700 dark:text-emerald-400">Credited to Balance</span>
+              <div className="text-right">
+                <p className="font-bold text-emerald-700 dark:text-emerald-400" data-testid="text-paypal-credited-usdt">${success.creditedUsdt.toFixed(2)} USDT</p>
+                <p className="text-xs text-muted-foreground">{formatHtg(success.creditedHtg)} HTG</p>
+              </div>
+            </div>
+          </div>
+          <Button className="w-full" variant="outline" onClick={reset} data-testid="button-paypal-new-deposit">
+            Make Another PayPal Deposit
+          </Button>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base">PayPal Deposit</CardTitle>
+        <CardDescription className="text-xs">
+          Pay with PayPal balance or card. Minimum ${minDeposit.toFixed(2)} USD · Flat fee ${fee.toFixed(2)} USD
+          {config?.environment === "sandbox" && (
+            <Badge variant="outline" className="ml-2 text-[10px]">Sandbox</Badge>
+          )}
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div>
+          <label className="text-sm font-medium">Deposit Amount</label>
+          <div className="relative mt-1.5">
+            <Input
+              type="number"
+              step="0.01"
+              min={minDeposit}
+              placeholder={minDeposit.toFixed(2)}
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              className={`pr-16 ${(belowMin || aboveMax) ? "border-red-400 focus-visible:ring-red-400" : ""}`}
+              data-testid="input-paypal-amount"
+            />
+            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground font-medium">USD</span>
+          </div>
+          {belowMin && (
+            <p className="text-xs text-red-500 mt-1" data-testid="text-paypal-below-min">
+              Minimum PayPal deposit is ${minDeposit.toFixed(2)} USD
+            </p>
+          )}
+          {aboveMax && (
+            <p className="text-xs text-red-500 mt-1" data-testid="text-paypal-above-max">
+              Maximum PayPal deposit is ${maxDeposit.toLocaleString()} USD
+            </p>
+          )}
+        </div>
+
+        {validAmount && (
+          <div className="rounded-lg border border-border bg-muted/30 divide-y divide-border overflow-hidden" data-testid="paypal-fee-summary">
+            <div className="flex items-center justify-between px-4 py-2.5 text-sm">
+              <span className="text-muted-foreground">Deposit Amount</span>
+              <span className="font-medium">${depositAmt.toFixed(2)} USD</span>
+            </div>
+            <div className="flex items-center justify-between px-4 py-2.5 text-sm">
+              <span className="text-muted-foreground">PayPal Processing Fee</span>
+              <span className="font-medium text-red-500">+${fee.toFixed(2)} USD</span>
+            </div>
+            <div className="flex items-center justify-between px-4 py-2.5 text-sm bg-blue-500/5">
+              <span className="font-semibold text-blue-700 dark:text-blue-400">Total Charged on PayPal</span>
+              <span className="font-bold text-blue-700 dark:text-blue-400" data-testid="text-paypal-total-charge">${totalCharge.toFixed(2)} USD</span>
+            </div>
+            <div className="flex items-center justify-between px-4 py-2.5 text-sm bg-emerald-500/5">
+              <span className="font-semibold text-emerald-700 dark:text-emerald-400">Credited to Balance</span>
+              <div className="text-right">
+                <p className="font-bold text-emerald-700 dark:text-emerald-400">${depositAmt.toFixed(2)} USDT</p>
+                <p className="text-xs text-muted-foreground">{formatHtg(creditedHtg)} HTG</p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {configLoading && (
+          <div className="flex items-center justify-center py-4 text-sm text-muted-foreground">
+            <Loader2 className="w-4 h-4 mr-2 animate-spin" /> Loading PayPal…
+          </div>
+        )}
+
+        <div
+          ref={buttonsContainerRef}
+          className={`min-h-[50px] ${!validAmount ? "opacity-40 pointer-events-none" : ""}`}
+          data-testid="paypal-button-container"
+        />
+
+        {!validAmount && (
+          <p className="text-xs text-muted-foreground text-center">
+            Enter at least ${minDeposit.toFixed(2)} USD to activate the PayPal button.
+          </p>
+        )}
+      </CardContent>
+    </Card>
   );
 }

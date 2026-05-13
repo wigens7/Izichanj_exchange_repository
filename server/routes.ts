@@ -20,6 +20,7 @@ import {
 } from "@shared/constants";
 import { getDepositRate, getWithdrawalRate, setRates, rateUsdtToHtg, rateHtgToUsdt, rateUsdtToHtgWithdrawal } from "./rates";
 import { generateReceiptPDF, generateAdjustmentReceiptPDF, generateCardStatementPDF, type CardStatementTxn } from "./receipt";
+import * as paypalModule from "./paypal";
 import { ensureKycImageSize } from "./image-compress";
 import { deposits, profiles, virtualCards, nfcCards } from "@shared/schema";
 import { db } from "./db";
@@ -601,6 +602,210 @@ export async function registerRoutes(
     } catch (e: any) {
       console.error("NOWPayments status check error:", e);
       res.status(500).json({ message: "Failed to check payment status" });
+    }
+  });
+
+  // ============ PayPal Deposit Integration ============
+  // Uses @paypal/paypal-server-sdk. Min deposit $20 USD, flat fee $10 USD.
+  // 1. Frontend asks for client-id + creates an order via /api/paypal/create-order
+  // 2. PayPal Smart Button drives checkout. On approve, capture-order is called.
+  // 3. On successful capture, the deposit row is created (status=approved) and
+  //    the user's USDT balance is credited (totalPaid - $10 fee, converted to USDT).
+  app.get("/api/paypal/client-id", isAuthenticated, async (_req, res) => {
+    res.json({
+      clientId: process.env.PAYPAL_CLIENT_ID,
+      environment: paypalModule.PAYPAL_ENVIRONMENT,
+      minDeposit: paypalModule.PAYPAL_MIN_DEPOSIT_USD,
+      fee: paypalModule.PAYPAL_FLAT_FEE_USD,
+      maxDeposit: paypalModule.PAYPAL_MAX_DEPOSIT_USD,
+    });
+  });
+
+  app.post("/api/paypal/create-order", isAuthenticated, async (req: any, res) => {
+    try {
+      const profile = await getProfileFromReq(req);
+      if (!profile) return res.status(401).json({ message: "Unauthorized" });
+      if (profile.kycStatus !== "verified") {
+        return res.status(403).json({ message: "KYC verification required before making deposits" });
+      }
+
+      const depositAmount = Number(req.body?.amount);
+      if (!depositAmount || isNaN(depositAmount)) {
+        return res.status(400).json({ message: "Amount is required" });
+      }
+      if (depositAmount < paypalModule.PAYPAL_MIN_DEPOSIT_USD) {
+        return res.status(400).json({ message: `Minimum PayPal deposit is $${paypalModule.PAYPAL_MIN_DEPOSIT_USD.toFixed(2)} USD.` });
+      }
+      if (depositAmount > paypalModule.PAYPAL_MAX_DEPOSIT_USD) {
+        return res.status(400).json({ message: `Maximum PayPal deposit is $${paypalModule.PAYPAL_MAX_DEPOSIT_USD.toLocaleString()} USD.` });
+      }
+
+      const order = await paypalModule.createPayPalDepositOrder({
+        depositAmount,
+        userLabel: `${profile.fullName} (#${profile.referenceId || profile.id})`,
+      });
+
+      // Persist a PENDING deposit intent BEFORE returning to the frontend.
+      // This binds orderId → profileId and locks in the expected deposit amount,
+      // so capture-order can verify ownership and reject mismatched amounts.
+      // The UNIQUE index on paypal_order_id guarantees one row per order.
+      const htgAmount = rateUsdtToHtg(depositAmount);
+      try {
+        await storage.createDeposit({
+          profileId: profile.id,
+          amountUsdt: depositAmount.toFixed(2),
+          txHash: order.id,
+          depositMethod: "paypal",
+          amountHtg: htgAmount.toFixed(2),
+          paypalOrderId: order.id,
+          ipAddress: getClientIp(req),
+        });
+      } catch (e: any) {
+        console.error("[PayPal] failed to persist intent:", e?.message || e);
+        return res.status(500).json({ message: "Failed to record deposit intent" });
+      }
+
+      res.json(order);
+    } catch (e: any) {
+      console.error("[PayPal] create-order error:", e?.message || e);
+      res.status(500).json({ message: e?.message || "Failed to create PayPal order" });
+    }
+  });
+
+  app.post("/api/paypal/capture-order", isAuthenticated, async (req: any, res) => {
+    try {
+      const profile = await getProfileFromReq(req);
+      if (!profile) return res.status(401).json({ message: "Unauthorized" });
+      if (profile.kycStatus !== "verified") {
+        return res.status(403).json({ message: "KYC verification required before making deposits" });
+      }
+
+      const { orderID } = req.body || {};
+      if (!orderID || typeof orderID !== "string") {
+        return res.status(400).json({ message: "orderID is required" });
+      }
+
+      const fee = paypalModule.PAYPAL_FLAT_FEE_USD;
+
+      // Atomic transaction: validate intent ownership + status, capture from PayPal,
+      // verify amount, mark approved, credit balance — all-or-nothing under SELECT FOR UPDATE.
+      const result = await db.transaction(async (tx) => {
+        // Lock the deposit intent row so concurrent captures of the same order block.
+        const locked = await tx.execute(sql`
+          SELECT id, profile_id, amount_usdt, status
+          FROM deposits
+          WHERE paypal_order_id = ${orderID}
+          FOR UPDATE
+        `);
+        const row: any = (locked.rows || (locked as any))[0];
+        if (!row) {
+          return { ok: false as const, http: 404, message: "PayPal order not found. Was it created in this session?" };
+        }
+        if (Number(row.profile_id) !== profile.id) {
+          return { ok: false as const, http: 403, message: "This order does not belong to your account." };
+        }
+
+        // Already finalized: idempotent success
+        if (row.status === "approved") {
+          const creditedUsdt = parseFloat(row.amount_usdt);
+          return {
+            ok: true as const,
+            alreadyProcessed: true,
+            depositId: Number(row.id),
+            amountCreditedUsdt: creditedUsdt,
+            amountCreditedHtg: rateUsdtToHtg(creditedUsdt),
+            feeUsd: fee,
+            totalChargedUsd: creditedUsdt + fee,
+          };
+        }
+        if (row.status === "rejected" || row.status === "expired") {
+          return { ok: false as const, http: 400, message: `Order is ${row.status} and cannot be captured.` };
+        }
+
+        // Status is 'pending' → capture with PayPal now
+        const expectedDeposit = parseFloat(row.amount_usdt);
+        const expectedTotal = expectedDeposit + fee;
+
+        const captured = await paypalModule.capturePayPalOrder(orderID);
+        if (captured.status !== "COMPLETED") {
+          return { ok: false as const, http: 400, message: `Order not completed (status: ${captured.status})` };
+        }
+
+        // Verify the amount actually paid matches what we asked PayPal to charge.
+        // Tolerate at most 1 cent of rounding difference.
+        if (Math.abs(captured.amountPaidUsd - expectedTotal) > 0.01) {
+          return {
+            ok: false as const,
+            http: 400,
+            message: `Captured amount mismatch: expected $${expectedTotal.toFixed(2)}, got $${captured.amountPaidUsd.toFixed(2)}.`,
+          };
+        }
+
+        const amountToCreditUsdt = expectedDeposit;
+        const htgAmount = rateUsdtToHtg(amountToCreditUsdt);
+
+        // Mark deposit approved
+        await tx.update(deposits).set({
+          status: "approved",
+          txHash: captured.captureId || orderID,
+          amountHtg: htgAmount.toFixed(2),
+        }).where(eq(deposits.id, Number(row.id)));
+
+        // Credit user balance (re-fetch within transaction for current value)
+        const [currentProfile] = await tx.select().from(profiles).where(eq(profiles.id, profile.id));
+        const newBalance = parseFloat(currentProfile.balance) + amountToCreditUsdt;
+        await tx.update(profiles).set({ balance: newBalance.toFixed(2) }).where(eq(profiles.id, profile.id));
+
+        return {
+          ok: true as const,
+          alreadyProcessed: false,
+          depositId: Number(row.id),
+          amountCreditedUsdt: amountToCreditUsdt,
+          amountCreditedHtg: htgAmount,
+          feeUsd: fee,
+          totalChargedUsd: captured.amountPaidUsd,
+          captureId: captured.captureId,
+          payerEmail: captured.payerEmail,
+        };
+      });
+
+      if (!result.ok) {
+        return res.status(result.http).json({ message: result.message });
+      }
+
+      // Side-effects after the transaction commits (best-effort, do not fail the response)
+      if (!result.alreadyProcessed) {
+        await storage.createNotification({
+          profileId: profile.id,
+          type: "deposit_approved",
+          title: "PayPal Deposit Approved",
+          message: `Your PayPal deposit of $${result.amountCreditedUsdt.toFixed(2)} USDT (${formatHtg(result.amountCreditedHtg)} HTG) has been credited. $${fee.toFixed(2)} processing fee applied.`,
+        }).catch((e) => console.error("[PayPal] notify user failed:", e));
+
+        sendTelegramMessage(
+          `💸 <b>PayPal Deposit Captured</b>\n\n` +
+          `👤 <b>Name:</b> ${profile.fullName}\n` +
+          `📧 <b>Email:</b> ${profile.email}\n` +
+          `🆔 <b>User ID:</b> ${profile.referenceId || profile.id}\n` +
+          `💵 <b>Total Charged:</b> $${result.totalChargedUsd.toFixed(2)} USD\n` +
+          `🏦 <b>Credited:</b> $${result.amountCreditedUsdt.toFixed(2)} USDT (fee $${fee.toFixed(2)})\n` +
+          `🧾 <b>Order ID:</b> <code>${orderID}</code>\n` +
+          ((result as any).payerEmail ? `✉️ <b>Payer:</b> ${(result as any).payerEmail}\n` : "")
+        ).catch(() => {});
+      }
+
+      res.json({
+        status: "COMPLETED",
+        alreadyProcessed: result.alreadyProcessed,
+        depositId: result.depositId,
+        amountCreditedUsdt: result.amountCreditedUsdt,
+        amountCreditedHtg: result.amountCreditedHtg,
+        feeUsd: result.feeUsd,
+        totalChargedUsd: result.totalChargedUsd,
+      });
+    } catch (e: any) {
+      console.error("[PayPal] capture-order error:", e?.message || e);
+      res.status(500).json({ message: e?.message || "Failed to capture PayPal order" });
     }
   });
 
