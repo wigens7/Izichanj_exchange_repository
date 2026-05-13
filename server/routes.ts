@@ -193,6 +193,111 @@ async function sendWhatsAppNotification(phone: string, message: string, name?: s
 }
 
 // ────────────────────────────────────────────────────────────────────
+// Send a media file (image or document) to a WhatsApp number via
+// UltraMsg. The fileUrl must be a *publicly fetchable* absolute URL —
+// UltraMsg's servers will download it and forward it to WhatsApp.
+// `fileType` is a MIME-ish hint: anything starting with "image/" goes
+// to the /messages/image endpoint; everything else goes to /messages/document.
+// ────────────────────────────────────────────────────────────────────
+async function sendWhatsAppMedia(
+  phone: string,
+  fileUrl: string,
+  fileName: string,
+  fileType: string,
+  caption?: string,
+  name?: string,
+) {
+  const instanceId = process.env.ULTRAMSG_INSTANCE_ID;
+  const token = process.env.ULTRAMSG_TOKEN;
+  if (!instanceId || !token || !phone) {
+    console.log(`[MOCK WHATSAPP MEDIA] To ${phone}: ${fileName} (${fileUrl})`);
+    return;
+  }
+  try {
+    const isImage = (fileType || "").toLowerCase().startsWith("image/")
+      || /\.(jpg|jpeg|png|gif|webp|bmp)$/i.test(fileName);
+    const greeting = buildGreeting(name);
+    const finalCaption = caption ? `${greeting}${caption}` : greeting.trim();
+
+    const endpoint = isImage ? "image" : "document";
+    const body: any = { token, to: phone, caption: finalCaption };
+    if (isImage) {
+      body.image = fileUrl;
+    } else {
+      body.document = fileUrl;
+      body.filename = fileName;
+    }
+
+    const res = await fetch(`https://api.ultramsg.com/${instanceId}/messages/${endpoint}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (data.sent === "true" || data.sent === true) {
+      console.log(`[WHATSAPP] ${endpoint} sent to ${phone}: ${fileName}`);
+    } else {
+      console.error(`[WHATSAPP ERROR] ${endpoint} failed:`, JSON.stringify(data));
+    }
+  } catch (error: any) {
+    console.error(`[WHATSAPP ERROR] Failed to send ${fileName} to ${phone}:`, error.message);
+  }
+}
+
+// Build an absolute, publicly-fetchable URL from an internal /objects/... path.
+// Prefers a configured PUBLIC_BASE_URL / REPLIT_DOMAINS so external providers
+// (UltraMsg etc.) always get a fetchable host. Rejects localhost / private hosts
+// so media is never sent with a URL the provider cannot reach.
+function absolutePublicUrl(req: any, objectPath: string): string | null {
+  if (!objectPath) return null;
+  if (/^https?:\/\//i.test(objectPath)) return objectPath;
+
+  const envBase =
+    process.env.PUBLIC_BASE_URL?.replace(/\/+$/, "") ||
+    (process.env.REPLIT_DOMAINS?.split(",")[0]
+      ? `https://${process.env.REPLIT_DOMAINS.split(",")[0]}`
+      : "");
+
+  let base = envBase;
+  if (!base) {
+    const host = req?.get?.("host");
+    if (!host) return null;
+    const proto = (req?.get?.("x-forwarded-proto") || req?.protocol || "https").split(",")[0].trim();
+    base = `${proto}://${host}`;
+  }
+
+  // Block private / loopback hosts — providers cannot fetch from these.
+  const hostOnly = base.replace(/^https?:\/\//i, "").split("/")[0].split(":")[0].toLowerCase();
+  const isPrivate =
+    hostOnly === "localhost" ||
+    hostOnly === "0.0.0.0" ||
+    hostOnly.startsWith("127.") ||
+    hostOnly.startsWith("10.") ||
+    hostOnly.startsWith("192.168.") ||
+    /^172\.(1[6-9]|2\d|3[01])\./.test(hostOnly);
+  if (isPrivate) return null;
+
+  return `${base}${objectPath.startsWith("/") ? "" : "/"}${objectPath}`;
+}
+
+// Validate an admin-supplied attachment payload before relaying it to a provider.
+// Returns a sanitized object or null if invalid. Only allows internal /objects/*
+// paths (so admins can't relay arbitrary external URLs through our WhatsApp account).
+function validateAttachment(input: { fileUrl?: any; fileName?: any; fileType?: any }):
+  | { fileUrl: string; fileName: string; fileType: string }
+  | null {
+  const fileUrl = typeof input.fileUrl === "string" ? input.fileUrl.trim() : "";
+  const fileName = typeof input.fileName === "string" ? input.fileName.trim() : "";
+  const fileType = typeof input.fileType === "string" ? input.fileType.trim() : "";
+  if (!fileUrl || !fileName) return null;
+  if (!/^\/objects\/[A-Za-z0-9_\-./]+$/.test(fileUrl)) return null;
+  if (fileName.length > 200) return null;
+  if (/[\r\n\\/]/.test(fileName)) return null;
+  if (fileType && fileType.length > 100) return null;
+  return { fileUrl, fileName, fileType };
+}
+
+// ────────────────────────────────────────────────────────────────────
 // Sanitises raw provider/Strowallet error payloads into a friendly,
 // professional message. Never leaks JSON, status codes, stack traces,
 // or generic "Failed to ..." style strings to the user.
@@ -3350,24 +3455,61 @@ export async function registerRoutes(
     res.json(allWithdrawals);
   });
 
+  // Admin-only upload endpoint for direct-message attachments.
+  // Returns a signed PUT URL plus the resulting public objectPath.
+  app.post("/api/admin/notifications/upload", isAuthenticated, isAdmin, async (req: any, res) => {
+    try {
+      const { name, size, contentType } = req.body || {};
+      if (!name) return res.status(400).json({ message: "File name is required" });
+      const maxSize = 16 * 1024 * 1024; // 16 MB — within UltraMsg media size limits
+      if (size && size > maxSize) return res.status(400).json({ message: "File too large (max 16 MB)" });
+      const { ObjectStorageService } = await import("./replit_integrations/object_storage");
+      const objectStorage = new ObjectStorageService();
+      const uploadURL = await objectStorage.getObjectEntityUploadURL();
+      const objectPath = objectStorage.normalizeObjectEntityPath(uploadURL);
+      res.json({ uploadURL, objectPath, metadata: { name, size, contentType } });
+    } catch (e) {
+      console.error("Admin notification upload error:", e);
+      res.status(500).json({ message: "Failed to generate upload URL" });
+    }
+  });
+
   app.post(api.admin.sendNotification.path, isAuthenticated, isAdmin, async (req: any, res) => {
     try {
       const parsed = api.admin.sendNotification.input.parse(req.body);
+      const attachment = validateAttachment(req.body || {});
+      if ((req.body?.fileUrl || req.body?.fileName) && !attachment) {
+        return res.status(400).json({ message: "Invalid attachment" });
+      }
       const targetProfile = await storage.getProfile(parsed.profileId);
       if (!targetProfile) return res.status(404).json({ message: "User not found" });
+
+      const absUrl = attachment ? absolutePublicUrl(req, attachment.fileUrl) : null;
+      if (attachment && !absUrl) {
+        return res.status(500).json({ message: "Server is not configured with a public URL — set PUBLIC_BASE_URL." });
+      }
+
       const notification = await storage.createNotification({
         profileId: parsed.profileId,
         type: "custom_message",
         title: parsed.title,
-        message: parsed.message,
+        message: parsed.message + (attachment ? `\n\n📎 ${attachment.fileName}` : ""),
       });
+      let whatsappQueued = false;
+      let whatsappFileQueued = false;
       if (targetProfile.phone) {
         sendWhatsAppNotification(
           targetProfile.phone,
-          `*Izichanj*\n\n📢 ${parsed.title}\n\n${parsed.message}\n\nhttps://izichanj.com`
+          `*Izichanj*\n\n📢 ${parsed.title}\n\n${parsed.message}\n\nhttps://izichanj.com`,
+          targetProfile.fullName,
         );
+        whatsappQueued = true;
+        if (attachment && absUrl) {
+          sendWhatsAppMedia(targetProfile.phone, absUrl, attachment.fileName, attachment.fileType, undefined, targetProfile.fullName);
+          whatsappFileQueued = true;
+        }
       }
-      res.status(201).json({ ...notification, whatsappSent: !!targetProfile.phone });
+      res.status(201).json({ ...notification, whatsappQueued, whatsappFileQueued, whatsappSent: whatsappQueued, whatsappFileSent: whatsappFileQueued });
     } catch (e) {
       if (e instanceof z.ZodError) return res.status(400).json({ message: e.errors[0].message });
       res.status(500).json({ message: "Internal Error" });
@@ -3378,6 +3520,15 @@ export async function registerRoutes(
     try {
       const { profileIds, sendToAll, title, message } = req.body;
       if (!title || !message) return res.status(400).json({ message: "Title and message are required" });
+
+      const attachment = validateAttachment(req.body || {});
+      if ((req.body?.fileUrl || req.body?.fileName) && !attachment) {
+        return res.status(400).json({ message: "Invalid attachment" });
+      }
+      const absUrl = attachment ? absolutePublicUrl(req, attachment.fileUrl) : null;
+      if (attachment && !absUrl) {
+        return res.status(500).json({ message: "Server is not configured with a public URL — set PUBLIC_BASE_URL." });
+      }
 
       let targets: any[] = [];
       if (sendToAll) {
@@ -3391,15 +3542,34 @@ export async function registerRoutes(
       }
 
       let whatsappCount = 0;
+      let whatsappFileCount = 0;
       for (const profile of targets) {
-        await storage.createNotification({ profileId: profile.id, type: "custom_message", title, message });
+        await storage.createNotification({
+          profileId: profile.id,
+          type: "custom_message",
+          title,
+          message: message + (attachment ? `\n\n📎 ${attachment.fileName}` : ""),
+        });
         if (profile.phone) {
           sendWhatsAppNotification(profile.phone, `*Izichanj*\n\n📢 ${title}\n\n${message}\n\nhttps://izichanj.com`, profile.fullName);
           whatsappCount++;
+          if (attachment && absUrl) {
+            sendWhatsAppMedia(profile.phone, absUrl, attachment.fileName, attachment.fileType, undefined, profile.fullName);
+            whatsappFileCount++;
+          }
         }
       }
-      res.status(201).json({ sent: targets.length, whatsappSent: whatsappCount });
+      // Note: WhatsApp counts represent messages *queued* with the provider, not
+      // confirmed deliveries — provider outcomes are logged asynchronously.
+      res.status(201).json({
+        sent: targets.length,
+        whatsappQueued: whatsappCount,
+        whatsappFileQueued: whatsappFileCount,
+        whatsappSent: whatsappCount,
+        whatsappFileSent: whatsappFileCount,
+      });
     } catch (e) {
+      console.error("send-bulk error:", e);
       res.status(500).json({ message: "Internal Error" });
     }
   });

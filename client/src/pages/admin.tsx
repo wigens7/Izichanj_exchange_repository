@@ -2348,6 +2348,56 @@ function MessagesTab() {
   const [title, setTitle] = useState("");
   const [message, setMessage] = useState("");
   const [activeCategory, setActiveCategory] = useState<UserCategory>("all");
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [filePreviewUrl, setFilePreviewUrl] = useState<string | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const messagesFileInputRef = useRef<HTMLInputElement>(null);
+
+  // Generate / clean up preview blob URL for image attachments
+  useEffect(() => {
+    if (pendingFile && pendingFile.type.startsWith("image/")) {
+      const url = URL.createObjectURL(pendingFile);
+      setFilePreviewUrl(url);
+      return () => URL.revokeObjectURL(url);
+    }
+    setFilePreviewUrl(null);
+  }, [pendingFile]);
+
+  const handleFilePick = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 16 * 1024 * 1024) {
+      toast({ title: "File too large", description: "Maximum file size is 16 MB.", variant: "destructive" });
+      return;
+    }
+    setPendingFile(file);
+    if (messagesFileInputRef.current) messagesFileInputRef.current.value = "";
+  };
+
+  // Upload to Object Storage via signed URL; returns the public objectPath.
+  const uploadAttachmentIfAny = async (): Promise<{ fileUrl?: string; fileName?: string; fileType?: string }> => {
+    if (!pendingFile) return {};
+    setIsUploading(true);
+    try {
+      const upRes = await apiRequest("POST", "/api/admin/notifications/upload", {
+        name: pendingFile.name,
+        size: pendingFile.size,
+        contentType: pendingFile.type,
+      });
+      const { uploadURL, objectPath } = await upRes.json();
+      const putRes = await fetch(uploadURL, {
+        method: "PUT",
+        body: pendingFile,
+        headers: { "Content-Type": pendingFile.type || "application/octet-stream" },
+      });
+      if (!putRes.ok) {
+        throw new Error(`File upload failed (status ${putRes.status}). Please try again.`);
+      }
+      return { fileUrl: objectPath, fileName: pendingFile.name, fileType: pendingFile.type };
+    } finally {
+      setIsUploading(false);
+    }
+  };
 
   const activeUsers = (users?.filter((u: any) => !u.isDeleted && u.role !== "admin") || []) as any[];
   const categoryUsers = filterByCategory(activeUsers, activeCategory);
@@ -2387,27 +2437,36 @@ function MessagesTab() {
     }
   };
 
+  const successCleanup = () => {
+    setSelectedIds(new Set());
+    setTitle("");
+    setMessage("");
+    setPendingFile(null);
+  };
+
   const sendMessage = useMutation({
     mutationFn: async () => {
       if (!title.trim()) throw new Error("Title is required");
       if (!message.trim()) throw new Error("Message is required");
       if (selectedIds.size === 0) throw new Error("Select at least one user");
+      const fileFields = await uploadAttachmentIfAny();
       const res = await apiRequest("POST", "/api/admin/notifications/send-bulk", {
         profileIds: Array.from(selectedIds),
         sendToAll: false,
         title: title.trim(),
         message: message.trim(),
+        ...fileFields,
       });
       return res.json();
     },
     onSuccess: (data: any) => {
       toast({
         title: `Message sent to ${data.sent} user${data.sent !== 1 ? "s" : ""}`,
-        description: `WhatsApp delivered to ${data.whatsappSent} user${data.whatsappSent !== 1 ? "s" : ""} with a phone number.`,
+        description: data.whatsappFileSent
+          ? `WhatsApp + file delivered to ${data.whatsappFileSent} user${data.whatsappFileSent !== 1 ? "s" : ""} with a phone number.`
+          : `WhatsApp delivered to ${data.whatsappSent} user${data.whatsappSent !== 1 ? "s" : ""} with a phone number.`,
       });
-      setSelectedIds(new Set());
-      setTitle("");
-      setMessage("");
+      successCleanup();
     },
     onError: (error: Error) => {
       toast({ title: "Failed to send", description: error.message, variant: "destructive" });
@@ -2418,21 +2477,23 @@ function MessagesTab() {
     mutationFn: async () => {
       if (!title.trim()) throw new Error("Title is required");
       if (!message.trim()) throw new Error("Message is required");
+      const fileFields = await uploadAttachmentIfAny();
       const res = await apiRequest("POST", "/api/admin/notifications/send-bulk", {
         sendToAll: true,
         title: title.trim(),
         message: message.trim(),
+        ...fileFields,
       });
       return res.json();
     },
     onSuccess: (data: any) => {
       toast({
         title: `Broadcast sent to all ${data.sent} users`,
-        description: `WhatsApp delivered to ${data.whatsappSent} user${data.whatsappSent !== 1 ? "s" : ""} with a phone number.`,
+        description: data.whatsappFileSent
+          ? `WhatsApp + file delivered to ${data.whatsappFileSent} user${data.whatsappFileSent !== 1 ? "s" : ""} with a phone number.`
+          : `WhatsApp delivered to ${data.whatsappSent} user${data.whatsappSent !== 1 ? "s" : ""} with a phone number.`,
       });
-      setSelectedIds(new Set());
-      setTitle("");
-      setMessage("");
+      successCleanup();
     },
     onError: (error: Error) => {
       toast({ title: "Failed to send", description: error.message, variant: "destructive" });
@@ -2449,7 +2510,7 @@ function MessagesTab() {
     );
   }
 
-  const isPending = sendMessage.isPending || sendToAll.isPending;
+  const isPending = sendMessage.isPending || sendToAll.isPending || isUploading;
 
   return (
     <Card>
@@ -2584,6 +2645,64 @@ function MessagesTab() {
           <p className="text-xs text-muted-foreground">The link https://izichanj.com will be added automatically.</p>
         </div>
 
+        <div className="space-y-2">
+          <label className="text-sm font-medium flex items-center gap-2">
+            <Paperclip className="w-3.5 h-3.5" />
+            Attachment <span className="text-xs text-muted-foreground font-normal">(optional — image or document, max 16 MB, sent via WhatsApp)</span>
+          </label>
+          <input
+            ref={messagesFileInputRef}
+            type="file"
+            accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.csv"
+            onChange={handleFilePick}
+            className="hidden"
+            data-testid="input-messages-file"
+          />
+          {!pendingFile ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => messagesFileInputRef.current?.click()}
+              data-testid="button-attach-file"
+            >
+              <Paperclip className="w-4 h-4 mr-2" />
+              Attach File
+            </Button>
+          ) : (
+            <div className="flex items-center gap-3 p-3 rounded-md border border-border bg-muted/30" data-testid="messages-file-preview">
+              {filePreviewUrl ? (
+                <img src={filePreviewUrl} alt={pendingFile.name} className="w-14 h-14 object-cover rounded-md border border-border" />
+              ) : (
+                <div className="w-14 h-14 rounded-md bg-background border border-border flex items-center justify-center">
+                  <FileText className="w-6 h-6 text-muted-foreground" />
+                </div>
+              )}
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium truncate" data-testid="text-file-name">{pendingFile.name}</p>
+                <p className="text-xs text-muted-foreground">
+                  {(pendingFile.size / 1024).toFixed(1)} KB · {pendingFile.type || "file"}
+                </p>
+              </div>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                onClick={() => setPendingFile(null)}
+                disabled={isPending}
+                data-testid="button-remove-file"
+              >
+                <X className="w-4 h-4" />
+              </Button>
+            </div>
+          )}
+          {pendingFile && (
+            <p className="text-xs text-muted-foreground">
+              Recipients with a phone number will receive this file in WhatsApp alongside your message.
+            </p>
+          )}
+        </div>
+
         <div className="flex gap-2">
           <Button
             onClick={() => sendMessage.mutate()}
@@ -2591,8 +2710,8 @@ function MessagesTab() {
             className="flex-1"
             data-testid="button-send-message"
           >
-            {sendMessage.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Send className="w-4 h-4 mr-2" />}
-            Send to {selectedIds.size > 0 ? `${selectedIds.size} user${selectedIds.size !== 1 ? "s" : ""}` : "Selected"}
+            {isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Send className="w-4 h-4 mr-2" />}
+            {isUploading ? "Uploading..." : `Send to ${selectedIds.size > 0 ? `${selectedIds.size} user${selectedIds.size !== 1 ? "s" : ""}` : "Selected"}`}
           </Button>
           <Button
             onClick={() => sendToAll.mutate()}
@@ -2600,7 +2719,7 @@ function MessagesTab() {
             variant="outline"
             data-testid="button-send-all"
           >
-            {sendToAll.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Send className="w-4 h-4 mr-2" />}
+            {isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Send className="w-4 h-4 mr-2" />}
             Send to All ({activeUsers.length})
           </Button>
         </div>
