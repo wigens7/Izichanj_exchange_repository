@@ -103,6 +103,12 @@ export default function NfcCardsPage() {
   const { data: txns, isLoading: txnsLoading } = useQuery<NfcTxn[]>({
     queryKey: ["/api/nfc-cards", txnsOpen?.id, "transactions"],
     enabled: !!txnsOpen,
+    // Always pull fresh data when the dialog opens, and poll every 15s while
+    // it's open so newly settled spend transactions appear without manual reload.
+    staleTime: 0,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true,
+    refetchInterval: txnsOpen ? 15000 : false,
   });
 
   const createMut = useMutation({
@@ -128,8 +134,9 @@ export default function NfcCardsPage() {
       const r = await apiRequest("POST", `/api/nfc-cards/${id}/fund`, { amount });
       return r.json();
     },
-    onSuccess: () => {
+    onSuccess: (_d, vars) => {
       qc.invalidateQueries({ queryKey: ["/api/nfc-cards"] });
+      qc.invalidateQueries({ queryKey: ["/api/nfc-cards", vars.id, "transactions"] });
       qc.invalidateQueries({ queryKey: ["/api/auth/me"] });
       qc.invalidateQueries({ queryKey: ["/api/me"] });
       setFundOpen(null);
@@ -144,8 +151,9 @@ export default function NfcCardsPage() {
       const r = await apiRequest("POST", `/api/nfc-cards/${id}/withdraw`, { amount });
       return r.json();
     },
-    onSuccess: (d: any) => {
+    onSuccess: (d: any, vars) => {
       qc.invalidateQueries({ queryKey: ["/api/nfc-cards"] });
+      qc.invalidateQueries({ queryKey: ["/api/nfc-cards", vars.id, "transactions"] });
       qc.invalidateQueries({ queryKey: ["/api/auth/me"] });
       qc.invalidateQueries({ queryKey: ["/api/me"] });
       setWithdrawOpen(null);

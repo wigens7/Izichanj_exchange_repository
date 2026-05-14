@@ -3636,15 +3636,26 @@ export async function registerRoutes(
   async function sendTelegramMessage(text: string): Promise<void> {
     const token = process.env.TELEGRAM_BOT_TOKEN;
     const chatId = process.env.TELEGRAM_CHAT_ID;
-    if (!token || !chatId) return;
+    if (!token || !chatId) {
+      console.error("[Telegram] Skipped — missing TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID env var");
+      return;
+    }
     try {
-      await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      const r = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ chat_id: chatId, text, parse_mode: "HTML" }),
       });
-    } catch (e) {
-      console.error("[Telegram] Failed to send message:", e);
+      if (!r.ok) {
+        // Log Telegram API rejections so missing alerts can be diagnosed.
+        let body = "";
+        try { body = (await r.text()).slice(0, 300); } catch {}
+        console.error(`[Telegram] sendMessage HTTP ${r.status}: ${body}`);
+      } else {
+        console.log(`[Telegram] sent (${text.length} chars): ${text.split("\n")[0].slice(0, 80)}`);
+      }
+    } catch (e: any) {
+      console.error("[Telegram] Failed to send message:", e?.message || e);
     }
   }
 
