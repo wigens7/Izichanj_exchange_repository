@@ -280,6 +280,10 @@ export const nfcCards = pgTable("nfc_cards", {
   balance: decimal("nfc_balance", { precision: 10, scale: 2 }).default("0").notNull(),
   currency: text("nfc_currency").default("USD").notNull(),
   cardDetail: jsonb("card_detail"),
+  // Counter of consecutive failed transaction attempts (insufficient funds,
+  // provider rejections, network errors). Reset to 0 on any success.
+  // When it reaches 5 the card is auto-hidden from the user dashboard.
+  failedAttempts: integer("failed_attempts").default(0).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 

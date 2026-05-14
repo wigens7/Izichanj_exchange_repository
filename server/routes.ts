@@ -5570,18 +5570,122 @@ export async function registerRoutes(
   //    • Withdraw: amount → wallet, $1 service fee
   // ════════════════════════════════════════════════════════════════════════
 
-  // List the user's NFC cards
+  // List the user's NFC cards. Cards that have hit the 5-failure auto-hide
+  // threshold are filtered out so they disappear from the dashboard.
   app.get("/api/nfc-cards", isAuthenticated, async (req: any, res) => {
     try {
       const profile = await getProfileFromReq(req);
       if (!profile) return res.status(401).json({ message: "Unauthorized" });
       const cards = await storage.getNfcCards(profile.id);
-      res.json(cards);
+      const visible = cards.filter((c: any) => (c.failedAttempts ?? 0) < NFC_AUTOHIDE_FAILURE_THRESHOLD);
+      res.json(visible);
     } catch (e: any) {
       console.error("[NFC] list error:", e);
       res.status(500).json({ message: e.message || "Internal Error" });
     }
   });
+
+  // ── NFC card transaction monitoring helpers ─────────────────────────────
+  // Every fund/withdraw attempt — successful or not — fires a Telegram alert
+  // to the admin chat. After 5 consecutive failures the card is auto-hidden
+  // from the user's dashboard (failed_attempts >= 5).
+  const NFC_AUTOHIDE_FAILURE_THRESHOLD = 5;
+
+  function nfcAlertEmoji(outcome: "success" | "failed" | "insufficient" | "network"): string {
+    switch (outcome) {
+      case "success":      return "✅";
+      case "insufficient": return "💸";
+      case "network":      return "📡";
+      case "failed":
+      default:             return "❌";
+    }
+  }
+
+  async function notifyAdminNfcAttempt(opts: {
+    profile: { id: number; email?: string | null; fullName?: string | null; referenceId?: string | null };
+    card: { id: number; cardId: string; last4?: string | null; failedAttempts?: number };
+    kind: "fund" | "withdraw";
+    outcome: "success" | "failed" | "insufficient" | "network";
+    amountUsd: number;
+    reason?: string;
+  }) {
+    const emoji = nfcAlertEmoji(opts.outcome);
+    const action = opts.kind === "fund" ? "Top-up" : "Withdraw";
+    const status =
+      opts.outcome === "success"      ? "SUCCESS" :
+      opts.outcome === "insufficient" ? "INSUFFICIENT FUNDS" :
+      opts.outcome === "network"      ? "NETWORK ERROR" : "FAILED";
+    const lines = [
+      `${emoji} <b>NFC Card ${action} — ${status}</b>`,
+      ``,
+      `👤 ${opts.profile.fullName || "?"} (${opts.profile.email || "?"})`,
+      `🆔 User: ${opts.profile.referenceId || opts.profile.id}`,
+      `💳 Card ****${opts.card.last4 || "????"} (id ${opts.card.id})`,
+      `💵 Amount: $${opts.amountUsd.toFixed(2)} USD`,
+    ];
+    if (opts.reason) lines.push(`📝 ${opts.reason.slice(0, 300)}`);
+    if (opts.outcome !== "success" && typeof opts.card.failedAttempts === "number") {
+      lines.push(`⚠️ Failed attempts: ${opts.card.failedAttempts}/${NFC_AUTOHIDE_FAILURE_THRESHOLD}`);
+    }
+    sendTelegramMessage(lines.join("\n")).catch(() => {});
+  }
+
+  // Atomically increment failed_attempts and return the new value. If we cross
+  // the auto-hide threshold, send a separate critical Telegram alert.
+  // Best-effort: never throw. A monitoring/alerting failure must NEVER turn a
+  // successful (or already-handled) transaction into a 500.
+  async function recordNfcFailure(opts: {
+    profile: { id: number; email?: string | null; fullName?: string | null; referenceId?: string | null };
+    cardId: number;
+    cardCardId: string;
+    last4?: string | null;
+    kind: "fund" | "withdraw";
+    outcome: "failed" | "insufficient" | "network";
+    amountUsd: number;
+    reason?: string;
+  }): Promise<number> {
+    try {
+      const [row] = await db
+        .update(nfcCards)
+        .set({ failedAttempts: sql`${nfcCards.failedAttempts} + 1` })
+        .where(eq(nfcCards.id, opts.cardId))
+        .returning({ failedAttempts: nfcCards.failedAttempts });
+      const newCount = row?.failedAttempts ?? 0;
+
+      notifyAdminNfcAttempt({
+        profile: opts.profile,
+        card: { id: opts.cardId, cardId: opts.cardCardId, last4: opts.last4, failedAttempts: newCount },
+        kind: opts.kind,
+        outcome: opts.outcome,
+        amountUsd: opts.amountUsd,
+        reason: opts.reason,
+      });
+
+      // Only fire the AUTO-HIDDEN alert on the exact crossing of the threshold,
+      // so admins don't get spammed once the card is already hidden.
+      if (newCount === NFC_AUTOHIDE_FAILURE_THRESHOLD) {
+        sendTelegramMessage(
+          `🚫 <b>NFC Card AUTO-HIDDEN</b>\n\n` +
+          `👤 ${opts.profile.fullName || "?"} (${opts.profile.email || "?"})\n` +
+          `🆔 User: ${opts.profile.referenceId || opts.profile.id}\n` +
+          `💳 Card ****${opts.last4 || "????"} (id ${opts.cardId})\n\n` +
+          `Reason: Reached ${NFC_AUTOHIDE_FAILURE_THRESHOLD} consecutive failed transactions. Card removed from user dashboard.`
+        ).catch(() => {});
+      }
+      return newCount;
+    } catch (err: any) {
+      console.error("[NFC monitor] recordNfcFailure failed (non-fatal):", err?.message || err);
+      return 0;
+    }
+  }
+
+  async function resetNfcFailures(cardId: number): Promise<void> {
+    try {
+      await db.update(nfcCards).set({ failedAttempts: 0 }).where(eq(nfcCards.id, cardId));
+    } catch (err: any) {
+      console.error("[NFC monitor] resetNfcFailures failed (non-fatal):", err?.message || err);
+    }
+  }
 
   // Pre-flight readiness — check that profile + KYC have all fields Strowallet needs
   app.get("/api/nfc-cards/readiness", isAuthenticated, async (req: any, res) => {
@@ -6099,6 +6203,11 @@ export async function registerRoutes(
 
       const balanceUsdt = parseFloat(profile.balance || "0");
       if (totalCharge > balanceUsdt) {
+        await recordNfcFailure({
+          profile, cardId: card.id, cardCardId: card.cardId, last4: card.last4,
+          kind: "fund", outcome: "insufficient", amountUsd: fundAmount,
+          reason: `Wallet balance $${balanceUsdt.toFixed(2)} < required $${totalCharge.toFixed(2)} USDT`,
+        });
         return res.status(400).json({
           message: `Insufficient balance. You need $${totalCharge.toFixed(2)} USDT ($${fundAmount.toFixed(2)} to card + $${breakdown.fixedFee.toFixed(2)} fee + $${breakdown.variableFee.toFixed(2)} variable). Balance: $${balanceUsdt.toFixed(2)} USDT.`,
         });
@@ -6114,6 +6223,11 @@ export async function registerRoutes(
         .returning({ balance: profiles.balance });
 
       if (debited.length === 0) {
+        await recordNfcFailure({
+          profile, cardId: card.id, cardCardId: card.cardId, last4: card.last4,
+          kind: "fund", outcome: "insufficient", amountUsd: fundAmount,
+          reason: "Atomic debit failed (concurrent transaction drained balance)",
+        });
         return res.status(400).json({ message: "Insufficient balance for this top-up." });
       }
 
@@ -6145,6 +6259,11 @@ export async function registerRoutes(
         // Network failure — instantly refund the user
         await refundUser();
         console.error("[NFC FUND] Network error — refunded:", netErr?.message);
+        await recordNfcFailure({
+          profile, cardId: card.id, cardCardId: card.cardId, last4: card.last4,
+          kind: "fund", outcome: "network", amountUsd: fundAmount,
+          reason: `Provider unreachable: ${netErr?.message || "unknown"}. User was refunded.`,
+        });
         return res.status(502).json({ message: "Could not reach card provider. No funds were charged." });
       }
 
@@ -6156,8 +6275,16 @@ export async function registerRoutes(
         console.log("[NFC FUND] HTTP:", response.status, "| Profile:", profile.id, "| Card:", card.cardId);
         console.log("[NFC FUND] Payload keys:", Object.keys(payload).join(","));
         const provMsg = (data && (data.message || data.error || data.errors)) ?? "(no message)";
-        console.log("[NFC FUND] Provider error:", typeof provMsg === "string" ? provMsg.slice(0, 500) : JSON.stringify(provMsg).slice(0, 500));
+        const provMsgStr = typeof provMsg === "string" ? provMsg.slice(0, 500) : JSON.stringify(provMsg).slice(0, 500);
+        console.log("[NFC FUND] Provider error:", provMsgStr);
         console.log("=========================================================================");
+
+        const isInsufficient = /insufficient|not.?enough|low.?balance/i.test(provMsgStr);
+        await recordNfcFailure({
+          profile, cardId: card.id, cardCardId: card.cardId, last4: card.last4,
+          kind: "fund", outcome: isInsufficient ? "insufficient" : "failed", amountUsd: fundAmount,
+          reason: `Provider rejected (HTTP ${response.status}): ${provMsgStr}. User was refunded.`,
+        });
 
         return res.status(400).json({
           message: sanitizeProviderError(
@@ -6179,6 +6306,12 @@ export async function registerRoutes(
         amount: fundAmount.toFixed(2),
         currency: "USD",
         description: `NFC card funded — $${fundAmount.toFixed(2)} (total charged $${totalCharge.toFixed(2)} incl. $${breakdown.fixedFee.toFixed(2)} fee + $${breakdown.variableFee.toFixed(2)} variable)`,
+      });
+      await resetNfcFailures(card.id);
+      await notifyAdminNfcAttempt({
+        profile, card: { id: card.id, cardId: card.cardId, last4: card.last4 },
+        kind: "fund", outcome: "success", amountUsd: fundAmount,
+        reason: `Total charged $${totalCharge.toFixed(2)} USDT (incl. fees)`,
       });
       res.json(updated);
     } catch (e: any) {
@@ -6202,6 +6335,11 @@ export async function registerRoutes(
       }
       const cardBal = parseFloat(card.balance || "0");
       if (amount > cardBal) {
+        await recordNfcFailure({
+          profile, cardId: card.id, cardCardId: card.cardId, last4: card.last4,
+          kind: "withdraw", outcome: "insufficient", amountUsd: amount,
+          reason: `Card balance $${cardBal.toFixed(2)} < requested $${amount.toFixed(2)}`,
+        });
         return res.status(400).json({ message: `Insufficient card balance. Available: $${cardBal.toFixed(2)}` });
       }
 
@@ -6216,12 +6354,26 @@ export async function registerRoutes(
         amount: amount.toString(),
         type: "withdraw",
       };
-      const response = await strowalletFetch(`${STROWALLET_BASE}/fund-withdraw-nfccard/`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "Accept": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      const data = await response.json();
+
+      let response: Response;
+      let data: any;
+      try {
+        response = await strowalletFetch(`${STROWALLET_BASE}/fund-withdraw-nfccard/`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Accept": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        data = await response.json();
+      } catch (netErr: any) {
+        console.error("[NFC WITHDRAW] Network error:", netErr?.message);
+        await recordNfcFailure({
+          profile, cardId: card.id, cardCardId: card.cardId, last4: card.last4,
+          kind: "withdraw", outcome: "network", amountUsd: amount,
+          reason: `Provider unreachable: ${netErr?.message || "unknown"}`,
+        });
+        return res.status(502).json({ message: "Could not reach card provider. Please try again in a moment." });
+      }
+
       const wdFailed = !response.ok || data.status === "error" || data.status === false || data.success === false;
       if (wdFailed) {
         console.log("================== [STROWALLET NFC WITHDRAW ERROR] ==================");
@@ -6229,11 +6381,16 @@ export async function registerRoutes(
         console.log("[NFC WITHDRAW] Payload:", JSON.stringify({ ...payload, public_key: "[REDACTED]" }));
         console.log("[NFC WITHDRAW] Raw response (full):", JSON.stringify(data, null, 2));
         console.log("=====================================================================");
-      } else {
-        console.log("[NFC WITHDRAW] OK — profile:", profile.id, "| card:", card.cardId, "| amount:", amount);
-      }
 
-      if (wdFailed) {
+        const provMsg = (data && (data.message || data.error || data.errors)) ?? "(no message)";
+        const provMsgStr = typeof provMsg === "string" ? provMsg.slice(0, 500) : JSON.stringify(provMsg).slice(0, 500);
+        const isInsufficient = /insufficient|not.?enough|low.?balance/i.test(provMsgStr);
+        await recordNfcFailure({
+          profile, cardId: card.id, cardCardId: card.cardId, last4: card.last4,
+          kind: "withdraw", outcome: isInsufficient ? "insufficient" : "failed", amountUsd: amount,
+          reason: `Provider rejected (HTTP ${response.status}): ${provMsgStr}`,
+        });
+
         return res.status(400).json({
           message: sanitizeProviderError(
             data,
@@ -6241,6 +6398,8 @@ export async function registerRoutes(
           ),
         });
       }
+
+      console.log("[NFC WITHDRAW] OK — profile:", profile.id, "| card:", card.cardId, "| amount:", amount);
 
       // Credit wallet (net) and reduce card balance (full amount)
       const balanceUsdt = parseFloat(profile.balance || "0");
@@ -6255,6 +6414,12 @@ export async function registerRoutes(
         amount: amount.toFixed(2),
         currency: "USD",
         description: `NFC withdrawal — $${amount.toFixed(2)} pulled from card, $${breakdown.netToWallet.toFixed(2)} credited to wallet (− $${breakdown.fee.toFixed(2)} fee)`,
+      });
+      await resetNfcFailures(card.id);
+      await notifyAdminNfcAttempt({
+        profile, card: { id: card.id, cardId: card.cardId, last4: card.last4 },
+        kind: "withdraw", outcome: "success", amountUsd: amount,
+        reason: `Net to wallet $${breakdown.netToWallet.toFixed(2)} (− $${breakdown.fee.toFixed(2)} fee)`,
       });
 
       res.json({ card: updated, credited: breakdown.netToWallet, fee: breakdown.fee });

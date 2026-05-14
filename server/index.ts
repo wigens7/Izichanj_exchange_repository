@@ -243,6 +243,17 @@ app.use((req, res, next) => {
     console.warn("[startup migration] nfc_cards table skipped:", (e as Error).message);
   }
 
+  // Add failed_attempts column for auto-hide-after-5-failures behavior
+  try {
+    await db.execute(sql`
+      ALTER TABLE nfc_cards
+      ADD COLUMN IF NOT EXISTS failed_attempts INTEGER DEFAULT 0 NOT NULL
+    `);
+    console.log("[startup migration] nfc_cards.failed_attempts ensured");
+  } catch (e) {
+    console.warn("[startup migration] nfc_cards.failed_attempts skipped:", (e as Error).message);
+  }
+
   // Create nfc_card_transactions table for local NFC fund/withdraw logs
   try {
     await db.execute(sql`
