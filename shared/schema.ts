@@ -295,10 +295,13 @@ export const nfcCardTransactions = pgTable("nfc_card_transactions", {
   id: serial("id").primaryKey(),
   cardId: integer("card_id").references(() => nfcCards.id).notNull(),
   profileId: integer("profile_id").references(() => profiles.id).notNull(),
-  type: text("type").notNull(), // "fund" | "withdraw" | "creation"
+  type: text("type").notNull(), // "fund" | "withdraw" | "creation" | "spend"
   amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
   currency: text("currency").default("USD").notNull(),
   description: text("description"),
+  // Provider-side transaction ID (for spend txns mirrored from Strowallet).
+  // Used to dedupe so we don't insert the same spend twice when polling.
+  providerTxId: text("provider_tx_id"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 export type NfcCardTransaction = typeof nfcCardTransactions.$inferSelect;

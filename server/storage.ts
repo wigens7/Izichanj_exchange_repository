@@ -94,7 +94,8 @@ export interface IStorage {
   getNfcCardById(id: number): Promise<NfcCard | undefined>;
   updateNfcCard(id: number, data: Partial<NfcCard>): Promise<NfcCard>;
   getAllPendingNfcCards(): Promise<any[]>;
-  createNfcCardTransaction(data: { cardId: number; profileId: number; type: string; amount: string; currency?: string; description?: string }): Promise<NfcCardTransaction>;
+  createNfcCardTransaction(data: { cardId: number; profileId: number; type: string; amount: string; currency?: string; description?: string; providerTxId?: string | null }): Promise<NfcCardTransaction>;
+  getAllActiveNfcCards(): Promise<NfcCard[]>;
   getNfcCardTransactions(cardId: number, profileId: number): Promise<NfcCardTransaction[]>;
   createTopUpTransaction(data: { profileId: number; operatorId: string; operatorName: string; phone: string; amountUsd: string; transactionId?: string; status?: string }): Promise<TopUpTransaction>;
   getTopUpTransactions(profileId: number): Promise<TopUpTransaction[]>;
@@ -681,7 +682,7 @@ export class DatabaseStorage implements IStorage {
       .where(eq(nfcCards.status, "pending"))
       .orderBy(desc(nfcCards.createdAt));
   }
-  async createNfcCardTransaction(data: { cardId: number; profileId: number; type: string; amount: string; currency?: string; description?: string }): Promise<NfcCardTransaction> {
+  async createNfcCardTransaction(data: { cardId: number; profileId: number; type: string; amount: string; currency?: string; description?: string; providerTxId?: string | null }): Promise<NfcCardTransaction> {
     const [tx] = await db.insert(nfcCardTransactions).values({
       cardId: data.cardId,
       profileId: data.profileId,
@@ -689,8 +690,15 @@ export class DatabaseStorage implements IStorage {
       amount: data.amount,
       currency: data.currency ?? "USD",
       description: data.description ?? null,
+      providerTxId: data.providerTxId ?? null,
     }).returning();
     return tx;
+  }
+  async getAllActiveNfcCards(): Promise<NfcCard[]> {
+    // Active cards that have not hit the auto-hide threshold. Used by the
+    // spend-transaction poller.
+    return db.select().from(nfcCards)
+      .where(and(eq(nfcCards.status, "active"), sql`${nfcCards.failedAttempts} < 5`));
   }
   async getNfcCardTransactions(cardId: number, profileId: number): Promise<NfcCardTransaction[]> {
     return db.select().from(nfcCardTransactions)

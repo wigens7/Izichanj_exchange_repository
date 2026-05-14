@@ -22,7 +22,7 @@ import { getDepositRate, getWithdrawalRate, setRates, rateUsdtToHtg, rateHtgToUs
 import { generateReceiptPDF, generateAdjustmentReceiptPDF, generateCardStatementPDF, type CardStatementTxn } from "./receipt";
 import * as paypalModule from "./paypal";
 import { ensureKycImageSize } from "./image-compress";
-import { deposits, profiles, virtualCards, nfcCards } from "@shared/schema";
+import { deposits, profiles, virtualCards, nfcCards, nfcCardTransactions } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, sql } from "drizzle-orm";
 import * as otplibModule from "otplib";
@@ -3921,6 +3921,181 @@ export async function registerRoutes(
       console.error("Auto-expire deposits error:", e);
     }
   }, 60 * 1000);
+
+  // ════════════════════════════════════════════════════════════════════════
+  //  NFC SPEND POLLER
+  //  Strowallet doesn't push us a webhook for NFC card spend events, so we
+  //  poll their transactions endpoint every 30 seconds for each active card.
+  //  Any new spend we discover is:
+  //    1) inserted into our local nfc_card_transactions (so the user's
+  //       history dialog shows it within seconds, even if Strowallet is
+  //       briefly unreachable later);
+  //    2) WhatsApp-pushed to the cardholder with the merchant + amount;
+  //    3) Telegram-alerted to admin.
+  //  Provider tx IDs are unique-indexed so we never insert the same spend
+  //  twice, even across server restarts.
+  // ════════════════════════════════════════════════════════════════════════
+  const NFC_POLL_INTERVAL_MS = 30 * 1000;
+  let nfcPollerRunning = false;
+
+  function pickRemoteList(data: any): any[] {
+    const findArray = (obj: any, depth = 0): any[] | null => {
+      if (!obj || depth > 4) return null;
+      if (Array.isArray(obj)) return obj;
+      if (typeof obj !== "object") return null;
+      for (const k of Object.keys(obj)) if (Array.isArray(obj[k])) return obj[k];
+      for (const k of Object.keys(obj)) {
+        const found = findArray(obj[k], depth + 1);
+        if (found) return found;
+      }
+      return null;
+    };
+    return (
+      data?.response?.card_transactions ||
+      data?.response?.transactions ||
+      data?.response?.data ||
+      data?.transactions ||
+      data?.data ||
+      findArray(data) ||
+      []
+    );
+  }
+
+  async function pollSingleNfcCardSpend(card: any) {
+    const params = new URLSearchParams({
+      public_key: strowalletPublicKey,
+      card_id: card.cardId,
+    });
+    let response: Response;
+    try {
+      response = await strowalletFetch(`${STROWALLET_BASE}/nfc-card-transactions/?${params.toString()}`, {
+        method: "GET",
+        headers: { "Accept": "application/json" },
+      });
+    } catch {
+      return; // network blip — try again next tick
+    }
+    if (!response.ok) return;
+    let data: any = {};
+    try { data = await response.json(); } catch { return; }
+
+    const remoteList = pickRemoteList(data);
+    if (!Array.isArray(remoteList) || remoteList.length === 0) return;
+
+    // Anything older than this is treated as historical backfill: still
+    // mirrored locally so it appears in the user's history dialog, but no
+    // outbound WhatsApp/Telegram notification is sent. This protects the
+    // user from being WhatsApp-blasted with the entire card history on first
+    // deployment or after a long downtime.
+    const NOTIFY_MAX_AGE_MS = 10 * 60 * 1000; // 10 minutes
+
+    for (const tx of remoteList) {
+      const rawType = String(tx.type || tx.transaction_type || tx.txn_type || "").toLowerCase().trim();
+
+      // Allowlist of spend-style events. Anything else (fund, withdraw,
+      // credit, refund, reversal, topup, deposit, load, etc.) we skip so
+      // we don't misclassify a refund as a charge or duplicate something
+      // already logged by our own fund/withdraw endpoints.
+      const isSpendType = /spend|debit|purchase|payment|charge|pos|atm/.test(rawType);
+      const isExplicitlyOther = /fund|withdraw|load|credit|refund|reversal|topup|deposit|chargeback/.test(rawType);
+      if (isExplicitlyOther) continue;
+      if (rawType && !isSpendType) continue; // unknown type — skip to be safe
+
+      const providerTxId = String(
+        tx.id || tx.transaction_id || tx.txn_id || tx.reference || tx.uuid || ""
+      ).trim();
+      if (!providerTxId) continue; // can't dedupe without a stable id
+
+      const amountRaw = tx.amount ?? tx.value ?? tx.transaction_amount ?? "0";
+      const amountNum = Math.abs(parseFloat(String(amountRaw))) || 0;
+      if (amountNum <= 0) continue;
+
+      const merchant = (tx.merchant || tx.merchant_name || tx.narration || tx.description || "Card purchase").toString().slice(0, 200);
+      const currency = (tx.currency || tx.transaction_currency || "USD").toString();
+      const dateStr = tx.created_at || tx.createdAt || tx.date || tx.transaction_date || tx.timestamp || tx.time;
+      const txDate = dateStr ? new Date(dateStr) : new Date();
+      const isRecent = !isNaN(txDate.getTime()) && (Date.now() - txDate.getTime() < NOTIFY_MAX_AGE_MS);
+
+      // Try to insert; rely on the unique partial index (card_id, provider_tx_id)
+      // to silently no-op duplicates.
+      let inserted = false;
+      try {
+        const [row] = await db
+          .insert(nfcCardTransactions)
+          .values({
+            cardId: card.id,
+            profileId: card.profileId,
+            type: "spend",
+            amount: amountNum.toFixed(2),
+            currency,
+            description: `Spent at ${merchant}`,
+            providerTxId,
+          })
+          .onConflictDoNothing()
+          .returning();
+        inserted = !!row;
+      } catch (err: any) {
+        console.error("[NFC poller] insert failed:", err?.message || err);
+        continue;
+      }
+      if (!inserted) continue; // already mirrored
+
+      // Newly inserted but older than the notify window: this is a backfill
+      // (first sync or post-downtime catch-up). Persist it so it shows in
+      // the user's history dialog, but don't push WhatsApp/Telegram alerts.
+      if (!isRecent) {
+        console.log(`[NFC poller] Backfilled historical spend (no notify) — card ${card.id}: ${providerTxId} -$${amountNum.toFixed(2)} @ ${merchant} (${txDate.toISOString()})`);
+        continue;
+      }
+
+      // ── Recent spend → notify the user on WhatsApp + admin on Telegram ──
+      const profile = await storage.getProfile(card.profileId).catch(() => null);
+      const last4 = card.last4 || "????";
+      const whenStr = txDate.toLocaleString();
+      const userMsg =
+        `*Izichanj*\n\n` +
+        `💳 *NFC Card Transaction*\n\n` +
+        `Card: ****${last4}\n` +
+        `Amount: -$${amountNum.toFixed(2)} ${currency}\n` +
+        `Merchant: ${merchant}\n` +
+        `Date: ${whenStr}\n\n` +
+        `If you don't recognize this transaction, freeze your card immediately and contact support.\n\n` +
+        `https://izichanj.com`;
+      if (profile?.phone) {
+        sendWhatsAppNotification(profile.phone, userMsg, profile.fullName || undefined).catch(() => {});
+      }
+
+      sendTelegramMessage(
+        `💳 <b>NFC Card SPEND</b>\n\n` +
+        `👤 ${profile?.fullName || "?"} (${profile?.email || "?"})\n` +
+        `💳 Card ****${last4} (id ${card.id})\n` +
+        `💵 -$${amountNum.toFixed(2)} ${currency}\n` +
+        `🏬 ${merchant}\n` +
+        `🕒 ${whenStr}`
+      ).catch(() => {});
+
+      console.log(`[NFC poller] New spend for card ${card.id}: ${providerTxId} -$${amountNum.toFixed(2)} @ ${merchant}`);
+    }
+  }
+
+  setInterval(async () => {
+    if (nfcPollerRunning) return; // skip if previous tick still running
+    if (!strowalletPublicKey) return;
+    nfcPollerRunning = true;
+    try {
+      const cards = await storage.getAllActiveNfcCards();
+      // Process sequentially to avoid hammering the proxy with parallel calls.
+      for (const card of cards) {
+        try { await pollSingleNfcCardSpend(card); } catch (e: any) {
+          console.error(`[NFC poller] card ${card.id} failed:`, e?.message || e);
+        }
+      }
+    } catch (e: any) {
+      console.error("[NFC poller] tick failed:", e?.message || e);
+    } finally {
+      nfcPollerRunning = false;
+    }
+  }, NFC_POLL_INTERVAL_MS);
 
   // ======= 2FA TOTP Routes =======
   app.post("/api/security/2fa/setup", isAuthenticated, async (req: any, res) => {

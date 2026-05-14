@@ -273,6 +273,22 @@ app.use((req, res, next) => {
     console.warn("[startup migration] nfc_card_transactions table skipped:", (e as Error).message);
   }
 
+  // Add provider_tx_id column for dedup of mirrored Strowallet spend txns
+  try {
+    await db.execute(sql`
+      ALTER TABLE nfc_card_transactions
+      ADD COLUMN IF NOT EXISTS provider_tx_id TEXT
+    `);
+    await db.execute(sql`
+      CREATE UNIQUE INDEX IF NOT EXISTS nfc_card_transactions_provider_tx_id_uniq
+      ON nfc_card_transactions (card_id, provider_tx_id)
+      WHERE provider_tx_id IS NOT NULL
+    `);
+    console.log("[startup migration] nfc_card_transactions.provider_tx_id ensured");
+  } catch (e) {
+    console.warn("[startup migration] nfc_card_transactions.provider_tx_id skipped:", (e as Error).message);
+  }
+
   // Fix: reset any card marked "active" that still has a pending_ card_id (never really issued)
   try {
     const fixed = await db.execute(sql`
