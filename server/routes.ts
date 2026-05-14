@@ -5878,6 +5878,33 @@ export async function registerRoutes(
     }
   });
 
+  // Verify the user's login password before revealing sensitive NFC card details.
+  // Reuses the same password used to log in — no separate PIN to set up.
+  app.post("/api/nfc-cards/:id/unlock-details", isAuthenticated, async (req: any, res) => {
+    try {
+      const profile = await getProfileFromReq(req);
+      if (!profile) return res.status(401).json({ message: "Unauthorized" });
+      const card = await storage.getNfcCard(Number(req.params.id), profile.id);
+      if (!card) return res.status(404).json({ message: "NFC card not found" });
+
+      const { password } = req.body || {};
+      if (typeof password !== "string" || password.length === 0) {
+        return res.status(400).json({ message: "Password is required" });
+      }
+      if (!profile.passwordHash) {
+        return res.status(400).json({ message: "Account password not set" });
+      }
+      const ok = await bcrypt.compare(password, profile.passwordHash);
+      if (!ok) {
+        return res.status(401).json({ message: "Incorrect password" });
+      }
+      res.json({ ok: true });
+    } catch (e: any) {
+      console.error("[NFC unlock-details]", e);
+      res.status(500).json({ message: "Internal Error" });
+    }
+  });
+
   // Fetch NFC card details (PAN, CVV, etc.) live from Strowallet.
   // Network/upstream failures are returned as { remoteDetail: null, reason } so the
   // UI can show a friendly empty state and a working retry button — never a 500.

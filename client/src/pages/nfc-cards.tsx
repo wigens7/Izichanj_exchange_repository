@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useUser } from "@/hooks/use-auth";
@@ -23,7 +23,7 @@ import { Separator } from "@/components/ui/separator";
 import {
   Nfc, Smartphone, Plus, DollarSign, Loader2, Eye, EyeOff, Copy, CheckCircle,
   ArrowDownLeft, ArrowUpRight, Clock, ShieldCheck, RefreshCw, Sparkles, Wallet,
-  AlertTriangle,
+  AlertTriangle, Lock, ShieldAlert,
 } from "lucide-react";
 import { SiApplepay, SiGooglepay } from "react-icons/si";
 import { formatDateTime } from "@/lib/dateUtils";
@@ -64,6 +64,28 @@ export default function NfcCardsPage() {
   const missingFields = readiness?.missingFields ?? [];
 
   const [revealId, setRevealId] = useState<number | null>(null);
+  // Password unlock gate before showing card details.
+  const [unlockId, setUnlockId] = useState<number | null>(null);
+  const [unlockPassword, setUnlockPassword] = useState("");
+  const [showUnlockPw, setShowUnlockPw] = useState(false);
+  // Best-effort screenshot mitigation: hide sensitive values when the
+  // page loses focus (Android often hides web content briefly during a screenshot).
+  const [hideSensitive, setHideSensitive] = useState(false);
+  useEffect(() => {
+    if (revealId === null) return;
+    const onVis = () => setHideSensitive(document.visibilityState !== "visible");
+    const onBlur = () => setHideSensitive(true);
+    const onFocus = () => setHideSensitive(false);
+    document.addEventListener("visibilitychange", onVis);
+    window.addEventListener("blur", onBlur);
+    window.addEventListener("focus", onFocus);
+    return () => {
+      document.removeEventListener("visibilitychange", onVis);
+      window.removeEventListener("blur", onBlur);
+      window.removeEventListener("focus", onFocus);
+      setHideSensitive(false);
+    };
+  }, [revealId]);
   const [fundOpen, setFundOpen] = useState<NfcCard | null>(null);
   const [withdrawOpen, setWithdrawOpen] = useState<NfcCard | null>(null);
   const [txnsOpen, setTxnsOpen] = useState<NfcCard | null>(null);
@@ -136,6 +158,7 @@ export default function NfcCardsPage() {
     onError: (e: any) => toast({ title: "Withdrawal failed", description: e?.message || "Please try again.", variant: "destructive" }),
   });
 
+  // Standalone "refresh balance" used from the card list (shows its own toasts).
   const refreshMut = useMutation({
     mutationFn: async (id: number) => {
       const r = await apiRequest("POST", `/api/nfc-cards/${id}/refresh-balance`, {});
@@ -156,17 +179,39 @@ export default function NfcCardsPage() {
     onError: (e: any) => toast({ title: "Refresh failed", description: e?.message || "Please try again.", variant: "destructive" }),
   });
 
-  // Used by the "Refresh" button inside the Card details dialog —
-  // re-runs the details query AND the balance refresh together.
+  // Silent variant used by the details dialog — no toast spam (the dialog UI
+  // already shows the empty state). Still refreshes the cards list balance.
+  const [silentBalanceLoading, setSilentBalanceLoading] = useState(false);
+  const silentRefreshBalance = async (id: number) => {
+    try {
+      setSilentBalanceLoading(true);
+      const r = await apiRequest("POST", `/api/nfc-cards/${id}/refresh-balance`, {});
+      const data = await r.json().catch(() => ({}));
+      if (data?.synced) qc.invalidateQueries({ queryKey: ["/api/nfc-cards"] });
+    } catch {
+      // ignored — the details refetch result drives the dialog UI
+    } finally {
+      setSilentBalanceLoading(false);
+    }
+  };
+
+  // Refresh button inside the Card details dialog —
+  // re-runs the details query AND a quiet balance sync, with smart toast logic.
   const refreshDetails = async () => {
     if (revealId == null) return;
-    try {
-      await Promise.all([
-        refetchDetails(),
-        refreshMut.mutateAsync(revealId).catch(() => {}),
-      ]);
-    } catch {
-      // toast already handled by mutation onError
+    const [detailsRes] = await Promise.all([
+      refetchDetails(),
+      silentRefreshBalance(revealId),
+    ]);
+    const got = !!detailsRes?.data?.remoteDetail;
+    if (got) {
+      toast({ title: "Card details refreshed" });
+    } else {
+      toast({
+        title: "Couldn't sync right now",
+        description: detailsRes?.data?.message || "The card provider didn't respond. Please try again shortly.",
+        variant: "destructive",
+      });
     }
   };
 
@@ -320,7 +365,7 @@ export default function NfcCardsPage() {
                     variant="outline"
                     size="sm"
                     disabled={card.status !== "active"}
-                    onClick={() => setRevealId(card.id)}
+                    onClick={() => { setUnlockId(card.id); setUnlockPassword(""); setShowUnlockPw(false); }}
                     data-testid={`button-nfc-reveal-${card.id}`}
                   >
                     <Eye className="w-4 h-4 mr-1" /> View
@@ -412,13 +457,88 @@ export default function NfcCardsPage() {
         </DialogContent>
       </Dialog>
 
+      {/* UNLOCK dialog — verify login password before revealing card details */}
+      <Dialog open={unlockId !== null} onOpenChange={(o) => { if (!o) { setUnlockId(null); setUnlockPassword(""); } }}>
+        <DialogContent data-testid="dialog-nfc-unlock">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2"><Lock className="w-4 h-4" /> Confirm your identity</DialogTitle>
+            <DialogDescription>Enter your account password to view sensitive card details.</DialogDescription>
+          </DialogHeader>
+          <form
+            onSubmit={async (e) => {
+              e.preventDefault();
+              if (unlockId == null || !unlockPassword) return;
+              try {
+                const r = await apiRequest("POST", `/api/nfc-cards/${unlockId}/unlock-details`, { password: unlockPassword });
+                const data = await r.json().catch(() => ({}));
+                if (!r.ok || !data?.ok) {
+                  toast({ title: "Incorrect password", description: data?.message || "Please try again.", variant: "destructive" });
+                  return;
+                }
+                const id = unlockId;
+                setUnlockId(null);
+                setUnlockPassword("");
+                setRevealId(id);
+              } catch (err: any) {
+                toast({ title: "Incorrect password", description: err?.message || "Please try again.", variant: "destructive" });
+              }
+            }}
+            className="space-y-3"
+          >
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <Label>Password</Label>
+                <button type="button" className="text-xs text-indigo-600 dark:text-indigo-300 hover:underline" onClick={() => setShowUnlockPw((s) => !s)} data-testid="button-toggle-unlock-pw">
+                  {showUnlockPw ? "Hide" : "Show"}
+                </button>
+              </div>
+              <Input
+                type={showUnlockPw ? "text" : "password"}
+                value={unlockPassword}
+                onChange={(e) => setUnlockPassword(e.target.value)}
+                placeholder="Your account password"
+                autoFocus
+                autoComplete="current-password"
+                data-testid="input-nfc-unlock-password"
+              />
+              <p className="text-xs text-muted-foreground">Same password you use to log in.</p>
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => { setUnlockId(null); setUnlockPassword(""); }} data-testid="button-cancel-nfc-unlock">Cancel</Button>
+              <Button type="submit" disabled={!unlockPassword} className="bg-gradient-to-r from-indigo-600 to-purple-600 text-white" data-testid="button-confirm-nfc-unlock">
+                Unlock
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
       {/* DETAILS dialog */}
       <Dialog open={revealId !== null} onOpenChange={(o) => !o && setRevealId(null)}>
-        <DialogContent data-testid="dialog-nfc-details">
+        <DialogContent
+          data-testid="dialog-nfc-details"
+          className="select-none"
+          onContextMenu={(e) => e.preventDefault()}
+          style={{
+            WebkitUserSelect: "none",
+            WebkitTouchCallout: "none",
+          }}
+        >
           <DialogHeader>
             <DialogTitle>Card details</DialogTitle>
-            <DialogDescription>Sensitive info — do not share.</DialogDescription>
+            <DialogDescription className="flex items-center gap-1.5 text-amber-700 dark:text-amber-300">
+              <ShieldAlert className="w-3.5 h-3.5" /> Sensitive — do not screenshot or share.
+            </DialogDescription>
           </DialogHeader>
+          {hideSensitive && (
+            <div className="absolute inset-0 z-10 flex items-center justify-center rounded-lg bg-background/95 backdrop-blur-md text-center p-6" data-testid="text-nfc-screenshot-block">
+              <div className="space-y-2">
+                <ShieldAlert className="w-8 h-8 text-amber-500 mx-auto" />
+                <p className="text-sm font-semibold">Card details hidden</p>
+                <p className="text-xs text-muted-foreground max-w-xs">For your security, sensitive information is hidden when the app is in the background. Tap the screen to view again.</p>
+              </div>
+            </div>
+          )}
           {detailsLoading ? (
             <div className="space-y-3"><Skeleton className="h-10" /><Skeleton className="h-10" /><Skeleton className="h-10" /></div>
           ) : detailsResp?.remoteDetail ? (
@@ -438,10 +558,10 @@ export default function NfcCardsPage() {
             <Button
               variant="outline"
               onClick={refreshDetails}
-              disabled={detailsFetching || refreshMut.isPending}
+              disabled={detailsFetching || silentBalanceLoading}
               data-testid="button-nfc-refresh"
             >
-              <RefreshCw className={`w-4 h-4 mr-2 ${(detailsFetching || refreshMut.isPending) ? "animate-spin" : ""}`} /> Refresh
+              <RefreshCw className={`w-4 h-4 mr-2 ${(detailsFetching || silentBalanceLoading) ? "animate-spin" : ""}`} /> Refresh
             </Button>
             <Button onClick={() => setRevealId(null)} data-testid="button-close-nfc-details">Close</Button>
           </DialogFooter>
