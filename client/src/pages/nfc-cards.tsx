@@ -73,7 +73,7 @@ export default function NfcCardsPage() {
 
   const { data: cards, isLoading } = useQuery<NfcCard[]>({ queryKey: ["/api/nfc-cards"] });
 
-  const { data: detailsResp, isLoading: detailsLoading } = useQuery<{ card: NfcCard; remoteDetail: NfcDetail | null }>({
+  const { data: detailsResp, isLoading: detailsLoading, isFetching: detailsFetching, refetch: refetchDetails } = useQuery<{ card: NfcCard; remoteDetail: NfcDetail | null; reason?: string; message?: string }>({
     queryKey: ["/api/nfc-cards", revealId, "details"],
     enabled: revealId !== null,
   });
@@ -141,12 +141,34 @@ export default function NfcCardsPage() {
       const r = await apiRequest("POST", `/api/nfc-cards/${id}/refresh-balance`, {});
       return r.json();
     },
-    onSuccess: () => {
+    onSuccess: (data: any) => {
       qc.invalidateQueries({ queryKey: ["/api/nfc-cards"] });
-      toast({ title: "Balance refreshed" });
+      if (data?.synced) {
+        toast({ title: "Balance refreshed" });
+      } else {
+        toast({
+          title: "Couldn't sync right now",
+          description: data?.message || "The card provider didn't respond. Please try again shortly.",
+          variant: "destructive",
+        });
+      }
     },
     onError: (e: any) => toast({ title: "Refresh failed", description: e?.message || "Please try again.", variant: "destructive" }),
   });
+
+  // Used by the "Refresh" button inside the Card details dialog —
+  // re-runs the details query AND the balance refresh together.
+  const refreshDetails = async () => {
+    if (revealId == null) return;
+    try {
+      await Promise.all([
+        refetchDetails(),
+        refreshMut.mutateAsync(revealId).catch(() => {}),
+      ]);
+    } catch {
+      // toast already handled by mutation onError
+    }
+  };
 
   const copy = (txt: string, label: string) => {
     navigator.clipboard.writeText(txt);
@@ -407,14 +429,19 @@ export default function NfcCardsPage() {
               <DetailRow label="Name" value={detailsResp.card.nameOnCard} testId="text-nfc-name" />
             </div>
           ) : (
-            <div className="text-sm text-muted-foreground flex items-start gap-2 p-3 rounded-lg bg-amber-50 dark:bg-amber-950/30">
-              <AlertTriangle className="w-4 h-4 text-amber-600 mt-0.5" />
-              Card details aren't available yet. Try refreshing in a moment.
+            <div className="text-sm text-muted-foreground flex items-start gap-2 p-3 rounded-lg bg-amber-50 dark:bg-amber-950/30" data-testid="text-nfc-details-empty">
+              <AlertTriangle className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
+              <span>{detailsResp?.message || "Card details aren't available right now. Please try again shortly."}</span>
             </div>
           )}
           <DialogFooter>
-            <Button variant="outline" onClick={() => revealId && refreshMut.mutate(revealId)} disabled={refreshMut.isPending} data-testid="button-nfc-refresh">
-              <RefreshCw className={`w-4 h-4 mr-2 ${refreshMut.isPending ? "animate-spin" : ""}`} /> Refresh
+            <Button
+              variant="outline"
+              onClick={refreshDetails}
+              disabled={detailsFetching || refreshMut.isPending}
+              data-testid="button-nfc-refresh"
+            >
+              <RefreshCw className={`w-4 h-4 mr-2 ${(detailsFetching || refreshMut.isPending) ? "animate-spin" : ""}`} /> Refresh
             </Button>
             <Button onClick={() => setRevealId(null)} data-testid="button-close-nfc-details">Close</Button>
           </DialogFooter>

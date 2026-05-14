@@ -5878,7 +5878,9 @@ export async function registerRoutes(
     }
   });
 
-  // Fetch NFC card details (PAN, CVV, etc.) live from Strowallet
+  // Fetch NFC card details (PAN, CVV, etc.) live from Strowallet.
+  // Network/upstream failures are returned as { remoteDetail: null, reason } so the
+  // UI can show a friendly empty state and a working retry button — never a 500.
   app.get("/api/nfc-cards/:id/details", isAuthenticated, async (req: any, res) => {
     try {
       const profile = await getProfileFromReq(req);
@@ -5890,15 +5892,35 @@ export async function registerRoutes(
         public_key: strowalletPublicKey,
         card_id: card.cardId,
       });
-      const response = await strowalletFetch(`${STROWALLET_BASE}/fetch-nfccard-detail/?${params.toString()}`, {
-        method: "GET",
-        headers: { "Accept": "application/json" },
-      });
-      const data = await response.json();
+
+      let response: Response;
+      try {
+        response = await strowalletFetch(`${STROWALLET_BASE}/fetch-nfccard-detail/?${params.toString()}`, {
+          method: "GET",
+          headers: { "Accept": "application/json" },
+        });
+      } catch (netErr: any) {
+        console.log("[NFC DETAIL] Network error:", netErr?.message || netErr);
+        // Fall back to whatever we last cached so the user sees something.
+        return res.json({
+          card,
+          remoteDetail: card.cardDetail || null,
+          reason: "network",
+          message: "We couldn't reach the card provider. Please try again in a moment.",
+        });
+      }
+
+      let data: any = {};
+      try { data = await response.json(); } catch { data = {}; }
 
       if (!response.ok || data.status === "error" || data.status === false || data.success === false) {
         console.log("[NFC DETAIL] Strowallet error:", JSON.stringify(data));
-        return res.json({ card, remoteDetail: null });
+        return res.json({
+          card,
+          remoteDetail: card.cardDetail || null,
+          reason: "upstream",
+          message: "Card details aren't available right now. Please try again shortly.",
+        });
       }
 
       const detail = data.response?.card_detail || data.response || data.data || data;
@@ -6178,19 +6200,38 @@ export async function registerRoutes(
         public_key: strowalletPublicKey,
         card_id: card.cardId,
       });
-      const response = await strowalletFetch(`${STROWALLET_BASE}/fetch-nfccard-detail/?${params.toString()}`, {
-        method: "GET",
-        headers: { "Accept": "application/json" },
-      });
-      const data = await response.json();
-      const detail = data.response?.card_detail || data.response || data.data || data;
+
+      let response: Response;
+      try {
+        response = await strowalletFetch(`${STROWALLET_BASE}/fetch-nfccard-detail/?${params.toString()}`, {
+          method: "GET",
+          headers: { "Accept": "application/json" },
+        });
+      } catch (netErr: any) {
+        console.log("[NFC refresh] Network error:", netErr?.message || netErr);
+        return res.json({
+          balance: card.balance,
+          synced: false,
+          reason: "network",
+          message: "We couldn't reach the card provider. Please try again in a moment.",
+        });
+      }
+
+      let data: any = {};
+      try { data = await response.json(); } catch { data = {}; }
+      const detail = data?.response?.card_detail || data?.response || data?.data || data;
 
       if (detail?.balance !== undefined && detail?.balance !== null) {
         const newBalance = String(detail.balance);
         await storage.updateNfcCard(card.id, { balance: newBalance, cardDetail: detail });
         return res.json({ balance: newBalance, synced: true });
       }
-      return res.json({ balance: card.balance, synced: false });
+      return res.json({
+        balance: card.balance,
+        synced: false,
+        reason: "upstream",
+        message: "Card balance couldn't be refreshed right now. Please try again shortly.",
+      });
     } catch (e: any) {
       console.error("[NFC refresh]", e);
       res.status(500).json({ message: e.message || "Internal Error" });
