@@ -5969,16 +5969,8 @@ export async function registerRoutes(
       const card = await storage.getNfcCard(Number(req.params.id), profile.id);
       if (!card) return res.status(404).json({ message: "NFC card not found" });
 
-      const params = new URLSearchParams({
-        public_key: strowalletPublicKey,
-        card_id: card.cardId,
-      });
-      const response = await strowalletFetch(`${STROWALLET_BASE}/nfc-card-transactions/?${params.toString()}`, {
-        method: "GET",
-        headers: { "Accept": "application/json" },
-      });
-      const data = await response.json();
-
+      // Always load local fund/withdraw history first — these are guaranteed
+      // to be available even if the upstream provider is unreachable.
       const local = await storage.getNfcCardTransactions(card.id, profile.id);
       const localFmt = local.map((lt) => ({
         id: `local_${lt.id}`,
@@ -5990,8 +5982,26 @@ export async function registerRoutes(
         source: "local",
       }));
 
+      const params = new URLSearchParams({
+        public_key: strowalletPublicKey,
+        card_id: card.cardId,
+      });
+
+      let response: Response;
+      try {
+        response = await strowalletFetch(`${STROWALLET_BASE}/nfc-card-transactions/?${params.toString()}`, {
+          method: "GET",
+          headers: { "Accept": "application/json" },
+        });
+      } catch (netErr: any) {
+        console.log("[NFC TX] Network error — returning local only:", netErr?.message || netErr);
+        return res.json(localFmt);
+      }
+
+      let data: any = {};
+      try { data = await response.json(); } catch { data = {}; }
+
       if (!response.ok) {
-        // Log full Strowallet error response for debugging (per spec)
         console.log("================== [STROWALLET NFC-TRANSACTIONS ERROR] ==================");
         console.log("[NFC TX] HTTP status:", response.status);
         console.log("[NFC TX] Card:", card.cardId, "| Profile:", profile.id);
@@ -6000,22 +6010,45 @@ export async function registerRoutes(
         return res.json(localFmt);
       }
 
+      // Strowallet wraps the list under several different keys depending on the
+      // endpoint version. Walk the payload and pick the first array we find.
+      const findArray = (obj: any, depth = 0): any[] | null => {
+        if (!obj || depth > 4) return null;
+        if (Array.isArray(obj)) return obj;
+        if (typeof obj !== "object") return null;
+        for (const k of Object.keys(obj)) {
+          const v = obj[k];
+          if (Array.isArray(v)) return v;
+        }
+        for (const k of Object.keys(obj)) {
+          const found = findArray(obj[k], depth + 1);
+          if (found) return found;
+        }
+        return null;
+      };
+
       const remoteList: any[] =
-        data.response?.card_transactions ||
-        data.response?.transactions ||
-        data.response?.data ||
-        data.transactions ||
-        data.data ||
-        (Array.isArray(data.response) ? data.response : []) ||
+        data?.response?.card_transactions ||
+        data?.response?.transactions ||
+        data?.response?.data ||
+        data?.transactions ||
+        data?.data ||
+        findArray(data) ||
         [];
 
+      // Debug log — helps diagnose why spend transactions aren't appearing
+      // (different Strowallet shapes, empty responses, etc.)
+      if (!Array.isArray(remoteList) || remoteList.length === 0) {
+        console.log("[NFC TX] Empty/unknown remote shape for card", card.cardId, "— payload keys:", Object.keys(data || {}));
+      }
+
       const remoteFmt = (Array.isArray(remoteList) ? remoteList : []).map((tx: any, i: number) => ({
-        id: tx.id || tx.transaction_id || `remote_${i}`,
-        type: tx.type || tx.transaction_type || "spend",
-        amount: tx.amount,
-        currency: tx.currency || "USD",
-        description: tx.description || tx.merchant || tx.merchant_name || "Card transaction",
-        date: tx.created_at || tx.date || tx.transaction_date,
+        id: tx.id || tx.transaction_id || tx.txn_id || tx.reference || `remote_${i}`,
+        type: tx.type || tx.transaction_type || tx.txn_type || "spend",
+        amount: tx.amount ?? tx.value ?? tx.transaction_amount ?? "0",
+        currency: tx.currency || tx.transaction_currency || "USD",
+        description: tx.description || tx.narration || tx.merchant || tx.merchant_name || "Card transaction",
+        date: tx.created_at || tx.createdAt || tx.date || tx.transaction_date || tx.timestamp || tx.time,
         source: "strowallet",
       }));
 
@@ -6024,6 +6057,25 @@ export async function registerRoutes(
       ));
     } catch (e: any) {
       console.error("[NFC tx]", e);
+      // Last-resort fallback so the user at least sees their local history.
+      try {
+        const profile = await getProfileFromReq(req);
+        if (profile) {
+          const card = await storage.getNfcCard(Number(req.params.id), profile.id);
+          if (card) {
+            const local = await storage.getNfcCardTransactions(card.id, profile.id);
+            return res.json(local.map((lt) => ({
+              id: `local_${lt.id}`,
+              type: lt.type,
+              amount: lt.amount,
+              currency: lt.currency,
+              description: lt.description,
+              date: lt.createdAt,
+              source: "local",
+            })));
+          }
+        }
+      } catch {}
       res.status(500).json({ message: e.message || "Internal Error" });
     }
   });
