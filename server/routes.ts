@@ -35,6 +35,7 @@ import {
 } from "@simplewebauthn/server";
 import type { AuthenticatorTransportFuture } from "@simplewebauthn/types";
 import sgMail from "@sendgrid/mail";
+import { sendVerificationEmail, sendPasswordResetEmail } from "./email";
 
 if (process.env.SENDGRID_API_KEY) {
   sgMail.setApiKey(process.env.SENDGRID_API_KEY);
@@ -132,7 +133,13 @@ async function sendOtpToProfile(profile: { id: number; phone: string | null; ful
     ).catch(() => {});
     return;
   }
-  await sendWhatsAppOtp(phone, code, profile?.fullName);
+  // Deliver via WhatsApp AND email in parallel — both channels best-effort.
+  await Promise.all([
+    sendWhatsAppOtp(phone, code, profile?.fullName).catch(() => {}),
+    profile?.email
+      ? sendVerificationEmail(profile.email, code, profile.fullName).catch(() => {})
+      : Promise.resolve(),
+  ]);
 }
 
 async function sendWhatsAppOtp(phone: string, code: string, name?: string) {
@@ -1416,17 +1423,25 @@ export async function registerRoutes(
   app.post("/api/auth/forgot-password", async (req, res) => {
     try {
       const input = forgotPasswordSchema.parse(req.body);
-      const profile = await storage.getProfileByPhone(input.phone);
+      const generic = { message: "If an account exists with this email, you will receive a 6-digit reset code." };
+      const profile = await storage.getProfileByEmail(input.email);
       if (!profile) {
-        return res.json({ message: "If an account exists with this number, you will receive a code." });
+        // Don't leak whether the email is registered.
+        return res.json(generic);
       }
       if (profile.otpBlocked) {
-        return res.status(403).json({ message: "Your account has been temporarily locked for security reasons. Automatic unlock in 999 years — please contact support to restore access sooner." });
+        // Don't leak that the account is locked — return the same generic
+        // response as for unknown emails. Log internally for admin review.
+        console.log(`[forgot-password] Suppressed (otpBlocked) for profile ${profile.id} (${profile.email})`);
+        return res.json(generic);
       }
       const code = crypto.randomInt(100000, 999999).toString();
       await storage.createOtp(profile.id, code);
-      await sendOtpToProfile(profile, code, input.phone);
-      res.json({ message: "If an account exists with this number, you will receive a code." });
+      // Email-only delivery for password reset (not WhatsApp).
+      sendPasswordResetEmail(profile.email, code, profile.fullName).catch((e) =>
+        console.error("[forgot-password] email send failed:", e?.message || e)
+      );
+      res.json(generic);
     } catch (e) {
       if (e instanceof z.ZodError) return res.status(400).json({ message: e.errors[0].message });
       console.error("Forgot password error:", e);
@@ -1437,9 +1452,9 @@ export async function registerRoutes(
   app.post("/api/auth/reset-password", async (req, res) => {
     try {
       const input = resetPasswordSchema.parse(req.body);
-      const profile = await storage.getProfileByPhone(input.phone);
+      const profile = await storage.getProfileByEmail(input.email);
       if (!profile) {
-        return res.status(400).json({ message: "Invalid phone number or code" });
+        return res.status(400).json({ message: "Invalid email or code" });
       }
       const validOtp = await storage.getValidOtp(profile.id, input.code);
       if (!validOtp) {
@@ -1448,7 +1463,7 @@ export async function registerRoutes(
       await storage.markOtpVerified(validOtp.id);
       const passwordHash = await bcrypt.hash(input.newPassword, 12);
       await storage.updateProfilePassword(profile.id, passwordHash);
-      storage.createSecurityEvent({ profileId: profile.id, eventType: "password_reset", ipAddress: getClientIp(req), deviceInfo: getDeviceInfo(req), details: "Password reset via OTP", status: "info" }).catch(() => {});
+      storage.createSecurityEvent({ profileId: profile.id, eventType: "password_reset", ipAddress: getClientIp(req), deviceInfo: getDeviceInfo(req), details: "Password reset via email OTP", status: "info" }).catch(() => {});
       res.json({ message: "Password reset successfully" });
     } catch (e) {
       if (e instanceof z.ZodError) return res.status(400).json({ message: e.errors[0].message });
@@ -4297,7 +4312,9 @@ export async function registerRoutes(
 
   app.post("/api/auth/forgot-pin", async (req, res) => {
     try {
-      const input = forgotPasswordSchema.parse(req.body);
+      // Forgot-PIN still uses the phone-based OTP channel (separate from
+      // the email-based password reset).
+      const input = z.object({ phone: z.string().min(8, "Phone number must be at least 8 digits") }).parse(req.body);
       const profile = await storage.getProfileByPhone(input.phone);
       if (!profile || profile.isDeleted) {
         return res.json({ message: "If an account exists with this number, you will receive a code." });

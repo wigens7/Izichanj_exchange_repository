@@ -4,22 +4,21 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp";
-import { Loader2, ArrowLeft, Phone, Lock, Eye, EyeOff, Wallet, KeyRound } from "lucide-react";
+import { Loader2, ArrowLeft, Mail, Lock, Eye, EyeOff, KeyRound } from "lucide-react";
 import logoImg from "@/assets/logo.png";
-import { PhoneInput } from "@/components/phone-input";
 import { useState } from "react";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 
-type Step = "phone" | "code" | "success";
+type Step = "email" | "code" | "success";
 
 export default function ForgotPasswordPage() {
   const [, setLocation] = useLocation();
   const { t } = useLanguage();
   const { toast } = useToast();
 
-  const [step, setStep] = useState<Step>("phone");
-  const [phone, setPhone] = useState("");
+  const [step, setStep] = useState<Step>("email");
+  const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -41,16 +40,18 @@ export default function ForgotPasswordPage() {
     }, 1000);
   };
 
+  const isValidEmail = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim());
+
   const handleSendCode = async () => {
-    if (phone.length < 8) {
-      toast({ title: "Error", description: t.login.phoneRequired || "Please enter a valid phone number", variant: "destructive" });
+    if (!isValidEmail(email)) {
+      toast({ title: "Error", description: "Please enter a valid email address", variant: "destructive" });
       return;
     }
     setIsPending(true);
     try {
-      const res = await apiRequest("POST", "/api/auth/forgot-password", { phone });
-      const data = await res.json();
-      toast({ title: t.login.codeSentTitle || "Code Sent", description: t.login.codeSentWhatsApp || "Check your WhatsApp for the verification code." });
+      const res = await apiRequest("POST", "/api/auth/forgot-password", { email: email.trim() });
+      await res.json();
+      toast({ title: t.login.codeSentTitle || "Code Sent", description: "If an account exists for that email, we've sent a 6-digit code. Check your inbox." });
       setStep("code");
       startCountdown();
     } catch (e: any) {
@@ -75,7 +76,7 @@ export default function ForgotPasswordPage() {
     }
     setIsPending(true);
     try {
-      const res = await apiRequest("POST", "/api/auth/reset-password", { phone, code, newPassword, confirmPassword });
+      const res = await apiRequest("POST", "/api/auth/reset-password", { email: email.trim(), code, newPassword, confirmPassword });
       if (!res.ok) {
         const err = await res.json();
         throw new Error(err.message);
@@ -92,8 +93,8 @@ export default function ForgotPasswordPage() {
   const handleResend = async () => {
     setIsPending(true);
     try {
-      await apiRequest("POST", "/api/auth/forgot-password", { phone });
-      toast({ title: t.login.codeSentTitle || "Code Sent", description: t.login.codeSentWhatsApp || "A new code has been sent to your WhatsApp." });
+      await apiRequest("POST", "/api/auth/forgot-password", { email: email.trim() });
+      toast({ title: t.login.codeSentTitle || "Code Sent", description: "A new code has been sent to your email." });
       startCountdown();
     } catch (e: any) {
       toast({ title: "Error", description: e.message, variant: "destructive" });
@@ -119,29 +120,32 @@ export default function ForgotPasswordPage() {
               {t.login.forgotPassword || "Forgot Password?"}
             </CardTitle>
             <CardDescription className="mt-1">
-              {step === "phone" && (t.login.forgotDescription || "Enter your WhatsApp number to receive a reset code.")}
-              {step === "code" && (t.login.enterResetCode || "Enter the code and your new password.")}
+              {step === "email" && "Enter your account email to receive a 6-digit reset code."}
+              {step === "code" && "Enter the code we just emailed you and your new password."}
               {step === "success" && (t.login.passwordResetDescription || "Your password has been reset successfully.")}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4 pt-4">
-            {step === "phone" && (
+            {step === "email" && (
               <>
                 <div className="space-y-2">
-                  <label className="text-sm font-medium">{t.login.whatsappNumber || "WhatsApp Number"}</label>
-                  <PhoneInput
-                    value={phone}
-                    onChange={setPhone}
-                    data-testid="input-forgot-phone"
+                  <label className="text-sm font-medium">Email address</label>
+                  <Input
+                    type="email"
+                    autoComplete="email"
+                    placeholder="you@example.com"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    data-testid="input-forgot-email"
                   />
                 </div>
                 <Button
                   className="w-full primary-gradient"
                   onClick={handleSendCode}
-                  disabled={isPending || !phone || phone.length < 8}
+                  disabled={isPending || !isValidEmail(email)}
                   data-testid="button-send-reset-code"
                 >
-                  {isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Phone className="w-4 h-4 mr-2" />}
+                  {isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Mail className="w-4 h-4 mr-2" />}
                   {t.login.sendResetCode || "Send Reset Code"}
                 </Button>
               </>
