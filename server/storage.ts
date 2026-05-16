@@ -6,6 +6,7 @@ import { sendPushToProfile } from "./fcm";
 
 export interface IStorage {
   getProfile(id: number): Promise<Profile | undefined>;
+  getProfilesByPhone(phone: string): Promise<Profile[]>;
   getProfileByEmail(email: string): Promise<Profile | undefined>;
   getProfileByPhone(phone: string): Promise<Profile | undefined>;
   createProfile(fullName: string, email: string, passwordHash: string, phone?: string): Promise<Profile>;
@@ -187,6 +188,16 @@ export class DatabaseStorage implements IStorage {
       or(eq(profiles.phone, phone), eq(profiles.phone, cleanPhone), eq(profiles.phone, withPlus))
     );
     return profile;
+  }
+  async getProfilesByPhone(phone: string): Promise<Profile[]> {
+    // Returns ALL profiles matching the given phone (across number-format
+    // variants). Used to detect ambiguous phone→user mappings before
+    // mirroring notifications to email.
+    const cleanPhone = phone.replace(/[^0-9]/g, "");
+    const withPlus = "+" + cleanPhone;
+    return db.select().from(profiles).where(
+      or(eq(profiles.phone, phone), eq(profiles.phone, cleanPhone), eq(profiles.phone, withPlus))
+    );
   }
 
   private generateReferenceId(): string {

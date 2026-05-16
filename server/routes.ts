@@ -35,7 +35,7 @@ import {
 } from "@simplewebauthn/server";
 import type { AuthenticatorTransportFuture } from "@simplewebauthn/types";
 import sgMail from "@sendgrid/mail";
-import { sendVerificationEmail, sendPasswordResetEmail } from "./email";
+import { sendVerificationEmail, sendPasswordResetEmail, sendNotificationEmail, sendMediaNotificationEmail } from "./email";
 
 if (process.env.SENDGRID_API_KEY) {
   sgMail.setApiKey(process.env.SENDGRID_API_KEY);
@@ -170,11 +170,82 @@ async function sendWhatsAppOtp(phone: string, code: string, name?: string) {
   }
 }
 
+// Look up a profile by phone so we can also email any WhatsApp notification
+// to the user's inbox. CRITICAL SAFETY: `profiles.phone` is not unique in the
+// DB schema, so two profiles could share a phone (e.g. if one user reassigns
+// their number to another). To avoid leaking PII/financial events to the
+// wrong inbox, we only mirror when EXACTLY ONE profile matches the phone —
+// 0 or 2+ matches → skip mirror and log for admin review.
+//
+// Cache TTL is short (60s) and keyed by canonicalized digits-only phone, so
+// stale mappings can't persist long after a phone reassignment.
+const _phoneEmailCache = new Map<string, { email: string; name: string | null; expires: number }>();
+const PHONE_CACHE_TTL_MS = 60 * 1000;
+
+async function lookupProfileForPhone(phone: string): Promise<{ email: string; name: string | null } | null> {
+  if (!phone) return null;
+  // Canonicalize: digits-only key so "+509…", "509 …", "(509) …" all hit the
+  // same cache slot and don't cause stale variant misses.
+  const key = String(phone).replace(/[^0-9]/g, "");
+  if (!key) return null;
+
+  const cached = _phoneEmailCache.get(key);
+  if (cached && cached.expires > Date.now()) {
+    return cached.email ? { email: cached.email, name: cached.name } : null;
+  }
+  try {
+    const matches = await storage.getProfilesByPhone(key);
+    let entry: { email: string; name: string | null; expires: number };
+    if (matches.length === 1) {
+      const p = matches[0];
+      entry = {
+        email: p.email || "",
+        name: p.fullName || null,
+        expires: Date.now() + PHONE_CACHE_TTL_MS,
+      };
+    } else {
+      // Either no match (cache the negative briefly) or AMBIGUOUS — refuse
+      // to mirror. Surface ambiguous matches to admin via Telegram so the
+      // duplicate phone can be cleaned up.
+      if (matches.length > 1) {
+        console.warn(`[EMAIL MIRROR] Ambiguous phone match (${matches.length} profiles for ${key}) — skipping email mirror`);
+        sendTelegramMessage(
+          `⚠️ <b>Email-mirror skipped (ambiguous phone)</b>\n\n${matches.length} profiles share phone <code>${key}</code>:\n` +
+          matches.map(m => `• #${m.id} — ${m.email || "(no email)"}`).join("\n") +
+          `\n\nNotifications cannot be safely mirrored to email until the duplicates are resolved.`
+        ).catch(() => {});
+      }
+      entry = { email: "", name: null, expires: Date.now() + PHONE_CACHE_TTL_MS };
+    }
+    _phoneEmailCache.set(key, entry);
+    return entry.email ? { email: entry.email, name: entry.name } : null;
+  } catch (e: any) {
+    console.error(`[EMAIL MIRROR] phone lookup failed for ${key}:`, e?.message || e);
+    return null;
+  }
+}
+
 async function sendWhatsAppNotification(phone: string, message: string, name?: string) {
   const instanceId = process.env.ULTRAMSG_INSTANCE_ID;
   const token = process.env.ULTRAMSG_TOKEN;
+
+  // Mirror to email in parallel — even if WhatsApp delivery is mocked or
+  // skipped, the user still gets the notification by email so they never
+  // miss an alert (e.g. after changing WhatsApp numbers).
+  const emailMirror = (async () => {
+    try {
+      const found = await lookupProfileForPhone(phone);
+      if (found?.email) {
+        await sendNotificationEmail(found.email, message, name || found.name);
+      }
+    } catch (e: any) {
+      console.error(`[EMAIL MIRROR] Notification mirror failed:`, e?.message || e);
+    }
+  })();
+
   if (!instanceId || !token || !phone) {
     console.log(`[MOCK WHATSAPP NOTIFICATION] To ${phone}: ${message}`);
+    await emailMirror;
     return;
   }
   try {
@@ -197,6 +268,7 @@ async function sendWhatsAppNotification(phone: string, message: string, name?: s
   } catch (error: any) {
     console.error(`[WHATSAPP ERROR] Failed to send notification to ${phone}:`, error.message);
   }
+  await emailMirror;
 }
 
 // ────────────────────────────────────────────────────────────────────
@@ -216,8 +288,23 @@ async function sendWhatsAppMedia(
 ) {
   const instanceId = process.env.ULTRAMSG_INSTANCE_ID;
   const token = process.env.ULTRAMSG_TOKEN;
+
+  // Mirror media to email as well so the user still gets it if WhatsApp
+  // delivery fails or their number changes.
+  const emailMirror = (async () => {
+    try {
+      const found = await lookupProfileForPhone(phone);
+      if (found?.email) {
+        await sendMediaNotificationEmail(found.email, fileUrl, fileName, caption, name || found.name);
+      }
+    } catch (e: any) {
+      console.error(`[EMAIL MIRROR] Media mirror failed:`, e?.message || e);
+    }
+  })();
+
   if (!instanceId || !token || !phone) {
     console.log(`[MOCK WHATSAPP MEDIA] To ${phone}: ${fileName} (${fileUrl})`);
+    await emailMirror;
     return;
   }
   try {
@@ -249,6 +336,7 @@ async function sendWhatsAppMedia(
   } catch (error: any) {
     console.error(`[WHATSAPP ERROR] Failed to send ${fileName} to ${phone}:`, error.message);
   }
+  await emailMirror;
 }
 
 // Build an absolute, publicly-fetchable URL from an internal /objects/... path.
