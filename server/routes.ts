@@ -3189,6 +3189,21 @@ export async function registerRoutes(
         `🗂 Card DB ID: #${cardDbId}`
       ).catch(() => {});
 
+      // Notify the user on WhatsApp + email (mirrored automatically).
+      const cancelledProfile = await storage.getProfile(profileId).catch(() => null);
+      if (cancelledProfile?.phone) {
+        sendWhatsAppNotification(
+          cancelledProfile.phone,
+          `*Izichanj*\n\n❌ NFC Card Request Cancelled\n\n` +
+          `Your NFC card request was cancelled by our team.\n\n` +
+          `💵 $${refundAmount.toFixed(2)} USDT has been refunded to your wallet.\n` +
+          `💰 New balance: $${newBalance.toFixed(2)} USDT\n\n` +
+          `You can apply for a new NFC card anytime from the NFC Cards section.\n\n` +
+          `https://izichanj.com`,
+          cancelledProfile.fullName || undefined,
+        ).catch(() => {});
+      }
+
       res.json({ success: true, refunded: refundAmount, newBalance, userName: credited[0].fullName });
     } catch (e: any) {
       console.error("[admin cancel-refund nfc-card]", e);
@@ -6202,6 +6217,18 @@ export async function registerRoutes(
             title: "NFC Card Request Received",
             message: "Your contactless NFC card is being prepared. Check back within 24 hours for your card details.",
           }).catch(() => {});
+          if (profile.phone) {
+            sendWhatsAppNotification(
+              profile.phone,
+              `*Izichanj*\n\n📥 NFC Card Request Received\n\n` +
+              `Thank you! Your contactless NFC card is being prepared.\n\n` +
+              `💵 Amount charged: $${COST_USD.toFixed(2)} USDT\n` +
+              `💳 Loaded on card: $${LOAD_USD.toFixed(2)} USD\n\n` +
+              `⏳ Please check back within 24 hours for your card details. You'll be notified as soon as it's ready.\n\n` +
+              `https://izichanj.com`,
+              profile.fullName || undefined,
+            ).catch(() => {});
+          }
           sendTelegramMessage(
             `🚨 <b>NFC CARD — Master Wallet Low</b>\n\n` +
             `👤 ${profile.fullName} (${profile.email})\n` +
@@ -6265,6 +6292,20 @@ export async function registerRoutes(
         `🔢 Last 4: ${last4 || "N/A"}\n` +
         `💵 Charged $${COST_USD.toFixed(2)} USDT`
       ).catch(() => {});
+
+      // Notify the user on WhatsApp + email (mirrored automatically).
+      if (profile.phone) {
+        sendWhatsAppNotification(
+          profile.phone,
+          `*Izichanj*\n\n✅ NFC Card Issued\n\n` +
+          `Your contactless NFC card is ready to use! 🎉\n\n` +
+          `💳 Card: Visa ****${last4 || "----"}\n` +
+          `💵 Loaded: $${LOAD_USD.toFixed(2)} USD\n\n` +
+          `Open the NFC Cards section in the app to view your full card details and start spending.\n\n` +
+          `https://izichanj.com`,
+          profile.fullName || undefined,
+        ).catch(() => {});
+      }
 
       res.status(201).json(card);
     } catch (e: any) {
