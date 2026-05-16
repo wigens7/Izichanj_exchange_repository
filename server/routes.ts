@@ -35,7 +35,7 @@ import {
 } from "@simplewebauthn/server";
 import type { AuthenticatorTransportFuture } from "@simplewebauthn/types";
 import sgMail from "@sendgrid/mail";
-import { sendVerificationEmail, sendPasswordResetEmail, sendNotificationEmail, sendMediaNotificationEmail } from "./email";
+import { sendVerificationEmail, sendPasswordResetEmail, sendNotificationEmail, sendMediaNotificationEmail, sendNewsletterEmail } from "./email";
 
 if (process.env.SENDGRID_API_KEY) {
   sgMail.setApiKey(process.env.SENDGRID_API_KEY);
@@ -9015,6 +9015,111 @@ export async function registerRoutes(
       });
     } catch (e: any) {
       res.status(500).json({ message: e.message });
+    }
+  });
+
+  // ────────────────────────────────────────────────────────────────────
+  // Newsletter — user opt-in + admin send-to-all
+  // ────────────────────────────────────────────────────────────────────
+  app.get("/api/profile/newsletter", isAuthenticated, async (req: any, res) => {
+    try {
+      const r = await db.execute(sql`SELECT newsletter_subscribed, newsletter_subscribed_at FROM profiles WHERE id = ${req.session.profileId} LIMIT 1`);
+      const row = r.rows[0] as any;
+      res.json({
+        subscribed: !!row?.newsletter_subscribed,
+        subscribedAt: row?.newsletter_subscribed_at || null,
+      });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.post("/api/profile/newsletter/subscribe", isAuthenticated, async (req: any, res) => {
+    try {
+      await db.execute(sql`UPDATE profiles SET newsletter_subscribed = TRUE, newsletter_subscribed_at = NOW() WHERE id = ${req.session.profileId}`);
+      res.json({ ok: true, subscribed: true });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.post("/api/profile/newsletter/unsubscribe", isAuthenticated, async (req: any, res) => {
+    try {
+      await db.execute(sql`UPDATE profiles SET newsletter_subscribed = FALSE WHERE id = ${req.session.profileId}`);
+      res.json({ ok: true, subscribed: false });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.get("/api/admin/newsletter/subscribers", isAuthenticated, isAdmin, async (_req, res) => {
+    try {
+      const r = await db.execute(sql`
+        SELECT COUNT(*)::int AS total
+        FROM profiles
+        WHERE newsletter_subscribed = TRUE
+          AND is_deleted = FALSE
+          AND is_banned = FALSE
+          AND email IS NOT NULL
+      `);
+      const total = (r.rows[0] as any)?.total ?? 0;
+      res.json({ total });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // In-flight guard to prevent accidental double-broadcasts (two clicks /
+  // two admins firing simultaneously).
+  let newsletterSendInFlight = false;
+  app.post("/api/admin/newsletter/send", isAuthenticated, isAdmin, async (req: any, res) => {
+    if (newsletterSendInFlight) {
+      return res.status(429).json({ message: "Another newsletter send is already in progress. Please wait until it finishes." });
+    }
+    try {
+      const subject = String(req.body?.subject || "").trim();
+      const body = String(req.body?.body || "").trim();
+      if (!subject || subject.length > 200) return res.status(400).json({ message: "Subject is required (max 200 chars)" });
+      if (!body || body.length > 10000) return res.status(400).json({ message: "Body is required (max 10000 chars)" });
+
+      const r = await db.execute(sql`
+        SELECT id, email, full_name
+        FROM profiles
+        WHERE newsletter_subscribed = TRUE
+          AND is_deleted = FALSE
+          AND is_banned = FALSE
+          AND email IS NOT NULL
+      `);
+      const recipients = r.rows as Array<{ id: number; email: string; full_name: string }>;
+      if (recipients.length === 0) return res.status(400).json({ message: "No subscribers to send to" });
+
+      newsletterSendInFlight = true;
+      let sent = 0;
+      let failed = 0;
+      const errors: string[] = [];
+
+      // Pace sends to stay safely under Resend's ~2 req/sec limit (600ms ≈ 1.6 req/sec).
+      // Back off further on transient rate-limit errors.
+      for (const rec of recipients) {
+        const result = await sendNewsletterEmail(rec.email, rec.full_name, subject, body);
+        if (result.ok) sent++;
+        else {
+          failed++;
+          if (errors.length < 5) errors.push(`${rec.email}: ${result.error || "send failed"}`);
+          if (typeof result.error === "string" && /rate|429|too many/i.test(result.error)) {
+            await new Promise((r) => setTimeout(r, 2000));
+          }
+        }
+        await new Promise((r) => setTimeout(r, 600));
+      }
+
+      console.log(`[NEWSLETTER] Admin ${req.session.profileId} sent "${subject}" — sent=${sent} failed=${failed} (of ${recipients.length})`);
+      res.json({ ok: true, total: recipients.length, sent, failed, errors });
+    } catch (e: any) {
+      console.error("[NEWSLETTER] send failed:", e);
+      res.status(500).json({ message: e.message });
+    } finally {
+      newsletterSendInFlight = false;
     }
   });
 

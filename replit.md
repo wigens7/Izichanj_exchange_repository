@@ -29,6 +29,7 @@ The application features a modern, secure architecture with a fintech-inspired U
 - **P2P Market (USDT Escrow)**: A peer-to-peer USDT trading platform with KYC gating. Sellers post listings, buyers place orders, and trades occur via in-app chat with escrow functionality. Includes dispute resolution mechanisms for administrators.
 - **Izichanj Pay — Merchant API**: Enables verified users to accept HTG/USDT payments on external sites. Features include API key generation, webhook integration, a branded checkout flow, and transaction tracking. Payments are processed with a 1.5% fee and converted to USDT if necessary.
 - **Receipt System**: Generates secure PDF receipts for deposits and withdrawals, accessible after admin release. Receipts include transaction details, QR codes for public verification, and digital signatures.
+- **Newsletter**: Opt-in email newsletter. Users subscribe/unsubscribe from their profile page. Admins compose subject + body in the admin Newsletter tab and broadcast to all subscribers via Resend. The greeting "Hi {fullName}," and the https://izichanj.com link are auto-prepended/appended; admin body is HTML-escaped (only http(s) URLs become clickable). Sends are paced (~1.6 req/sec) with rate-limit backoff and an in-flight lock to prevent double-broadcasts.
 
 **System Design Choices:**
 - **Database**: PostgreSQL with Drizzle ORM.

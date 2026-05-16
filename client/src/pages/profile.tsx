@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { StatusBadge } from "@/components/status-badge";
-import { Loader2, UploadCloud, CheckCircle2, Globe, Clock, User, UserCheck, Copy, Check, FileText, MapPin, LogOut, Users, DollarSign, Share2, HelpCircle, Smartphone, Download } from "lucide-react";
+import { Loader2, UploadCloud, CheckCircle2, Globe, Clock, User, UserCheck, Copy, Check, FileText, MapPin, LogOut, Users, DollarSign, Share2, HelpCircle, Smartphone, Download, Mail } from "lucide-react";
 import { InstallPwaButton } from "@/components/install-pwa-button";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { useToast } from "@/hooks/use-toast";
@@ -554,6 +554,9 @@ export default function ProfilePage() {
         </Card>
       )}
 
+      {/* ── Newsletter ── */}
+      <NewsletterSection />
+
       {/* ── Mobile App ── */}
       <Card>
         <CardHeader className="pb-3">
@@ -651,5 +654,79 @@ function UploadZone({ label, uploaded, uploadedLabel, uploadLabel, inputId, test
         )}
       </div>
     </div>
+  );
+}
+
+function NewsletterSection() {
+  const { toast } = useToast();
+  const qc = useQueryClient();
+  const { data, isLoading } = useQuery<{ subscribed: boolean; subscribedAt: string | null }>({
+    queryKey: ["/api/profile/newsletter"],
+  });
+
+  const subscribe = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/profile/newsletter/subscribe"),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["/api/profile/newsletter"] });
+      toast({ title: "Subscribed!", description: "You'll receive our newsletter by email." });
+    },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const unsubscribe = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/profile/newsletter/unsubscribe"),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["/api/profile/newsletter"] });
+      toast({ title: "Unsubscribed", description: "You won't receive newsletter emails anymore." });
+    },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const isSubscribed = !!data?.subscribed;
+  const pending = subscribe.isPending || unsubscribe.isPending;
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base flex items-center gap-2">
+          <Mail className="w-4 h-4 text-primary" /> Newsletter
+        </CardTitle>
+        <CardDescription className="text-xs">
+          Get product updates, new features, and announcements from Izichanj by email.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <div className="flex justify-center py-4"><Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /></div>
+        ) : isSubscribed ? (
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2 text-sm">
+              <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+              <span data-testid="text-newsletter-status">You're subscribed</span>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => unsubscribe.mutate()}
+              disabled={pending}
+              data-testid="button-newsletter-unsubscribe"
+            >
+              {pending && <Loader2 className="w-3 h-3 mr-1 animate-spin" />}
+              Unsubscribe
+            </Button>
+          </div>
+        ) : (
+          <Button
+            className="w-full"
+            onClick={() => subscribe.mutate()}
+            disabled={pending}
+            data-testid="button-newsletter-subscribe"
+          >
+            {pending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Mail className="w-4 h-4 mr-2" />}
+            Subscribe to Newsletter
+          </Button>
+        )}
+      </CardContent>
+    </Card>
   );
 }

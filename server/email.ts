@@ -184,6 +184,56 @@ export async function sendMediaNotificationEmail(to: string, fileUrl: string, fi
   return send({ to, subject: `${title} — Izichanj`, html, text });
 }
 
+// ────────────────────────────────────────────────────────────────────
+// Newsletter — opt-in marketing email. Admin writes the subject/body,
+// the helper auto-prepends "Hi {name}," and auto-appends a footer with
+// the canonical https://izichanj.com link. Body is plain text with basic
+// *bold* markup and newline preservation, never HTML from the admin.
+// ────────────────────────────────────────────────────────────────────
+function buildNewsletterHtml(opts: { subject: string; body: string; recipientName?: string | null }): string {
+  const greeting = `Hi ${escapeHtml(opts.recipientName || "there")},`;
+  const bodyHtml = escapeHtml(opts.body)
+    .replace(/\*([^*\n]+)\*/g, "<strong>$1</strong>")
+    .replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" style="color:#4f46e5;text-decoration:none">$1</a>')
+    .replace(/\n/g, "<br>");
+  return `<!DOCTYPE html>
+<html><body style="margin:0;padding:0;background:#f4f5f7;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Inter,sans-serif;color:#0f172a">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f5f7;padding:32px 12px">
+    <tr><td align="center">
+      <table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;background:#ffffff;border-radius:14px;overflow:hidden;box-shadow:0 1px 3px rgba(15,23,42,0.06)">
+        <tr><td style="background:linear-gradient(135deg,#4f46e5,#7c3aed);padding:28px 32px;color:#ffffff">
+          <div style="font-size:24px;font-weight:700;letter-spacing:0.2px">Izichanj</div>
+          <div style="font-size:13px;opacity:0.85;margin-top:2px">Crypto to Cash, simplified.</div>
+        </td></tr>
+        <tr><td style="padding:32px">
+          <div style="font-size:20px;font-weight:600;color:#0f172a;margin-bottom:6px">${escapeHtml(opts.subject)}</div>
+          <div style="font-size:14px;color:#64748b;margin-bottom:22px">${greeting}</div>
+          <div style="font-size:15px;line-height:1.7;color:#334155">${bodyHtml}</div>
+          <div style="margin:28px 0 6px 0">
+            <a href="https://izichanj.com" style="display:inline-block;background:#4f46e5;color:#ffffff;text-decoration:none;padding:12px 22px;border-radius:8px;font-size:14px;font-weight:500">Visit Izichanj</a>
+          </div>
+          <div style="font-size:13px;color:#94a3b8;margin-top:24px">— The Izichanj Team<br>
+            <a href="https://izichanj.com" style="color:#64748b;text-decoration:none">https://izichanj.com</a>
+          </div>
+        </td></tr>
+        <tr><td style="background:#f8fafc;padding:16px 32px;border-top:1px solid #e2e8f0;font-size:12px;color:#94a3b8;text-align:center">
+          You're receiving this because you subscribed to the Izichanj newsletter.<br>
+          You can unsubscribe anytime from your Izichanj profile page.
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body></html>`;
+}
+
+export async function sendNewsletterEmail(to: string, name: string | null | undefined, subject: string, body: string) {
+  if (!to) return { ok: false, error: "no recipient" };
+  const html = buildNewsletterHtml({ subject, body, recipientName: name });
+  const greeting = `Hi ${name || "there"},`;
+  const text = `${greeting}\n\n${body}\n\n— The Izichanj Team\nhttps://izichanj.com\n\nYou're receiving this because you subscribed to the Izichanj newsletter. You can unsubscribe anytime from your Izichanj profile.`;
+  return send({ to, subject, html, text });
+}
+
 export async function sendPasswordResetEmail(to: string, code: string, name?: string | null) {
   const subject = "Your Izichanj password reset code";
   const html = buildOtpHtml({

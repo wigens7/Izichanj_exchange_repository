@@ -53,6 +53,9 @@ export const profiles = pgTable("profiles", {
   referralCode: text("referral_code").unique(),
   referralBalance: decimal("referral_balance", { precision: 10, scale: 2 }).default("0").notNull(),
   referredById: integer("referred_by_id"),
+  // Newsletter opt-in — admin can email all opted-in users at once.
+  newsletterSubscribed: boolean("newsletter_subscribed").default(false).notNull(),
+  newsletterSubscribedAt: timestamp("newsletter_subscribed_at"),
 });
 
 export const blacklistedUsers = pgTable("blacklisted_users", {

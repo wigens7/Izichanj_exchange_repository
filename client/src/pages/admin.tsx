@@ -183,6 +183,10 @@ export default function AdminPage() {
               <Tv className="w-5 h-5" />
               <span>Canal+</span>
             </TabsTrigger>
+            <TabsTrigger value="newsletter" className="flex-col items-center gap-1 shrink-0 min-w-[60px] h-auto py-2.5 px-2 text-[10px] font-medium" data-testid="tab-admin-newsletter">
+              <Mail className="w-4 h-4" />
+              <span>News</span>
+            </TabsTrigger>
             <TabsTrigger value="merchant-payouts" className="flex-col items-center gap-1 shrink-0 min-w-[60px] h-auto py-2.5 px-2 text-[10px] font-medium" data-testid="tab-admin-merchant-payouts">
               <Wallet className="w-5 h-5" />
               <span>Payouts</span>
@@ -234,6 +238,9 @@ export default function AdminPage() {
         </TabsContent>
         <TabsContent value="canalplus">
           <CanalplusTab />
+        </TabsContent>
+        <TabsContent value="newsletter">
+          <NewsletterTab />
         </TabsContent>
       </Tabs>
     </div>
@@ -5746,5 +5753,140 @@ function MerchantPayoutsTab() {
         )}
       </CardContent>
     </Card>
+  );
+}
+
+function NewsletterTab() {
+  const { toast } = useToast();
+  const [subject, setSubject] = useState("");
+  const [body, setBody] = useState("");
+  const [confirming, setConfirming] = useState(false);
+
+  const { data: stats, isLoading: statsLoading } = useQuery<{ total: number }>({
+    queryKey: ["/api/admin/newsletter/subscribers"],
+  });
+
+  const send = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/admin/newsletter/send", { subject, body }).then((r) => r.json()),
+    onSuccess: (data: any) => {
+      toast({
+        title: "Newsletter sent",
+        description: `Delivered to ${data.sent} of ${data.total} subscribers${data.failed ? ` (${data.failed} failed)` : ""}.`,
+      });
+      setSubject("");
+      setBody("");
+      setConfirming(false);
+    },
+    onError: (e: any) => {
+      toast({ title: "Send failed", description: e.message, variant: "destructive" });
+      setConfirming(false);
+    },
+  });
+
+  const total = stats?.total ?? 0;
+  const trimmedSubject = subject.trim();
+  const trimmedBody = body.trim();
+  const canSend = trimmedSubject.length > 0 && trimmedBody.length > 0 && total > 0 && !send.isPending;
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="text-base flex items-center gap-2">
+                <Mail className="w-5 h-5 text-primary" /> Send Newsletter
+              </CardTitle>
+              <CardDescription className="text-xs mt-1">
+                Sent by email to every user who opted in. "Hi {"{full name}"}," and the https://izichanj.com link are added automatically.
+              </CardDescription>
+            </div>
+            <div className="text-right">
+              <p className="text-xs text-muted-foreground">Subscribers</p>
+              <p className="text-2xl font-bold" data-testid="text-newsletter-subscribers">
+                {statsLoading ? "…" : total.toLocaleString()}
+              </p>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-1.5">
+            <Label htmlFor="newsletter-subject">Subject</Label>
+            <Input
+              id="newsletter-subject"
+              placeholder="e.g. New feature: NFC Cards are here!"
+              value={subject}
+              onChange={(e) => setSubject(e.target.value.slice(0, 200))}
+              maxLength={200}
+              disabled={send.isPending}
+              data-testid="input-newsletter-subject"
+            />
+            <p className="text-[11px] text-muted-foreground text-right">{subject.length}/200</p>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="newsletter-body">Message</Label>
+            <Textarea
+              id="newsletter-body"
+              placeholder={"Write your newsletter message here.\n\nUse *text* for bold. URLs become clickable links automatically.\n\nDo not add a greeting or signature — both are added for you."}
+              value={body}
+              onChange={(e) => setBody(e.target.value.slice(0, 10000))}
+              maxLength={10000}
+              rows={10}
+              disabled={send.isPending}
+              data-testid="input-newsletter-body"
+            />
+            <p className="text-[11px] text-muted-foreground text-right">{body.length}/10000</p>
+          </div>
+
+          {trimmedSubject && trimmedBody && (
+            <div className="rounded-lg border border-border bg-muted/30 p-4 space-y-2">
+              <p className="text-[11px] uppercase tracking-wider text-muted-foreground">Preview</p>
+              <p className="font-semibold text-sm">{trimmedSubject}</p>
+              <p className="text-sm text-muted-foreground">Hi {"{full name}"},</p>
+              <p className="text-sm whitespace-pre-wrap">{trimmedBody}</p>
+              <p className="text-sm text-muted-foreground">— The Izichanj Team<br/>https://izichanj.com</p>
+            </div>
+          )}
+
+          {!confirming ? (
+            <Button
+              className="w-full"
+              disabled={!canSend}
+              onClick={() => setConfirming(true)}
+              data-testid="button-newsletter-review"
+            >
+              <Mail className="w-4 h-4 mr-2" />
+              Review & Send to {total.toLocaleString()} subscriber{total === 1 ? "" : "s"}
+            </Button>
+          ) : (
+            <div className="rounded-lg border border-amber-500/30 bg-amber-50 dark:bg-amber-950/20 p-4 space-y-3">
+              <p className="text-sm font-medium">
+                Send this newsletter to <span className="font-bold">{total.toLocaleString()}</span> subscriber{total === 1 ? "" : "s"}? This can't be undone.
+              </p>
+              <div className="flex gap-2">
+                <Button
+                  className="flex-1"
+                  onClick={() => send.mutate()}
+                  disabled={send.isPending}
+                  data-testid="button-newsletter-confirm-send"
+                >
+                  {send.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+                  Yes, send now
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => setConfirming(false)}
+                  disabled={send.isPending}
+                  data-testid="button-newsletter-cancel-send"
+                >
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
   );
 }

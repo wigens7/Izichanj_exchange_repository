@@ -695,6 +695,14 @@ app.use((req, res, next) => {
     console.warn("[startup migration] merchants.balance skipped:", (e as Error).message);
   }
 
+  try {
+    await db.execute(sql`ALTER TABLE profiles ADD COLUMN IF NOT EXISTS newsletter_subscribed BOOLEAN NOT NULL DEFAULT FALSE`);
+    await db.execute(sql`ALTER TABLE profiles ADD COLUMN IF NOT EXISTS newsletter_subscribed_at TIMESTAMP`);
+    console.log("[startup migration] newsletter columns ensured");
+  } catch (e) {
+    console.warn("[startup migration] newsletter columns skipped:", (e as Error).message);
+  }
+
   await registerRoutes(httpServer, app);
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
