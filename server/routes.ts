@@ -4780,15 +4780,87 @@ export async function registerRoutes(
   const STROWALLET_BASE = "https://strowallet.com/api/bitvcard";
   const strowalletPublicKey = process.env.STROWALLET_PUBLIC_KEY || "";
 
-  // Proxied fetch — routes through static IP proxy when PROXY_URL is set
+  // Proxied fetch — routes through static IP proxy when PROXY_URL is set.
+  //
+  // The upstream proxy occasionally returns HTTP 407 (Proxy Authentication
+  // Required) or aborts the tunnel mid-handshake when it's overloaded /
+  // throttled. Strowallet endpoints are slow too (5–15s on average), so we:
+  //   • Add a hard 30s timeout per attempt via AbortSignal so a stuck tunnel
+  //     can't hang the whole request indefinitely.
+  //   • Retry up to 3 times with exponential backoff (500ms → 1500ms → 4500ms)
+  //     on transient network errors, proxy 407/502/503/504, and aborted
+  //     fetches. We never retry on 4xx responses from Strowallet itself —
+  //     those are real validation errors that won't fix themselves.
+  //   • Build a fresh ProxyAgent per attempt so retries don't reuse a dead
+  //     keep-alive socket.
   async function strowalletFetch(url: string, options: RequestInit = {}): Promise<Response> {
     const proxyUrl = process.env.PROXY_URL;
-    if (proxyUrl) {
-      const { fetch: undiciFetch } = await import("undici");
-      const dispatcher = new ProxyAgent(proxyUrl);
-      return undiciFetch(url, { ...options, dispatcher } as any) as unknown as Response;
+    const TIMEOUT_MS = 30_000;
+    const MAX_ATTEMPTS = 3;
+    const BACKOFFS_MS = [500, 1500, 4500];
+
+    let lastError: any = null;
+    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
+      try {
+        let response: Response;
+        if (proxyUrl) {
+          const { fetch: undiciFetch } = await import("undici");
+          const dispatcher = new ProxyAgent(proxyUrl);
+          response = await (undiciFetch(url, {
+            ...options,
+            dispatcher,
+            signal: controller.signal,
+          } as any) as unknown as Promise<Response>);
+        } else {
+          response = await fetch(url, { ...options, signal: controller.signal });
+        }
+        clearTimeout(timeout);
+
+        // Retry on transient proxy / upstream-gateway statuses only.
+        if ([407, 502, 503, 504].includes(response.status) && attempt < MAX_ATTEMPTS - 1) {
+          console.warn(`[strowalletFetch] HTTP ${response.status} (transient) — retry ${attempt + 1}/${MAX_ATTEMPTS - 1} for ${url}`);
+          await new Promise(r => setTimeout(r, BACKOFFS_MS[attempt]));
+          continue;
+        }
+        return response;
+      } catch (err: any) {
+        clearTimeout(timeout);
+        lastError = err;
+        const msg = (err?.message || "").toLowerCase();
+        const causeMsg = (err?.cause?.message || "").toLowerCase();
+        const code = err?.code || err?.cause?.code || "";
+        const isProxyAuth = msg.includes("407") || causeMsg.includes("407") || causeMsg.includes("proxy response");
+        const isAborted = code === "UND_ERR_ABORTED" || msg.includes("abort") || msg.includes("cancel");
+        const isNetwork = code === "UND_ERR_SOCKET" || code === "ECONNRESET" || code === "ETIMEDOUT" || msg.includes("fetch failed");
+        const isTransient = isProxyAuth || isAborted || isNetwork;
+        if (!isTransient || attempt >= MAX_ATTEMPTS - 1) throw err;
+        console.warn(`[strowalletFetch] transient error (${code || msg.slice(0, 60)}) — retry ${attempt + 1}/${MAX_ATTEMPTS - 1} for ${url}`);
+        await new Promise(r => setTimeout(r, BACKOFFS_MS[attempt]));
+      }
     }
-    return fetch(url, options);
+    // Should never reach here, but if we do throw the last error.
+    throw lastError || new Error("strowalletFetch: exhausted retries");
+  }
+
+  // Returns true when an error from strowalletFetch is a proxy/network blip
+  // (worth surfacing to the user as a "try again" message rather than a
+  // generic 500). Distinct from real Strowallet validation errors.
+  function isProxyOrNetworkFailure(err: any): boolean {
+    const msg = String(err?.message || "").toLowerCase();
+    const causeMsg = String(err?.cause?.message || "").toLowerCase();
+    const code = err?.code || err?.cause?.code || "";
+    return (
+      msg.includes("fetch failed") ||
+      msg.includes("407") ||
+      causeMsg.includes("407") ||
+      causeMsg.includes("proxy response") ||
+      code === "UND_ERR_ABORTED" ||
+      code === "UND_ERR_SOCKET" ||
+      code === "ECONNRESET" ||
+      code === "ETIMEDOUT"
+    );
   }
 
   // GET /api/cards/strowallet-status — check if user is registered as a Strowallet cardholder
@@ -6310,6 +6382,21 @@ export async function registerRoutes(
       res.status(201).json(card);
     } catch (e: any) {
       console.error("[NFC create]", e);
+      // Translate proxy / network blips into a friendly "try again" message
+      // so users don't see raw "fetch failed" errors. The user has NOT been
+      // charged at this point — the balance debit only happens on success.
+      if (isProxyOrNetworkFailure(e)) {
+        sendTelegramMessage(
+          `⚠️ <b>NFC Card — Proxy/Network Failure</b>\n\n` +
+          `<code>${String(e?.message || "").slice(0, 200)}</code>\n` +
+          `<code>${String(e?.cause?.message || "").slice(0, 200)}</code>\n\n` +
+          `Returned a "try again shortly" message to the user.`
+        ).catch(() => {});
+        return res.status(503).json({
+          code: "PROVIDER_UNAVAILABLE",
+          message: "Our card provider is temporarily unreachable. Please wait a moment and try again. You have not been charged.",
+        });
+      }
       res.status(500).json({ message: e.message || "Internal Error" });
     }
   });
