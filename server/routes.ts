@@ -4025,6 +4025,23 @@ export async function registerRoutes(
     }
   }, 60 * 1000);
 
+  // ════════════════════════════════════════════════════════════════════════
+  //  DATABASE KEEP-ALIVE
+  //  Neon's serverless Postgres auto-suspends the compute endpoint after a
+  //  few minutes without traffic. When that happens the very next query
+  //  returns: "The endpoint has been disabled. Enable it using the API and
+  //  retry." — which then bubbles up to the user and blocks redeploys.
+  //  We ping with a trivial SELECT every 4 minutes so the endpoint never
+  //  goes idle long enough to be suspended.
+  // ════════════════════════════════════════════════════════════════════════
+  setInterval(async () => {
+    try {
+      await db.execute(sql`SELECT 1`);
+    } catch (e: any) {
+      console.warn("[db keep-alive] ping failed:", e?.message || e);
+    }
+  }, 4 * 60 * 1000);
+
   // Auto-expire pending deposits whose 15-minute window has lapsed
   setInterval(async () => {
     try {
