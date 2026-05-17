@@ -1,0 +1,11 @@
+# Izichanj — https://izichanj.com
+User-agent: *
+Allow: /
+
+# Don't index authenticated/private app surfaces
+Disallow: /admin
+Disallow: /api/
+Disallow: /verify-receipt
+Disallow: /checkout
+
+Sitemap: https://izichanj.com/sitemap.xml
