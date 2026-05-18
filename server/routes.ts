@@ -19,6 +19,24 @@ import {
   calcNfcCardCreationCost, calcNfcCardTopUpCost, calcNfcCardWithdrawCost,
 } from "@shared/constants";
 import { getDepositRate, getWithdrawalRate, setRates, rateUsdtToHtg, rateHtgToUsdt, rateUsdtToHtgWithdrawal } from "./rates";
+
+/**
+ * Compute the network fee and the net USDT amount to credit for a deposit.
+ * Crypto deposits (TRC20/BEP20) deduct the per-network fee. Manual MonCash
+ * deposits have no on-chain fee — net equals gross.
+ */
+function computeDepositFeeAndNet(deposit: { amountUsdt: string | number; payCurrency?: string | null; depositMethod?: string | null; }): { fee: number; net: number } {
+  const total = parseFloat(String(deposit.amountUsdt || "0"));
+  const isCrypto = (deposit.depositMethod || "") !== "moncash";
+  if (!isCrypto) return { fee: 0, net: total };
+  const cur = (deposit.payCurrency || "").toLowerCase();
+  let fee = 0;
+  if (cur === "usdttrc20") fee = NETWORK_FEE_CONFIG.usdttrc20.fee;
+  else if (cur === "usdtbsc") fee = NETWORK_FEE_CONFIG.usdtbsc.fee;
+  else fee = NETWORK_FEE_CONFIG.usdttrc20.fee; // safe default for legacy rows
+  const net = Math.max(0, total - fee);
+  return { fee, net };
+}
 import { generateReceiptPDF, generateAdjustmentReceiptPDF, generateCardStatementPDF, type CardStatementTxn } from "./receipt";
 import * as paypalModule from "./paypal";
 import { ensureKycImageSize } from "./image-compress";
@@ -2297,18 +2315,18 @@ export async function registerRoutes(
     }
     const deposit = await storage.updateDepositStatus(Number(req.params.id), "approved");
     const profile = await storage.getProfile(deposit.profileId);
+    const { fee: depositFee, net: netAmountToCredit } = computeDepositFeeAndNet(deposit);
+    const totalDeposited = parseFloat(deposit.amountUsdt);
     if (profile) {
       const currentBalance = parseFloat(profile.balance || "0");
-      const depositAmount = parseFloat(deposit.amountUsdt);
-      const newBalance = currentBalance + depositAmount;
+      const newBalance = currentBalance + netAmountToCredit;
       await storage.updateProfileBalance(deposit.profileId, newBalance);
-      storage.createBalanceLog({ profileId: profile.id, previousBalance: currentBalance, newBalance, change: depositAmount, action: "deposit", referenceId: String(deposit.id), adminId: req.session?.profileId }).catch(() => {});
+      storage.createBalanceLog({ profileId: profile.id, previousBalance: currentBalance, newBalance, change: netAmountToCredit, action: "deposit", referenceId: String(deposit.id), adminId: req.session?.profileId }).catch(() => {});
     }
     // Referral commission: $2.00 when referee makes a deposit >= $50
     if (profile?.referredById) {
       try {
-        const depositAmt = parseFloat(deposit.amountUsdt);
-        if (depositAmt >= 50) {
+        if (totalDeposited >= 50) {
           const referrer = await storage.getProfile(profile.referredById);
           if (referrer && referrer.affiliateEnabled) {
             // Only pay once per referee for first qualifying deposit
@@ -2321,8 +2339,10 @@ export async function registerRoutes(
         }
       } catch { /* ignore */ }
     }
-    const htgAmount = formatHtg(rateUsdtToHtg(Number(deposit.amountUsdt)));
-    const depositMsg = `Your deposit of ${Number(deposit.amountUsdt).toFixed(2)} USDT (${htgAmount} HTG) has been approved and added to your balance.`;
+    const htgAmount = formatHtg(rateUsdtToHtg(netAmountToCredit));
+    const depositMsg = depositFee > 0
+      ? `Your deposit of ${totalDeposited.toFixed(2)} USDT has been confirmed. After the $${depositFee.toFixed(2)} network fee, ${netAmountToCredit.toFixed(2)} USDT (${htgAmount} HTG) was credited to your balance.`
+      : `Your deposit of ${netAmountToCredit.toFixed(2)} USDT (${htgAmount} HTG) has been approved and added to your balance.`;
     await storage.createNotification({
       profileId: deposit.profileId,
       type: "deposit_approved",
@@ -2398,13 +2418,17 @@ export async function registerRoutes(
     const amountUsdt = Number(type === "deposit" ? record.amountUsdt : record.amount);
     let fee = 0;
     let network = "";
+    let netUsdt = amountUsdt;
     if (type === "deposit") {
-      const currency = record.payCurrency as string | undefined;
-      if (currency === "usdttrc20" || currency === "USDTTRC20") { fee = NETWORK_FEE_CONFIG.usdttrc20.fee; network = "TRC20"; }
-      else if (currency === "usdtbsc" || currency === "USDTBSC") { fee = NETWORK_FEE_CONFIG.usdtbsc.fee; network = "BEP20"; }
-      else { fee = 1.50; network = "TRC20"; }
+      const result = computeDepositFeeAndNet(record);
+      fee = result.fee;
+      netUsdt = result.net;
+      const currency = String(record.payCurrency || "").toLowerCase();
+      const isMoncash = (record.depositMethod || "") === "moncash";
+      if (isMoncash) network = "MonCash";
+      else if (currency === "usdtbsc") network = "BEP20";
+      else network = "TRC20";
     }
-    const netUsdt = amountUsdt - fee;
     const finalAmountHtg = rateUsdtToHtg(netUsdt);
     const now = new Date();
     const pad = (n: number) => String(n).padStart(2, "0");
@@ -2679,12 +2703,14 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Transaction ID (TxtID) is required before approving a crypto deposit. Please set it first." });
       }
 
+      const { fee: depositFee, net: netAmountToCredit } = computeDepositFeeAndNet(deposit);
+      const totalDeposited = parseFloat(deposit.amountUsdt);
       if (deposit.status !== "approved") {
         deposit = await storage.updateDepositStatus(id, "approved");
         const prof = await storage.getProfile(deposit.profileId);
         if (prof) {
           const currentBalance = parseFloat(prof.balance || "0");
-          await storage.updateProfileBalance(deposit.profileId, currentBalance + parseFloat(deposit.amountUsdt));
+          await storage.updateProfileBalance(deposit.profileId, currentBalance + netAmountToCredit);
         }
       }
 
@@ -2695,8 +2721,10 @@ export async function registerRoutes(
       const receiptData = await buildReceiptData("deposit", deposit, prof);
       const pdfBuffer = await generateReceiptPDF({ ...receiptData, receiptId });
 
-      const htgAmount = formatHtg(rateUsdtToHtg(Number(deposit.amountUsdt)));
-      const receiptMsg = `Your deposit of ${Number(deposit.amountUsdt).toFixed(2)} USDT (${htgAmount} HTG) has been approved. Your receipt is now available for download in your transaction history.`;
+      const htgAmount = formatHtg(rateUsdtToHtg(netAmountToCredit));
+      const receiptMsg = depositFee > 0
+        ? `Your deposit of ${totalDeposited.toFixed(2)} USDT has been confirmed. After the $${depositFee.toFixed(2)} network fee, ${netAmountToCredit.toFixed(2)} USDT (${htgAmount} HTG) was credited. Your receipt is now available for download.`
+        : `Your deposit of ${netAmountToCredit.toFixed(2)} USDT (${htgAmount} HTG) has been approved. Your receipt is now available for download in your transaction history.`;
       await storage.createNotification({ profileId: deposit.profileId, type: "deposit_approved", title: "Deposit Approved — Receipt Ready", message: receiptMsg });
       if (prof?.phone) {
         sendWhatsAppNotification(prof.phone, `*Izichanj*\n\n✅ Deposit Approved\n\n${receiptMsg}\n\nhttps://izichanj.com`, prof.fullName);

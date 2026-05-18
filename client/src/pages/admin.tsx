@@ -94,7 +94,19 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { formatDateTime, formatDateTimeFull, formatDateShortTime, formatTime, formatTimeSecs, formatDateDMY, formatDateTimeShort, formatDateTimeMedium, formatDateTimeMin, formatDateShort } from "@/lib/dateUtils";
-import { formatHtg, formatUsdt } from "@shared/constants";
+import { formatHtg, formatUsdt, NETWORK_FEE_CONFIG } from "@shared/constants";
+
+function computeDepositNet(deposit: any): { fee: number; net: number; total: number } {
+  const total = parseFloat(deposit?.amountUsdt || "0");
+  const isCrypto = (deposit?.depositMethod || "") !== "moncash";
+  if (!isCrypto) return { fee: 0, net: total, total };
+  const cur = String(deposit?.payCurrency || "").toLowerCase();
+  let fee = 0;
+  if (cur === "usdttrc20") fee = NETWORK_FEE_CONFIG.usdttrc20.fee;
+  else if (cur === "usdtbsc") fee = NETWORK_FEE_CONFIG.usdtbsc.fee;
+  else fee = NETWORK_FEE_CONFIG.usdttrc20.fee;
+  return { fee, net: Math.max(0, total - fee), total };
+}
 import { useRates } from "@/hooks/use-rates";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -1660,6 +1672,13 @@ function DepositsTab() {
                                 <Hash className="w-2.5 h-2.5 shrink-0" /> Add TxtID first
                               </p>
                             )}
+                            {(() => { const { fee: _f, net: _n, total: _t } = computeDepositNet(deposit); return (
+                            <>
+                            {_f > 0 && (
+                              <p className="text-[10px] text-muted-foreground bg-muted/40 rounded px-1.5 py-1" data-testid={`text-deposit-net-breakdown-${deposit.id}`}>
+                                Sent <span className="font-semibold">{_t.toFixed(2)}</span> − fee <span className="font-semibold text-red-500">{_f.toFixed(2)}</span> = credit <span className="font-bold text-emerald-600">{_n.toFixed(2)} USDT</span>
+                              </p>
+                            )}
                             <Button
                               size="sm"
                               onClick={() => approveAndRelease("deposits", deposit.id, (v) => setReleaseLoadingId(v ? deposit.id : null))}
@@ -1669,19 +1688,22 @@ function DepositsTab() {
                               data-testid={`button-approve-release-deposit-${deposit.id}`}
                             >
                               {releaseLoadingId === deposit.id ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Download className="w-3 h-3 mr-1" />}
-                              Approve & Release Receipt
+                              Approve & Release ({_n.toFixed(2)} USDT)
                             </Button>
                             <div className="flex gap-1.5">
                               <Button
                                 size="sm"
-                                onClick={() => approve(deposit.id)}
+                                onClick={() => {
+                                  if (!window.confirm(`Confirm crediting ${_n.toFixed(2)} USDT to user${_f > 0 ? ` (sent ${_t.toFixed(2)} − ${_f.toFixed(2)} network fee)` : ""}?`)) return;
+                                  approve(deposit.id);
+                                }}
                                 disabled={isApproving || (isCryptoDeposit(deposit) && !deposit.txHash)}
                                 className="bg-emerald-600 hover:bg-emerald-700 text-xs flex-1 disabled:opacity-40"
                                 title={isCryptoDeposit(deposit) && !deposit.txHash ? "Set TxtID before approving" : undefined}
                                 data-testid={`button-approve-deposit-${deposit.id}`}
                               >
                                 {isApproving ? <Loader2 className="w-3 h-3 animate-spin" /> : <CheckCircle className="w-3 h-3 mr-1" />}
-                                Approve
+                                Confirm {_n.toFixed(2)} USDT
                               </Button>
                               <Button
                                 size="sm"
@@ -1714,6 +1736,8 @@ function DepositsTab() {
                                 Reject for Fraud
                               </Button>
                             )}
+                            </>
+                            ); })()}
                           </div>
                         ) : deposit.status === "approved" ? (
                           <div className="flex flex-col gap-1.5">
