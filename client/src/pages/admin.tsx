@@ -1547,7 +1547,11 @@ function DepositsTab() {
                           variant={isManual ? "secondary" : deposit.depositMethod === "nowpayments" ? "default" : "outline"}
                           className="text-xs"
                         >
-                          {isManual ? "MonCash/NatCash" : deposit.depositMethod === "nowpayments" ? "Crypto (Auto)" : "USDT"}
+                          {isManual
+                            ? "MonCash/NatCash"
+                            : deposit.depositMethod === "nowpayments"
+                            ? "Crypto (Legacy Auto)"
+                            : `Crypto ${deposit.payCurrency?.toLowerCase() === "usdtbsc" ? "BEP20" : "TRC20"}`}
                         </Badge>
                       </TableCell>
                       <TableCell>

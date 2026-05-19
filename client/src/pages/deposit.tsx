@@ -1,29 +1,24 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { useState, useRef, useCallback } from "react";
 import { useUser } from "@/hooks/use-auth";
 import { useLanguage } from "@/lib/i18n";
 import { useQuery } from "@tanstack/react-query";
-import { useDeposits } from "@/hooks/use-transactions";
 import { formatHtg, formatUsdt, NETWORK_FEE_CONFIG, MANUAL_DEPOSIT_MIN_HTG, type NetworkCurrency } from "@shared/constants";
 import { useRates } from "@/hooks/use-rates";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Copy, Loader2, ShieldAlert, Bitcoin, CheckCircle2, AlertCircle, Clock, RefreshCw, Network, Smartphone, Upload, AlertTriangle, X, ImageIcon, CreditCard } from "lucide-react";
+import { Copy, Loader2, ShieldAlert, Bitcoin, CheckCircle2, AlertCircle, Clock, Network, Smartphone, Upload, AlertTriangle, X, ImageIcon, CreditCard } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { useToast } from "@/hooks/use-toast";
 import { Link } from "wouter";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Badge } from "@/components/ui/badge";
 
-interface NowPaymentInfo {
-  depositId: number;
-  paymentId: string;
-  payAddress: string;
-  payAmount: number;
-  payCurrency: string;
-  expirationDate: string;
-  expiresAt: string;
-}
+// Static business wallets (mirrors backend STATIC_CRYPTO_WALLETS)
+const STATIC_WALLETS: Record<"trc20" | "bep20", { address: string; label: string }> = {
+  trc20: { address: "TMo8fkUp5ma5UhRAKLkF6dRbXYs9euq2sc", label: "TRC20" },
+  bep20: { address: "0x8312a3f6cb9040ff61d154482a14649fe815a1ba", label: "BEP20" },
+};
 
 type NetworkKey = "trc20" | "bep20";
 type MobileWallet = "moncash" | "natcash";
@@ -50,17 +45,13 @@ export default function DepositPage() {
   const [depositMethod, setDepositMethod] = useState<"crypto" | "moncash" | "paypal">("crypto");
   const [selectedNetwork, setSelectedNetwork] = useState<NetworkKey>("trc20");
 
-  // ── Crypto (NowPayments) state ─────────────────
+  // ── Crypto (manual static wallet) state ─────────────────
   const [cryptoAmount, setCryptoAmount] = useState("");
-  const [cryptoLoading, setCryptoLoading] = useState(false);
-  const [paymentInfo, setPaymentInfo] = useState<NowPaymentInfo | null>(null);
-  const [paymentStatus, setPaymentStatus] = useState<string>("waiting");
-  const [secondsLeft, setSecondsLeft] = useState<number>(0);
-  const [isLocallyExpired, setIsLocallyExpired] = useState(false);
-  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const [isResumedDeposit, setIsResumedDeposit] = useState(false);
-  const resumeAppliedRef = useRef(false);
+  const [generating, setGenerating] = useState(false);
+  const [addressGenerated, setAddressGenerated] = useState(false);
+  const [cryptoTxid, setCryptoTxid] = useState("");
+  const [cryptoSubmitting, setCryptoSubmitting] = useState(false);
+  const [cryptoSuccess, setCryptoSuccess] = useState(false);
 
   // ── Manual deposit state ───────────────────────
   const [mobileWallet, setMobileWallet] = useState<MobileWallet>("moncash");
@@ -79,19 +70,6 @@ export default function DepositPage() {
     enabled: depositMethod === "moncash",
   });
 
-  const { data: allDeposits, isLoading: depositsLoading } = useDeposits();
-
-  const activePendingDeposit = useMemo(() => {
-    if (!allDeposits) return null;
-    return (allDeposits as any[]).find(
-      (d: any) =>
-        d.depositMethod === "nowpayments" &&
-        d.status === "pending" &&
-        d.expiresAt &&
-        new Date(d.expiresAt) > new Date()
-    ) ?? null;
-  }, [allDeposits]);
-
   const networkCurrency = NETWORK_MAP[selectedNetwork];
   const networkConfig = NETWORK_FEE_CONFIG[networkCurrency];
   const cryptoUsdt = parseFloat(cryptoAmount) || 0;
@@ -109,136 +87,52 @@ export default function DepositPage() {
     ? (paymentInfoData?.moncash || "...")
     : (paymentInfoData?.natcash || "...");
 
-  useEffect(() => {
-    return () => {
-      if (pollingRef.current) clearInterval(pollingRef.current);
-      if (timerRef.current) clearInterval(timerRef.current);
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!paymentInfo?.expiresAt) return;
-    if (timerRef.current) clearInterval(timerRef.current);
-    setIsLocallyExpired(false);
-    const tick = () => {
-      const remaining = Math.max(0, Math.floor((new Date(paymentInfo.expiresAt).getTime() - Date.now()) / 1000));
-      setSecondsLeft(remaining);
-      if (remaining <= 0) {
-        setIsLocallyExpired(true);
-        if (timerRef.current) clearInterval(timerRef.current);
-        queryClient.invalidateQueries({ queryKey: ["/api/deposits"] });
-      }
-    };
-    tick();
-    timerRef.current = setInterval(tick, 1000);
-    return () => { if (timerRef.current) clearInterval(timerRef.current); };
-  }, [paymentInfo?.expiresAt]);
-
-  // Restore pending NOWPayments deposit from DB on load
-  useEffect(() => {
-    if (depositsLoading || paymentInfo || resumeAppliedRef.current) return;
-    if (!activePendingDeposit) return;
-    resumeAppliedRef.current = true;
-    setIsResumedDeposit(true);
-    setPaymentInfo({
-      depositId: activePendingDeposit.id,
-      paymentId: String(activePendingDeposit.nowpaymentsPaymentId),
-      payAddress: activePendingDeposit.payAddress,
-      payAmount: parseFloat(activePendingDeposit.amountUsdt),
-      payCurrency: activePendingDeposit.payCurrency,
-      expirationDate: activePendingDeposit.expiresAt,
-      expiresAt: activePendingDeposit.expiresAt,
-    });
-  }, [activePendingDeposit, depositsLoading]);
-
-  // Start polling when a resumed deposit is active
-  useEffect(() => {
-    if (isResumedDeposit && paymentInfo?.paymentId) {
-      startPolling(String(paymentInfo.paymentId));
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isResumedDeposit, paymentInfo?.paymentId]);
-
-  const startPolling = (paymentId: string) => {
-    if (pollingRef.current) clearInterval(pollingRef.current);
-    pollingRef.current = setInterval(async () => {
-      try {
-        const res = await fetch(`/api/nowpayments/payment-status/${paymentId}`, { credentials: "include" });
-        const data = await res.json();
-        setPaymentStatus(data.paymentStatus || "waiting");
-        if (data.paymentStatus === "finished" || data.paymentStatus === "confirmed") {
-          if (pollingRef.current) clearInterval(pollingRef.current);
-          queryClient.invalidateQueries({ queryKey: ["/api/deposits"] });
-          queryClient.invalidateQueries({ queryKey: ["/api/user"] });
-        }
-        if (data.paymentStatus === "failed" || data.paymentStatus === "expired") {
-          if (pollingRef.current) clearInterval(pollingRef.current);
-        }
-      } catch {}
-    }, 15000);
+  const handleGenerateAddress = () => {
+    if (!canSubmit) return;
+    setGenerating(true);
+    // Smooth loading animation, then reveal static address
+    setTimeout(() => {
+      setGenerating(false);
+      setAddressGenerated(true);
+    }, 1500);
   };
 
-  const handleCreatePayment = async () => {
-    if (!canSubmit) return;
-    setCryptoLoading(true);
+  const handleResetCrypto = () => {
+    setCryptoAmount("");
+    setCryptoTxid("");
+    setAddressGenerated(false);
+    setCryptoSuccess(false);
+  };
+
+  const handleSubmitCryptoDeposit = async () => {
+    if (!cryptoTxid.trim()) {
+      toast({ title: "TXID required", description: "Please paste the transaction hash from your wallet before submitting.", variant: "destructive" });
+      return;
+    }
+    setCryptoSubmitting(true);
     try {
-      const res = await apiRequest("POST", "/api/nowpayments/create-payment", {
-        amountUsdt: cryptoAmount,
-        payCurrency: networkCurrency,
+      const res = await apiRequest("POST", "/api/deposits/crypto/submit", {
+        amountSent: cryptoAmount,
+        network: selectedNetwork.toUpperCase(), // "TRC20" | "BEP20"
+        txid: cryptoTxid.trim(),
       });
       const data = await res.json();
       if (!res.ok) {
-        toast({ title: "Error", description: data.message || "Failed to create payment", variant: "destructive" });
+        toast({ title: "Submission failed", description: data.message || "Failed to submit deposit", variant: "destructive" });
         return;
       }
-      if (data.payAddress) {
-        setPaymentInfo(data);
-        setPaymentStatus("waiting");
-        startPolling(String(data.paymentId));
-      } else {
-        toast({ title: "Error", description: data.message || "Failed to create payment", variant: "destructive" });
-      }
+      setCryptoSuccess(true);
+      queryClient.invalidateQueries({ queryKey: ["/api/deposits"] });
     } catch (e: any) {
-      toast({ title: "Error", description: e.message || "Failed to create payment", variant: "destructive" });
+      toast({ title: "Error", description: e.message || "Failed to submit deposit", variant: "destructive" });
     } finally {
-      setCryptoLoading(false);
+      setCryptoSubmitting(false);
     }
-  };
-
-  const handleNewPayment = () => {
-    if (pollingRef.current) clearInterval(pollingRef.current);
-    if (timerRef.current) clearInterval(timerRef.current);
-    setPaymentInfo(null);
-    setPaymentStatus("waiting");
-    setCryptoAmount("");
-    setSecondsLeft(0);
-    setIsLocallyExpired(false);
-    setIsResumedDeposit(false);
-    resumeAppliedRef.current = false;
-  };
-
-  const formatCountdown = (secs: number) => {
-    const m = Math.floor(secs / 60).toString().padStart(2, "0");
-    const s = (secs % 60).toString().padStart(2, "0");
-    return `${m}:${s}`;
   };
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
     toast({ title: t.deposit.copied, description: t.deposit.copiedDescription });
-  };
-
-  const getStatusInfo = (status: string) => {
-    switch (status) {
-      case "waiting": return { label: t.deposit.npStatusWaiting, color: "text-amber-600 dark:text-amber-400", icon: Clock };
-      case "confirming": return { label: t.deposit.npStatusConfirming, color: "text-blue-600 dark:text-blue-400", icon: RefreshCw };
-      case "confirmed":
-      case "sending": return { label: t.deposit.npStatusConfirmed, color: "text-emerald-600 dark:text-emerald-400", icon: CheckCircle2 };
-      case "finished": return { label: t.deposit.npStatusFinished, color: "text-emerald-600 dark:text-emerald-400", icon: CheckCircle2 };
-      case "failed": return { label: t.deposit.npStatusFailed, color: "text-red-600 dark:text-red-400", icon: AlertCircle };
-      case "expired": return { label: t.deposit.npStatusExpired, color: "text-red-600 dark:text-red-400", icon: AlertCircle };
-      default: return { label: status, color: "text-muted-foreground", icon: Clock };
-    }
   };
 
   // Upload proof screenshot to object storage
@@ -387,8 +281,27 @@ export default function DepositPage() {
         <PaypalDepositSection kycVerified={kycVerified} depositRate={depositRate} />
       )}
 
-      {/* ── Crypto (NowPayments) — Amount Entry ─────────────────────────── */}
-      {depositMethod === "crypto" && !paymentInfo && (
+      {/* ── Crypto Manual Deposit (Static Wallet + TXID) ──────────────────── */}
+      {depositMethod === "crypto" && cryptoSuccess && (
+        <Card className="border-emerald-200 dark:border-emerald-800/50 bg-emerald-500/5">
+          <CardContent className="pt-8 pb-6 text-center space-y-3">
+            <div className="flex justify-center">
+              <div className="rounded-full bg-emerald-100 dark:bg-emerald-900/40 p-4">
+                <CheckCircle2 className="w-10 h-10 text-emerald-600 dark:text-emerald-400" />
+              </div>
+            </div>
+            <h3 className="text-lg font-bold text-emerald-700 dark:text-emerald-400" data-testid="text-crypto-success">Deposit Submitted</h3>
+            <p className="text-sm text-muted-foreground max-w-sm mx-auto">
+              Your deposit is now pending admin verification. Your balance will be credited once the transaction is confirmed on the blockchain.
+            </p>
+            <Button variant="outline" onClick={handleResetCrypto} className="mt-2" data-testid="button-new-crypto-deposit">
+              Submit Another Deposit
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {depositMethod === "crypto" && !cryptoSuccess && !addressGenerated && (
         <Card className={!kycVerified ? "opacity-50 pointer-events-none" : ""}>
           <CardHeader className="pb-3">
             <CardTitle className="text-base">{t.deposit.npTitle}</CardTitle>
@@ -476,12 +389,12 @@ export default function DepositPage() {
 
             <Button
               className="w-full primary-gradient"
-              disabled={cryptoLoading || !canSubmit}
-              onClick={handleCreatePayment}
+              disabled={generating || !canSubmit}
+              onClick={handleGenerateAddress}
               data-testid="button-create-crypto-payment"
             >
-              {cryptoLoading ? (
-                <><Loader2 className="animate-spin mr-2 w-4 h-4" />{t.deposit.npCreating}</>
+              {generating ? (
+                <><Loader2 className="animate-spin mr-2 w-4 h-4" />Generating secure {networkConfig.label} address…</>
               ) : (
                 <><Network className="w-4 h-4 mr-2" />Generate {networkConfig.label} Address</>
               )}
@@ -490,117 +403,95 @@ export default function DepositPage() {
         </Card>
       )}
 
-      {/* ── Crypto — Payment Created (Address + Timer) ──── */}
-      {depositMethod === "crypto" && paymentInfo && (
+      {depositMethod === "crypto" && !cryptoSuccess && addressGenerated && (
         <Card>
           <CardHeader className="pb-3">
             <div className="flex items-center justify-between flex-wrap gap-2">
               <CardTitle className="text-base">{t.deposit.npPaymentCreated}</CardTitle>
-              {(() => {
-                const info = getStatusInfo(paymentStatus);
-                const StatusIcon = info.icon;
-                return (
-                  <Badge variant="outline" className={info.color} data-testid="badge-payment-status">
-                    <StatusIcon className="w-3 h-3 mr-1" />
-                    {info.label}
-                  </Badge>
-                );
-              })()}
+              <Badge variant="outline" className="text-amber-600 dark:text-amber-400" data-testid="badge-payment-status">
+                <Clock className="w-3 h-3 mr-1" />
+                Awaiting Your Transfer
+              </Badge>
             </div>
             <CardDescription className="text-xs">{t.deposit.npSendToAddress}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            {isResumedDeposit && paymentStatus === "waiting" && !isLocallyExpired && (
-              <Alert className="bg-blue-500/8 border-blue-200 dark:border-blue-800/50 text-blue-800 dark:text-blue-300" data-testid="alert-pending-deposit-active">
-                <AlertCircle className="h-4 w-4" />
-                <AlertTitle>Pending Deposit Active</AlertTitle>
-                <AlertDescription className="text-xs">
-                  You already have an active crypto deposit request. Complete your transfer to this address or wait for it to expire before generating a new one.{" "}
-                  <Link href="/support" className="underline font-medium">
-                    Need help? Contact Support →
-                  </Link>
-                </AlertDescription>
-              </Alert>
-            )}
+            <Alert className="bg-blue-500/8 border-blue-200 dark:border-blue-800/50 text-blue-800 dark:text-blue-300" data-testid="alert-manual-instructions">
+              <AlertCircle className="h-4 w-4" />
+              <AlertTitle>Send & Submit TXID</AlertTitle>
+              <AlertDescription className="text-xs">
+                Send exactly <strong>${formatUsdt(cryptoUsdt)} USDT ({STATIC_WALLETS[selectedNetwork].label})</strong> to the address below.
+                After your transfer, paste the Transaction ID (TXID) and click Submit. Admin will manually confirm the deposit.
+              </AlertDescription>
+            </Alert>
 
-            {!isLocallyExpired && paymentInfo.expiresAt && paymentStatus === "waiting" && (
-              <Alert className={`${secondsLeft <= 60 ? "bg-red-500/8 border-red-300 dark:border-red-700 text-red-700 dark:text-red-300" : "bg-amber-500/8 border-amber-200 dark:border-amber-800/50 text-amber-800 dark:text-amber-300"}`} data-testid="alert-deposit-timer">
-                <Clock className="h-4 w-4" />
-                <AlertTitle className="flex items-center justify-between">
-                  <span>Address valid for 15 minutes only</span>
-                  <span className="font-mono text-lg font-bold tracking-widest" data-testid="text-countdown">{formatCountdown(secondsLeft)}</span>
-                </AlertTitle>
-                <AlertDescription className="text-xs">
-                  Please complete your transfer within this timeframe. The address will expire automatically.
-                </AlertDescription>
-              </Alert>
-            )}
-
-            {isLocallyExpired && (
-              <Alert className="bg-red-500/8 border-red-300 dark:border-red-700 text-red-700 dark:text-red-300" data-testid="alert-deposit-expired">
-                <AlertCircle className="h-4 w-4" />
-                <AlertTitle>Transaction Expired</AlertTitle>
-                <AlertDescription>This deposit address has expired. Please generate a new deposit request.</AlertDescription>
-              </Alert>
-            )}
-
-            {(paymentStatus === "finished" || paymentStatus === "confirmed") && (
-              <Alert className="bg-emerald-500/8 border-emerald-200 dark:border-emerald-800/50 text-emerald-800 dark:text-emerald-300" data-testid="alert-crypto-success">
-                <CheckCircle2 className="h-4 w-4" />
-                <AlertTitle>{t.deposit.npSuccess}</AlertTitle>
-                <AlertDescription>{t.deposit.npSuccessDesc}</AlertDescription>
-              </Alert>
-            )}
-
-            {(paymentStatus === "failed" || paymentStatus === "expired") && !isLocallyExpired && (
-              <Alert className="bg-red-500/8 border-red-200 dark:border-red-800/50 text-red-800 dark:text-red-300" data-testid="alert-crypto-failed">
-                <AlertCircle className="h-4 w-4" />
-                <AlertTitle>{paymentStatus === "expired" ? t.deposit.npStatusExpired : t.deposit.npStatusFailed}</AlertTitle>
-              </Alert>
-            )}
-
-            {!isLocallyExpired && paymentStatus !== "failed" && paymentStatus !== "expired" && (
-              <div className="space-y-3">
-                <div>
-                  <p className="text-xs text-muted-foreground mb-1">{t.deposit.npPayAddress}</p>
-                  <div className="flex items-center gap-2 p-3 rounded-md border border-border bg-muted/30">
-                    <p className="font-mono text-xs break-all flex-1" data-testid="text-pay-address">{paymentInfo.payAddress}</p>
-                    <Button variant="ghost" size="icon" onClick={() => copyToClipboard(paymentInfo.payAddress)} className="flex-shrink-0" data-testid="button-copy-address">
-                      <Copy className="w-4 h-4" />
-                    </Button>
-                  </div>
-                </div>
-
-                <div className="rounded-lg border border-border bg-muted/30 divide-y divide-border overflow-hidden">
-                  <div className="flex items-center justify-between px-4 py-2.5 text-sm">
-                    <span className="text-muted-foreground">Send Exactly</span>
-                    <span className="font-mono font-bold" data-testid="text-pay-amount">{paymentInfo.payAmount} {paymentInfo.payCurrency.toUpperCase()}</span>
-                  </div>
-                  <div className="flex items-center justify-between px-4 py-2.5 text-sm">
-                    <span className="text-muted-foreground">Network</span>
-                    <Badge variant="outline" className="text-xs">
-                      {NETWORK_FEE_CONFIG[paymentInfo.payCurrency as NetworkCurrency]?.label ?? paymentInfo.payCurrency.toUpperCase()}
-                    </Badge>
-                  </div>
-                  <div className="flex items-center justify-between px-4 py-2.5 text-sm bg-emerald-500/5">
-                    <span className="font-semibold text-emerald-700 dark:text-emerald-400">You Will Receive</span>
-                    <p className="font-bold text-emerald-700 dark:text-emerald-400" data-testid="text-receive-amount">
-                      {formatUsdt(Math.max(0, paymentInfo.payAmount - (NETWORK_FEE_CONFIG[paymentInfo.payCurrency as NetworkCurrency]?.fee ?? 2.50)))} USDT
-                    </p>
-                  </div>
-                </div>
+            <div>
+              <p className="text-xs text-muted-foreground mb-1">{t.deposit.npPayAddress} — {STATIC_WALLETS[selectedNetwork].label}</p>
+              <div className="flex items-center gap-2 p-3 rounded-md border border-border bg-muted/30">
+                <p className="font-mono text-xs break-all flex-1" data-testid="text-pay-address">{STATIC_WALLETS[selectedNetwork].address}</p>
+                <Button variant="ghost" size="icon" onClick={() => copyToClipboard(STATIC_WALLETS[selectedNetwork].address)} className="flex-shrink-0" data-testid="button-copy-address">
+                  <Copy className="w-4 h-4" />
+                </Button>
               </div>
-            )}
+            </div>
 
-            {paymentStatus === "waiting" && !isLocallyExpired && (
-              <p className="text-xs text-muted-foreground text-center">{t.deposit.npWaitingNote}</p>
-            )}
+            <div className="rounded-lg border border-border bg-muted/30 divide-y divide-border overflow-hidden">
+              <div className="flex items-center justify-between px-4 py-2.5 text-sm">
+                <span className="text-muted-foreground">Send Exactly</span>
+                <span className="font-mono font-bold" data-testid="text-pay-amount">{formatUsdt(cryptoUsdt)} USDT</span>
+              </div>
+              <div className="flex items-center justify-between px-4 py-2.5 text-sm">
+                <span className="text-muted-foreground">Network</span>
+                <Badge variant="outline" className="text-xs">{networkConfig.label}</Badge>
+              </div>
+              <div className="flex items-center justify-between px-4 py-2.5 text-sm bg-emerald-500/5">
+                <span className="font-semibold text-emerald-700 dark:text-emerald-400">You Will Receive</span>
+                <p className="font-bold text-emerald-700 dark:text-emerald-400" data-testid="text-receive-amount">
+                  ${formatUsdt(creditedUsdt)} USDT
+                </p>
+              </div>
+            </div>
 
-            {(!isResumedDeposit || isLocallyExpired || paymentStatus === "failed" || paymentStatus === "expired" || paymentStatus === "finished" || paymentStatus === "confirmed") && (
-              <Button variant="outline" className="w-full" onClick={handleNewPayment} data-testid="button-new-payment">
-                {isLocallyExpired ? "Generate New Deposit Request" : t.deposit.npNewPayment}
-              </Button>
-            )}
+            <div>
+              <label className="text-sm font-medium" htmlFor="input-crypto-txid">
+                Transaction ID (TXID) <span className="text-red-500">*</span>
+              </label>
+              <Input
+                id="input-crypto-txid"
+                className="mt-1.5 font-mono text-xs"
+                placeholder="Paste your TXID / transaction hash here"
+                value={cryptoTxid}
+                onChange={(e) => setCryptoTxid(e.target.value)}
+                data-testid="input-crypto-txid"
+              />
+              <p className="text-xs text-muted-foreground mt-1">
+                The TXID is required for admin to verify your transfer on the blockchain.
+              </p>
+            </div>
+
+            <Alert className="bg-amber-500/8 border-amber-200 dark:border-amber-800/50 text-amber-800 dark:text-amber-300" data-testid="alert-crypto-warning">
+              <AlertTriangle className="h-4 w-4" />
+              <AlertDescription className="text-xs">
+                Only send USDT on the <strong>{networkConfig.label}</strong> network. Sending other tokens or using the wrong network will result in permanent loss of funds.
+              </AlertDescription>
+            </Alert>
+
+            <Button
+              className="w-full primary-gradient"
+              disabled={cryptoSubmitting || !cryptoTxid.trim()}
+              onClick={handleSubmitCryptoDeposit}
+              data-testid="button-submit-crypto-deposit"
+            >
+              {cryptoSubmitting ? (
+                <><Loader2 className="animate-spin mr-2 w-4 h-4" />Submitting…</>
+              ) : (
+                <><Upload className="w-4 h-4 mr-2" />Submit Deposit</>
+              )}
+            </Button>
+
+            <Button variant="outline" className="w-full" onClick={handleResetCrypto} data-testid="button-new-payment">
+              Cancel & Start Over
+            </Button>
           </CardContent>
         </Card>
       )}

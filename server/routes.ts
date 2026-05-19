@@ -685,7 +685,117 @@ export async function registerRoutes(
     res.redirect(`/deposit?moncash_txn=${transactionId}`);
   });
 
-  // ============ NOWPayments Integration ============
+  // ============ Manual Crypto Deposit (Static Wallets) ============
+  // Hardcoded business receiving wallets — admin manually confirms after on-chain verification.
+  const STATIC_CRYPTO_WALLETS = {
+    trc20: "TMo8fkUp5ma5UhRAKLkF6dRbXYs9euq2sc",
+    bep20: "0x8312a3f6cb9040ff61d154482a14649fe815a1ba",
+  } as const;
+
+  app.get("/api/deposits/crypto/wallets", isAuthenticated, async (_req, res) => {
+    res.json({
+      trc20: { address: STATIC_CRYPTO_WALLETS.trc20, network: "TRON", fee: NETWORK_FEE_CONFIG.usdttrc20.fee, minAmount: NETWORK_FEE_CONFIG.usdttrc20.minAmount, maxAmount: NETWORK_FEE_CONFIG.usdttrc20.maxAmount },
+      bep20: { address: STATIC_CRYPTO_WALLETS.bep20, network: "BSC",  fee: NETWORK_FEE_CONFIG.usdtbsc.fee,   minAmount: NETWORK_FEE_CONFIG.usdtbsc.minAmount,   maxAmount: NETWORK_FEE_CONFIG.usdtbsc.maxAmount },
+    });
+  });
+
+  app.post("/api/deposits/crypto/submit", isAuthenticated, async (req: any, res) => {
+    try {
+      const profile = await getProfileFromReq(req);
+      if (!profile) return res.status(401).json({ message: "Unauthorized" });
+      if (profile.kycStatus !== "verified") {
+        return res.status(403).json({ message: "KYC verification required before making deposits" });
+      }
+
+      const { amountSent, network, txid } = req.body as { amountSent?: string | number; network?: string; txid?: string };
+
+      if (!txid || String(txid).trim() === "") {
+        return res.status(400).json({ message: "TXID (Transaction ID) required avant submit deposit la." });
+      }
+      const txidTrim = String(txid).trim();
+      if (txidTrim.length < 5) {
+        return res.status(400).json({ message: "TXID looks invalid. Please paste the full transaction hash from your wallet." });
+      }
+
+      const net = String(network || "").toUpperCase();
+      const isTrc = net === "TRC20" || net === "USDTTRC20";
+      const isBep = net === "BEP20" || net === "USDTBSC";
+      if (!isTrc && !isBep) {
+        return res.status(400).json({ message: "Network must be TRC20 or BEP20." });
+      }
+
+      const amount = Number(amountSent);
+      if (!amount || isNaN(amount) || amount <= 0) {
+        return res.status(400).json({ message: "Amount must be greater than 0." });
+      }
+
+      const networkKey = isTrc ? "usdttrc20" : "usdtbsc";
+      const config = NETWORK_FEE_CONFIG[networkKey];
+      if (amount < config.minAmount) {
+        return res.status(400).json({ message: `Minimum deposit for ${isTrc ? "TRC20" : "BEP20"} is $${config.minAmount.toFixed(2)} USDT.` });
+      }
+      if (amount > config.maxAmount) {
+        return res.status(400).json({ message: `Maximum deposit is $${config.maxAmount.toLocaleString()} USDT.` });
+      }
+
+      // TXID format validation per network (TRC20: 64 hex chars; BEP20: 0x + 64 hex chars)
+      const trcPattern = /^[a-fA-F0-9]{64}$/;
+      const bepPattern = /^0x[a-fA-F0-9]{64}$/;
+      if (isTrc && !trcPattern.test(txidTrim)) {
+        return res.status(400).json({ message: "Invalid TRC20 TXID. Expected a 64-character hex transaction hash." });
+      }
+      if (isBep && !bepPattern.test(txidTrim)) {
+        return res.status(400).json({ message: "Invalid BEP20 TXID. Expected 0x followed by a 64-character hex transaction hash." });
+      }
+
+      // Block duplicate TXID submissions globally (prevents cross-user replay)
+      const txidNorm = txidTrim.toLowerCase();
+      const allDeposits = await storage.getDeposits();
+      const dupe = allDeposits.find((d) => (d.txHash || "").toLowerCase() === txidNorm);
+      if (dupe) {
+        if (dupe.profileId === profile.id) {
+          return res.status(409).json({ message: "This TXID has already been submitted. Please check your transaction history." });
+        }
+        // Cross-user replay attempt — log security event silently and return generic error
+        console.warn(`[crypto/submit] Cross-user TXID replay attempt: user=${profile.id} tried TXID already used by profile ${dupe.profileId}`);
+        return res.status(409).json({ message: "This TXID has already been submitted to our system. If this is your transaction, please contact support." });
+      }
+
+      const receiverAddress = isTrc ? STATIC_CRYPTO_WALLETS.trc20 : STATIC_CRYPTO_WALLETS.bep20;
+      const ipAddress = (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() || req.socket?.remoteAddress || null;
+
+      const deposit = await storage.createDeposit({
+        profileId: profile.id,
+        amountUsdt: amount.toFixed(2),
+        txHash: txidTrim,
+        depositMethod: "usdt",
+        payAddress: receiverAddress,
+        payCurrency: networkKey,
+        ipAddress,
+      } as any);
+
+      // Notify admins
+      try {
+        const admins = (await storage.getAllProfiles()).filter((a) => a.role === "admin");
+        const netLabel = isTrc ? "TRC20" : "BEP20";
+        for (const admin of admins) {
+          await storage.createNotification({
+            profileId: admin.id,
+            type: "custom_message",
+            title: "New Crypto Deposit — Verification Needed",
+            message: `${profile.fullName} submitted a ${netLabel} deposit of ${amount.toFixed(2)} USDT. TXID: ${txidTrim}`,
+          });
+        }
+      } catch { /* ignore */ }
+
+      return res.json({ success: true, deposit });
+    } catch (e: any) {
+      console.error("[crypto/submit]", e);
+      return res.status(500).json({ message: e.message || "Failed to submit deposit" });
+    }
+  });
+
+  // ============ NOWPayments Integration (legacy — kept for any in-flight deposits) ============
   const NOWPAYMENTS_API_KEY = process.env.NOWPAYMENTS_API_KEY || "";
   const NOWPAYMENTS_BASE_URL = "https://api.nowpayments.io/v1";
 
