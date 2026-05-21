@@ -379,7 +379,7 @@ const translations = {
     },
     verifyEmail: {
       title: "Verify Your Account",
-      description: "We sent a 6-digit code to your WhatsApp",
+      description: "Please check your WhatsApp or Email for the 6-digit verification code.",
       verifyButton: "Verify Account",
       didntReceive: "Didn't receive the code?",
       resendIn: "Resend in",
@@ -756,7 +756,7 @@ const translations = {
     },
     verifyEmail: {
       title: "V\u00e9rifiez votre compte",
-      description: "Nous avons envoy\u00e9 un code \u00e0 6 chiffres sur votre WhatsApp",
+      description: "Veuillez v\u00e9rifier votre WhatsApp ou votre Email pour le code de v\u00e9rification \u00e0 6 chiffres.",
       verifyButton: "V\u00e9rifier le compte",
       didntReceive: "Vous n'avez pas re\u00e7u le code ?",
       resendIn: "Renvoyer dans",
@@ -1133,7 +1133,7 @@ const translations = {
     },
     verifyEmail: {
       title: "Verifye kont ou",
-      description: "Nou voye yon k\u00f2d 6 chif sou WhatsApp ou",
+      description: "Tanpri tcheke k\u00f2d verifikasyon 6 chif la nan WhatsApp ou oswa nan Email ou.",
       verifyButton: "Verifye kont",
       didntReceive: "Ou pa resevwa k\u00f2d la?",
       resendIn: "Revoye nan",
