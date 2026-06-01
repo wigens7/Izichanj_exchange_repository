@@ -203,6 +203,10 @@ export default function AdminPage() {
               <Wallet className="w-5 h-5" />
               <span>Payouts</span>
             </TabsTrigger>
+            <TabsTrigger value="blacklist" className="flex-col items-center gap-1 shrink-0 min-w-[60px] h-auto py-2.5 px-2 text-[10px] font-medium" data-testid="tab-admin-blacklist">
+              <Ban className="w-5 h-5" />
+              <span>Blacklist</span>
+            </TabsTrigger>
           </TabsList>
         </div>
 
@@ -253,6 +257,9 @@ export default function AdminPage() {
         </TabsContent>
         <TabsContent value="newsletter">
           <NewsletterTab />
+        </TabsContent>
+        <TabsContent value="blacklist">
+          <BlacklistTab />
         </TabsContent>
       </Tabs>
     </div>
@@ -5916,5 +5923,170 @@ function NewsletterTab() {
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+const BLACKLIST_REASON_META: Record<string, { label: string; className: string }> = {
+  account_deleted: { label: "Account Deleted", className: "bg-red-500/15 text-red-600 dark:text-red-400 border-red-500/30" },
+  banned: { label: "Banned", className: "bg-orange-500/15 text-orange-600 dark:text-orange-400 border-orange-500/30" },
+  kyc_resubmit: { label: "KYC Resubmit", className: "bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30" },
+  kyc_rejected: { label: "KYC Rejected", className: "bg-rose-500/15 text-rose-600 dark:text-rose-400 border-rose-500/30" },
+};
+
+function BlacklistTab() {
+  const [search, setSearch] = useState("");
+  const [selected, setSelected] = useState<any | null>(null);
+
+  const { data: archives, isLoading, isError } = useQuery<any[]>({
+    queryKey: ["/api/admin/blacklist"],
+  });
+
+  const filtered = (archives || []).filter((a) => {
+    if (!search.trim()) return true;
+    const q = search.toLowerCase();
+    return (
+      (a.fullName || "").toLowerCase().includes(q) ||
+      (a.email || "").toLowerCase().includes(q) ||
+      (a.phone || "").toLowerCase().includes(q) ||
+      (a.referenceId || "").toLowerCase().includes(q) ||
+      (a.idNumber || "").toLowerCase().includes(q)
+    );
+  });
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2" data-testid="text-blacklist-title">
+          <Ban className="w-5 h-5" /> Blacklist & KYC Archive
+        </CardTitle>
+        <CardDescription>
+          Permanent record of user information and KYC documents. Entries are kept forever — even after a user is banned, deleted, or asked to re-submit KYC.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="mb-4">
+          <Input
+            placeholder="Search by name, email, phone, reference or ID number..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            data-testid="input-blacklist-search"
+          />
+        </div>
+
+        {isLoading ? (
+          <div className="space-y-2">
+            {[...Array(5)].map((_, i) => <Skeleton key={i} className="h-14 w-full" />)}
+          </div>
+        ) : isError ? (
+          <p className="text-destructive" data-testid="text-blacklist-error">Failed to load archive.</p>
+        ) : filtered.length === 0 ? (
+          <p className="text-muted-foreground py-8 text-center" data-testid="text-blacklist-empty">No archived records found.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>User</TableHead>
+                  <TableHead>Contact</TableHead>
+                  <TableHead>Reason</TableHead>
+                  <TableHead>Docs</TableHead>
+                  <TableHead>Archived</TableHead>
+                  <TableHead className="text-right">Action</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filtered.map((a) => {
+                  const meta = BLACKLIST_REASON_META[a.reason] || { label: a.reason, className: "" };
+                  const docCount = [a.idDocumentUrl, a.idDocumentBackUrl, a.selfieUrl].filter(Boolean).length;
+                  return (
+                    <TableRow key={a.id} data-testid={`row-blacklist-${a.id}`}>
+                      <TableCell>
+                        <div className="font-medium" data-testid={`text-blacklist-name-${a.id}`}>{a.fullName || "—"}</div>
+                        <div className="text-xs text-muted-foreground">{a.referenceId || `ID #${a.originalProfileId ?? "—"}`}</div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="text-sm">{a.email || "—"}</div>
+                        <div className="text-xs text-muted-foreground">{a.phone || "—"}</div>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="outline" className={meta.className} data-testid={`badge-blacklist-reason-${a.id}`}>{meta.label}</Badge>
+                      </TableCell>
+                      <TableCell>
+                        <span className="text-sm" data-testid={`text-blacklist-doccount-${a.id}`}>{docCount}/3</span>
+                      </TableCell>
+                      <TableCell>
+                        <span className="text-xs text-muted-foreground">{a.createdAt ? formatDateTimeShort(a.createdAt) : "—"}</span>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setSelected(a)}
+                          data-testid={`button-blacklist-view-${a.id}`}
+                        >
+                          View
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+      </CardContent>
+
+      <Dialog open={!!selected} onOpenChange={(o) => !o && setSelected(null)}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle data-testid="text-blacklist-modal-title">{selected?.fullName || "Archived User"}</DialogTitle>
+          </DialogHeader>
+          {selected && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-muted/30 rounded-md p-3 text-sm">
+                <div><span className="text-muted-foreground">Email: </span><span className="font-medium">{selected.email || "—"}</span></div>
+                <div><span className="text-muted-foreground">Phone: </span><span className="font-medium">{selected.phone || "—"}</span></div>
+                <div><span className="text-muted-foreground">Reference: </span><span className="font-medium">{selected.referenceId || "—"}</span></div>
+                <div><span className="text-muted-foreground">Profile ID: </span><span className="font-medium">{selected.originalProfileId ?? "—"}</span></div>
+                <div><span className="text-muted-foreground">Date of Birth: </span><span className="font-medium">{selected.dateOfBirth || "—"}</span></div>
+                <div><span className="text-muted-foreground">Country/City: </span><span className="font-medium">{[selected.country, selected.city].filter(Boolean).join(", ") || "—"}</span></div>
+                <div><span className="text-muted-foreground">ID Type: </span><span className="font-medium capitalize">{selected.idType ? selected.idType.replace(/_/g, " ") : "—"}</span></div>
+                <div><span className="text-muted-foreground">ID Number: </span><span className="font-medium">{selected.idNumber || "—"}</span></div>
+                <div className="sm:col-span-2"><span className="text-muted-foreground">Address: </span><span className="font-medium">{selected.addressLine1 || "—"}</span></div>
+                <div><span className="text-muted-foreground">KYC at archive: </span><span className="font-medium">{selected.kycStatusAtArchive || "—"}</span></div>
+                <div><span className="text-muted-foreground">Reason: </span><span className="font-medium">{(BLACKLIST_REASON_META[selected.reason]?.label) || selected.reason}</span></div>
+                <div className="sm:col-span-2"><span className="text-muted-foreground">Archived: </span><span className="font-medium">{selected.createdAt ? formatDateTimeFull(selected.createdAt) : "—"}</span></div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                {[
+                  { label: "ID Card (Front)", url: selected.idDocumentUrl, testid: "img-blacklist-id-front" },
+                  { label: "ID Card (Back)", url: selected.idDocumentBackUrl, testid: "img-blacklist-id-back" },
+                  { label: "Selfie / User Photo", url: selected.selfieUrl, testid: "img-blacklist-selfie" },
+                ].map((doc) => (
+                  <div key={doc.testid} className="space-y-2">
+                    <p className="text-sm font-medium">{doc.label}</p>
+                    {doc.url ? (
+                      <a href={doc.url} target="_blank" rel="noopener noreferrer">
+                        <img
+                          src={doc.url}
+                          alt={doc.label}
+                          className="w-full rounded-md border border-border object-contain max-h-64 hover:opacity-90 transition-opacity"
+                          data-testid={doc.testid}
+                        />
+                      </a>
+                    ) : (
+                      <div className="w-full h-32 rounded-md border border-dashed border-border flex items-center justify-center text-xs text-muted-foreground">
+                        Not available
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+    </Card>
   );
 }

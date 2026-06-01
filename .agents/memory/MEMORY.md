@@ -1,0 +1,2 @@
+- [Schema/DB drift & db:push](schema-db-drift.md) — `p2p_dispute_actions` is in the DB but not in schema; never run `drizzle-kit push` blindly (it offers to rename/drop it). Use startup migrations.
+- [KYC document preservation](kyc-archive.md) — KYC docs were silently lost on resubmit/reject/overwrite; `kyc_archives` table snapshots before any destructive action.

@@ -2111,6 +2111,8 @@ export async function registerRoutes(
         referenceId: profile.referenceId || undefined,
       });
 
+      await storage.archiveUserKyc(profileId, "account_deleted", req.user?.id);
+
       await storage.softDeleteProfile(profileId);
       res.json({ message: "Account deleted and blacklisted" });
     } catch (e) {
@@ -2170,10 +2172,24 @@ export async function registerRoutes(
   app.patch("/api/admin/users/:id/ban", isAuthenticated, isAdmin, async (req: any, res) => {
     try {
       const { isBanned } = req.body;
-      const profile = await storage.setUserBanStatus(Number(req.params.id), isBanned);
+      const profileId = Number(req.params.id);
+      if (isBanned) {
+        await storage.archiveUserKyc(profileId, "banned", req.user?.id);
+      }
+      const profile = await storage.setUserBanStatus(profileId, isBanned);
       res.json(profile);
     } catch (e) {
       res.status(500).json({ message: "Internal Error" });
+    }
+  });
+
+  // Admin: permanent archive of user info + KYC (survives ban/delete/resubmit)
+  app.get("/api/admin/blacklist", isAuthenticated, isAdmin, async (req: any, res) => {
+    try {
+      const archives = await storage.getKycArchives();
+      res.json(archives);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message || "Internal Error" });
     }
   });
 
@@ -3096,6 +3112,11 @@ export async function registerRoutes(
 
   app.patch(api.admin.rejectKyc.path, isAuthenticated, isAdmin, async (req: any, res) => {
     const profileId = Number(req.params.id);
+    // Preserve the documents that were rejected so they remain viewable in the archive.
+    const rejectedKyc = await storage.getKyc(profileId);
+    if (rejectedKyc && (rejectedKyc.idDocumentUrl || rejectedKyc.idDocumentBackUrl || rejectedKyc.selfieUrl)) {
+      await storage.archiveUserKyc(profileId, "kyc_rejected", req.user?.id);
+    }
     await storage.updateKycStatus(profileId, "rejected");
     const kycRejectMsg = "Your identity verification was rejected. Please resubmit your documents.";
     await storage.createNotification({

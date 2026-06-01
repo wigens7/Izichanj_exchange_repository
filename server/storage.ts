@@ -1,4 +1,4 @@
-import { profiles, deposits, withdrawals, kycDocuments, otps, webauthnCredentials, notifications, supportConversations, supportMessages, virtualCards, blacklistedUsers, p2pTransfers, loginLogs, fraudRejections, cardTransactions, topUpTransactions, securityEvents, balanceLogs, userReports, referralEarnings, referralPayoutRequests, nfcCards, nfcCardTransactions, type Profile, type Deposit, type InsertDeposit, type Withdrawal, type InsertWithdrawal, type KycDocument, type WebAuthnCredential, type Notification, type SupportConversation, type SupportMessage, type VirtualCard, type BlacklistedUser, type P2PTransfer, type LoginLog, type FraudRejection, type CardTransaction, type TopUpTransaction, type SecurityEvent, type BalanceLog, type UserReport, type ReferralEarning, type ReferralPayoutRequest, type NfcCard, type NfcCardTransaction, merchants, merchantTransactions, type Merchant, type MerchantTransaction, payoutRequests, type PayoutRequest, type InsertPayoutRequest } from "@shared/schema";
+import { profiles, deposits, withdrawals, kycDocuments, otps, webauthnCredentials, notifications, supportConversations, supportMessages, virtualCards, blacklistedUsers, kycArchives, p2pTransfers, loginLogs, fraudRejections, cardTransactions, topUpTransactions, securityEvents, balanceLogs, userReports, referralEarnings, referralPayoutRequests, nfcCards, nfcCardTransactions, type Profile, type Deposit, type InsertDeposit, type Withdrawal, type InsertWithdrawal, type KycDocument, type WebAuthnCredential, type Notification, type SupportConversation, type SupportMessage, type VirtualCard, type BlacklistedUser, type KycArchive, type P2PTransfer, type LoginLog, type FraudRejection, type CardTransaction, type TopUpTransaction, type SecurityEvent, type BalanceLog, type UserReport, type ReferralEarning, type ReferralPayoutRequest, type NfcCard, type NfcCardTransaction, merchants, merchantTransactions, type Merchant, type MerchantTransaction, payoutRequests, type PayoutRequest, type InsertPayoutRequest } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, ne, lt, sql, or, ilike, inArray } from "drizzle-orm";
 import crypto from "crypto";
@@ -41,6 +41,8 @@ export interface IStorage {
   getKyc(profileId: number): Promise<KycDocument | undefined>;
   getAllKyc(): Promise<(KycDocument & { profile: Profile })[]>;
   requestKycResubmit(profileId: number): Promise<void>;
+  archiveUserKyc(profileId: number, reason: "account_deleted" | "banned" | "kyc_resubmit" | "kyc_rejected", archivedByAdminId?: number): Promise<void>;
+  getKycArchives(): Promise<KycArchive[]>;
   updateKycStatus(profileId: number, status: "verified" | "rejected"): Promise<void>;
   updateProfile(id: number, data: Partial<Profile>): Promise<Profile>;
   setUserBanStatus(id: number, isBanned: boolean): Promise<Profile>;
@@ -345,6 +347,10 @@ export class DatabaseStorage implements IStorage {
   async createKyc(kyc: { profileId: number; idDocumentUrl: string; idDocumentBackUrl: string; selfieUrl: string; idType?: string; idNumber?: string; addressLine1?: string }): Promise<KycDocument> {
     const existing = await this.getKyc(kyc.profileId);
     if (existing) {
+      // Preserve the previous documents before they are overwritten by the resubmission.
+      if (existing.idDocumentUrl || existing.idDocumentBackUrl || existing.selfieUrl) {
+        await this.archiveUserKyc(kyc.profileId, "kyc_resubmit");
+      }
       const [updated] = await db.update(kycDocuments).set(kyc).where(eq(kycDocuments.profileId, kyc.profileId)).returning();
       await db.update(profiles).set({ kycStatus: "pending" }).where(eq(profiles.id, kyc.profileId));
       return updated;
@@ -359,6 +365,37 @@ export class DatabaseStorage implements IStorage {
     return kyc;
   }
 
+  // Snapshot a user's profile + KYC documents into the permanent kyc_archives
+  // table so the information survives bans, deletions and KYC re-submissions.
+  async archiveUserKyc(profileId: number, reason: "account_deleted" | "banned" | "kyc_resubmit" | "kyc_rejected", archivedByAdminId?: number): Promise<void> {
+    const profile = await this.getProfile(profileId);
+    if (!profile) return;
+    const kyc = await this.getKyc(profileId);
+    await db.insert(kycArchives).values({
+      originalProfileId: profile.id,
+      referenceId: profile.referenceId ?? null,
+      fullName: profile.fullName ?? null,
+      email: profile.email ?? null,
+      phone: profile.phone ?? null,
+      dateOfBirth: profile.dateOfBirth ?? null,
+      country: (profile as any).country ?? null,
+      city: (profile as any).city ?? null,
+      idType: kyc?.idType ?? null,
+      idNumber: kyc?.idNumber ?? null,
+      addressLine1: kyc?.addressLine1 ?? null,
+      idDocumentUrl: kyc?.idDocumentUrl ?? null,
+      idDocumentBackUrl: kyc?.idDocumentBackUrl ?? null,
+      selfieUrl: kyc?.selfieUrl ?? null,
+      kycStatusAtArchive: profile.kycStatus ?? null,
+      reason,
+      archivedByAdminId: archivedByAdminId ?? null,
+    });
+  }
+
+  async getKycArchives(): Promise<KycArchive[]> {
+    return db.select().from(kycArchives).orderBy(desc(kycArchives.createdAt));
+  }
+
   async getAllKyc(): Promise<(KycDocument & { profile: Profile })[]> {
     const results = await db.select().from(kycDocuments).innerJoin(profiles, eq(kycDocuments.profileId, profiles.id));
     return results.map(r => ({ ...r.kyc_documents, profile: r.profiles }));
@@ -369,6 +406,11 @@ export class DatabaseStorage implements IStorage {
   }
 
   async requestKycResubmit(profileId: number): Promise<void> {
+    // Preserve the existing documents before deleting them so they are never lost.
+    const kyc = await this.getKyc(profileId);
+    if (kyc && (kyc.idDocumentUrl || kyc.idDocumentBackUrl || kyc.selfieUrl)) {
+      await this.archiveUserKyc(profileId, "kyc_resubmit");
+    }
     await db.delete(kycDocuments).where(eq(kycDocuments.profileId, profileId));
     await db.update(profiles).set({ kycStatus: "not_submitted", strowalletCustomerId: null }).where(eq(profiles.id, profileId));
   }

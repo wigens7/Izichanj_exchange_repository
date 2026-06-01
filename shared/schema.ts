@@ -74,6 +74,32 @@ export const blacklistedUsers = pgTable("blacklisted_users", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+// Permanent archive of user information + KYC documents. Rows here are NEVER
+// deleted so admins can always view a user's identity even after the account is
+// banned, deleted, or asked to re-submit KYC. reason: account_deleted | banned |
+// kyc_resubmit | kyc_rejected
+export const kycArchives = pgTable("kyc_archives", {
+  id: serial("id").primaryKey(),
+  originalProfileId: integer("original_profile_id"),
+  referenceId: text("reference_id"),
+  fullName: text("full_name"),
+  email: text("email"),
+  phone: text("phone"),
+  dateOfBirth: text("date_of_birth"),
+  country: text("country"),
+  city: text("city"),
+  idType: text("id_type"),
+  idNumber: text("id_number"),
+  addressLine1: text("address_line_1"),
+  idDocumentUrl: text("id_document_url"),
+  idDocumentBackUrl: text("id_document_back_url"),
+  selfieUrl: text("selfie_url"),
+  kycStatusAtArchive: text("kyc_status_at_archive"),
+  reason: text("reason").notNull(),
+  archivedByAdminId: integer("archived_by_admin_id"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
 export const webauthnCredentials = pgTable("webauthn_credentials", {
   id: serial("id").primaryKey(),
   profileId: integer("profile_id").references(() => profiles.id).notNull(),
@@ -248,6 +274,7 @@ export type Notification = typeof notifications.$inferSelect;
 export type SupportConversation = typeof supportConversations.$inferSelect;
 export type SupportMessage = typeof supportMessages.$inferSelect;
 export type BlacklistedUser = typeof blacklistedUsers.$inferSelect;
+export type KycArchive = typeof kycArchives.$inferSelect;
 export type P2PTransfer = typeof p2pTransfers.$inferSelect;
 export const cardStatusEnum = pgEnum("card_status", ["pending", "active", "frozen", "terminated", "cancelled"]);
 

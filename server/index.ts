@@ -53,7 +53,9 @@ app.use((req, res, next) => {
     const duration = Date.now() - start;
     if (path.startsWith("/api")) {
       let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
-      if (capturedJsonResponse) {
+      // Never log response bodies for endpoints that return KYC documents / PII.
+      const sensitive = /^\/api\/admin\/(blacklist|kyc)/.test(path);
+      if (capturedJsonResponse && !sensitive) {
         logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
       }
 
@@ -701,6 +703,35 @@ app.use((req, res, next) => {
     console.log("[startup migration] newsletter columns ensured");
   } catch (e) {
     console.warn("[startup migration] newsletter columns skipped:", (e as Error).message);
+  }
+
+  try {
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS kyc_archives (
+        id SERIAL PRIMARY KEY,
+        original_profile_id INTEGER,
+        reference_id TEXT,
+        full_name TEXT,
+        email TEXT,
+        phone TEXT,
+        date_of_birth TEXT,
+        country TEXT,
+        city TEXT,
+        id_type TEXT,
+        id_number TEXT,
+        address_line_1 TEXT,
+        id_document_url TEXT,
+        id_document_back_url TEXT,
+        selfie_url TEXT,
+        kyc_status_at_archive TEXT,
+        reason TEXT NOT NULL,
+        archived_by_admin_id INTEGER,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    `);
+    console.log("[startup migration] kyc_archives table ensured");
+  } catch (e) {
+    console.warn("[startup migration] kyc_archives skipped:", (e as Error).message);
   }
 
   await registerRoutes(httpServer, app);
