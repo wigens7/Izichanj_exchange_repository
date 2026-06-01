@@ -1,0 +1,20 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "d7kD2fp4PB_8VdMkfDQay"
+uri = "file://recovered_kyc/ID_FRONT_DELICE_PIRENSE.jpg"
+type = "image"
+title = "ID Devan — DELICE PIRENSE (CIN #H002VYH22)"
+
+[[outputs]]
+id = "t4Owdm46XCc2Ls2IuZtNA"
+uri = "file://recovered_kyc/ID_BACK_DELICE_PIRENSE.jpg"
+type = "image"
+title = "ID Dèyè — DELICE PIRENSE (MRZ/kòd-bar)"
+
+[[outputs]]
+id = "fJ5Eo5df3OCE7oQZZc1Dp"
+uri = "file://recovered_kyc/SELFIE_DELICE_PIRENSE.jpg"
+type = "image"
+title = "Selfie — DELICE PIRENSE kenbe ID a"
