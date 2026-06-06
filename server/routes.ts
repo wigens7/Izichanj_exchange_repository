@@ -1653,10 +1653,17 @@ export async function registerRoutes(
       }
       const code = crypto.randomInt(100000, 999999).toString();
       await storage.createOtp(profile.id, code);
-      // Email-only delivery for password reset (not WhatsApp).
-      sendPasswordResetEmail(profile.email, code, profile.fullName).catch((e) =>
-        console.error("[forgot-password] email send failed:", e?.message || e)
-      );
+      // Deliver the reset code via BOTH WhatsApp and email — both best-effort.
+      Promise.all([
+        sendWhatsAppOtp(profile.phone || "", code, profile.fullName).catch((e) =>
+          console.error("[forgot-password] whatsapp send failed:", e?.message || e)
+        ),
+        profile.email
+          ? sendPasswordResetEmail(profile.email, code, profile.fullName).catch((e) =>
+              console.error("[forgot-password] email send failed:", e?.message || e)
+            )
+          : Promise.resolve(),
+      ]).catch(() => {});
       res.json(generic);
     } catch (e) {
       if (e instanceof z.ZodError) return res.status(400).json({ message: e.errors[0].message });

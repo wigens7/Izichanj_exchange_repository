@@ -1,6 +1,9 @@
 import { Resend } from "resend";
 
-const FROM = "Izichanj <no-reply@izichanj.com>";
+// Sender address. Resend requires the domain in this address to be verified at
+// https://resend.com/domains before it will deliver mail. Override via EMAIL_FROM
+// (e.g. "Izichanj <onboarding@resend.dev>") if the custom domain isn't verified yet.
+const FROM = process.env.EMAIL_FROM || "Izichanj <no-reply@izichanj.com>";
 
 let client: Resend | null = null;
 function getClient(): Resend | null {
