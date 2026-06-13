@@ -88,6 +88,7 @@ import {
   Wallet,
   Bell,
   BellOff,
+  MessageCircle,
 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -3946,6 +3947,48 @@ function SettingsTab() {
   const previewDep = parseFloat(depInput) || depositRate;
   const previewWit = parseFloat(witInput) || withdrawalRate;
 
+  const { data: tgStatus, isLoading: tgLoading } = useQuery<{
+    configured: boolean;
+    connected: boolean;
+    url: string | null;
+    pendingUpdateCount: number;
+    lastErrorMessage: string | null;
+  }>({
+    queryKey: ["/api/admin/telegram/status"],
+  });
+
+  const connectTelegram = useMutation({
+    mutationFn: async () => {
+      const res = await fetch("/api/admin/telegram/connect", { method: "POST", credentials: "include" });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.message || "Failed to connect Telegram");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["/api/admin/telegram/status"] });
+      toast({ title: "Telegram connected", description: "Admins can now reply to support chats directly from the Telegram bot." });
+    },
+    onError: (err: Error) => toast({ variant: "destructive", title: "Error", description: err.message }),
+  });
+
+  const disconnectTelegram = useMutation({
+    mutationFn: async () => {
+      const res = await fetch("/api/admin/telegram/disconnect", { method: "POST", credentials: "include" });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.message || "Failed to disconnect Telegram");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["/api/admin/telegram/status"] });
+      toast({ title: "Telegram disconnected", description: "Replies from the bot are now disabled." });
+    },
+    onError: (err: Error) => toast({ variant: "destructive", title: "Error", description: err.message }),
+  });
+
   return (
     <div className="max-w-md space-y-6">
       <Card>
@@ -4075,6 +4118,60 @@ function SettingsTab() {
             {updatePhones.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Save className="w-4 h-4 mr-2" />}
             Save Deposit Numbers
           </Button>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <MessageCircle className="w-5 h-5 text-primary" />
+            Telegram Support Replies
+          </CardTitle>
+          <p className="text-sm text-muted-foreground">
+            Reply to users' support chats straight from the Telegram bot. When a user writes in support chat, open the bot, tap <strong>Reply</strong> on the notification, and type your answer — the user sees it in the app.
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {tgLoading ? (
+            <Skeleton className="h-10 w-full rounded-md" />
+          ) : !tgStatus?.configured ? (
+            <p className="text-sm text-amber-600 dark:text-amber-400" data-testid="text-telegram-unconfigured">
+              Telegram bot is not configured. Add TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID to enable this feature.
+            </p>
+          ) : (
+            <>
+              <div className="flex items-center gap-2 text-sm" data-testid="status-telegram">
+                <span className={`inline-block w-2.5 h-2.5 rounded-full ${tgStatus.connected ? "bg-emerald-500" : "bg-muted-foreground/40"}`} />
+                <span className="font-medium">{tgStatus.connected ? "Connected" : "Not connected"}</span>
+              </div>
+              {tgStatus.lastErrorMessage && (
+                <p className="text-xs text-red-600 dark:text-red-400" data-testid="text-telegram-error">
+                  Last error: {tgStatus.lastErrorMessage}
+                </p>
+              )}
+              <div className="flex gap-2">
+                <Button
+                  onClick={() => connectTelegram.mutate()}
+                  disabled={connectTelegram.isPending}
+                  className="flex-1"
+                  data-testid="button-telegram-connect"
+                >
+                  {connectTelegram.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <MessageCircle className="w-4 h-4 mr-2" />}
+                  {tgStatus.connected ? "Reconnect" : "Connect"}
+                </Button>
+                {tgStatus.connected && (
+                  <Button
+                    variant="outline"
+                    onClick={() => disconnectTelegram.mutate()}
+                    disabled={disconnectTelegram.isPending}
+                    data-testid="button-telegram-disconnect"
+                  >
+                    {disconnectTelegram.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "Disconnect"}
+                  </Button>
+                )}
+              </div>
+            </>
+          )}
         </CardContent>
       </Card>
     </div>

@@ -3943,6 +3943,30 @@ export async function registerRoutes(
     }
   }
 
+  // Secret token Telegram echoes back on each webhook call. Derived from
+  // SESSION_SECRET; if that is missing we fall back to an unpredictable random
+  // value (never a hardcoded default) so the public webhook can't be forged.
+  const TELEGRAM_WEBHOOK_SECRET = crypto
+    .createHash("sha256")
+    .update((process.env.SESSION_SECRET || crypto.randomBytes(32).toString("hex")) + ":telegram-webhook")
+    .digest("hex")
+    .slice(0, 48);
+
+  async function telegramApi(method: string, body: Record<string, any>): Promise<any> {
+    const token = process.env.TELEGRAM_BOT_TOKEN;
+    if (!token) return { ok: false, description: "Missing TELEGRAM_BOT_TOKEN" };
+    try {
+      const r = await fetch(`https://api.telegram.org/bot${token}/${method}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      return await r.json();
+    } catch (e: any) {
+      return { ok: false, description: e?.message || "request failed" };
+    }
+  }
+
   // ======= Support Chat Routes =======
   const BOT_FAQ: { keywords: string[]; answer: string }[] = [
     { keywords: ["deposit", "how to deposit", "send usdt", "depo"], answer: "To deposit USDT:\n1. Go to the Deposit page\n2. Copy one of our wallet addresses (TRC20 or BEP20)\n3. Send USDT from your crypto wallet\n4. Enter the amount and transaction hash\n5. Submit and wait for admin approval (usually within minutes)" },
@@ -4026,7 +4050,7 @@ export async function registerRoutes(
       });
 
       // Telegram alert for every user message
-      const telegramText = `💬 <b>New Support Message</b>\n\n👤 <b>Name:</b> ${profile.fullName}\n📧 <b>Email:</b> ${profile.email}\n🆔 <b>User ID:</b> ${profile.referenceId || profile.id}\n💬 <b>Conv #${conv.id}</b>\n\n📝 <b>Message:</b>\n${fileUrl ? `[File: ${fileName || "attachment"}]` : displayMsg}\n\n🔗 Reply via the admin panel.`;
+      const telegramText = `💬 <b>New Support Message</b>\n\n👤 <b>Name:</b> ${profile.fullName}\n📧 <b>Email:</b> ${profile.email}\n🆔 <b>User ID:</b> ${profile.referenceId || profile.id}\n💬 <b>Conv #${conv.id}</b>\n\n📝 <b>Message:</b>\n${fileUrl ? `[File: ${fileName || "attachment"}]` : displayMsg}\n\n↩️ <b>Reply to this message</b> here in Telegram to answer the user.`;
       sendTelegramMessage(telegramText).catch(() => {});
 
       const botAnswer = getBotResponse(message);
@@ -4155,6 +4179,119 @@ export async function registerRoutes(
       res.json(msg);
     } catch (e) {
       res.status(500).json({ message: "Internal Error" });
+    }
+  });
+
+  // ======= Telegram two-way bridge =======
+  // Inbound webhook: admin replies to a support notification inside Telegram and
+  // the reply is injected into the matching conversation as an "admin" message.
+  app.post("/api/telegram/webhook", async (req: any, res) => {
+    // Verify the secret token Telegram echoes back; reject anything else.
+    if (req.get("X-Telegram-Bot-Api-Secret-Token") !== TELEGRAM_WEBHOOK_SECRET) {
+      return res.sendStatus(403);
+    }
+    // Acknowledge immediately so Telegram doesn't retry.
+    res.sendStatus(200);
+    try {
+      // Only handle fresh messages; ignore edits to avoid duplicate replies.
+      const msg = req.body?.message;
+      if (!msg) return;
+      // Only accept replies from the authorized admin chat.
+      if (String(msg.chat?.id) !== String(process.env.TELEGRAM_CHAT_ID)) return;
+      const text = (msg.text || msg.caption || "").trim();
+      if (!text) return;
+
+      // Ignore Telegram bot commands like /start.
+      if (text.startsWith("/start") || text.startsWith("/help")) {
+        await sendTelegramMessage("👋 To answer a user, use Telegram's <b>Reply</b> on a support notification, or send <code>#&lt;id&gt; your message</code>.");
+        return;
+      }
+
+      // Resolve the target conversation id.
+      let convId: number | null = null;
+      let body = text;
+      const repliedText = msg.reply_to_message?.text || msg.reply_to_message?.caption || "";
+      const fromReply = repliedText.match(/Conv(?:ersation)?\s*#(\d+)/i);
+      if (fromReply) {
+        convId = Number(fromReply[1]);
+      } else {
+        const cmd = text.match(/^\/reply\s+(\d+)\s+([\s\S]+)/i) || text.match(/^#(\d+)\s+([\s\S]+)/);
+        if (cmd) { convId = Number(cmd[1]); body = cmd[2].trim(); }
+      }
+
+      if (!convId) {
+        await sendTelegramMessage("⚠️ I couldn't tell which conversation to answer. Use Telegram's <b>Reply</b> on a support notification, or send <code>#&lt;id&gt; your message</code>.");
+        return;
+      }
+      const conv = await storage.getConversation(convId);
+      if (!conv) {
+        await sendTelegramMessage(`⚠️ Conversation #${convId} not found.`);
+        return;
+      }
+
+      await storage.addMessage({
+        conversationId: convId,
+        sender: "admin",
+        message: body,
+      });
+      if (conv.status !== "active") {
+        await storage.updateConversationStatus(convId, "active");
+      }
+      await sendTelegramMessage(`✅ Sent to user (Conv #${convId}).`);
+    } catch (e: any) {
+      console.error("[Telegram] webhook error:", e?.message || e);
+    }
+  });
+
+  // Admin: register this app's public URL as the Telegram webhook.
+  app.post("/api/admin/telegram/connect", isAuthenticated, isAdmin, async (req: any, res) => {
+    try {
+      if (!process.env.TELEGRAM_BOT_TOKEN || !process.env.TELEGRAM_CHAT_ID) {
+        return res.status(400).json({ message: "TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID must be configured first." });
+      }
+      const host = req.get("host");
+      const url = `https://${host}/api/telegram/webhook`;
+      const result = await telegramApi("setWebhook", {
+        url,
+        secret_token: TELEGRAM_WEBHOOK_SECRET,
+        allowed_updates: ["message"],
+        drop_pending_updates: true,
+      });
+      if (!result.ok) {
+        return res.status(502).json({ message: result.description || "Telegram rejected the webhook", url });
+      }
+      res.json({ ok: true, url });
+    } catch (e: any) {
+      res.status(500).json({ message: e?.message || "Internal Error" });
+    }
+  });
+
+  // Admin: current webhook status.
+  app.get("/api/admin/telegram/status", isAuthenticated, isAdmin, async (req: any, res) => {
+    try {
+      const configured = Boolean(process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_CHAT_ID);
+      const info = configured ? await telegramApi("getWebhookInfo", {}) : { ok: false };
+      const r = info?.result || {};
+      res.json({
+        configured,
+        connected: Boolean(r.url),
+        url: r.url || null,
+        pendingUpdateCount: r.pending_update_count || 0,
+        lastErrorMessage: r.last_error_message || null,
+      });
+    } catch (e: any) {
+      res.status(500).json({ message: e?.message || "Internal Error" });
+    }
+  });
+
+  // Admin: stop the Telegram bridge.
+  app.post("/api/admin/telegram/disconnect", isAuthenticated, isAdmin, async (req: any, res) => {
+    try {
+      const result = await telegramApi("deleteWebhook", { drop_pending_updates: false });
+      if (!result.ok) return res.status(502).json({ message: result.description || "Failed to disconnect" });
+      res.json({ ok: true });
+    } catch (e: any) {
+      res.status(500).json({ message: e?.message || "Internal Error" });
     }
   });
 

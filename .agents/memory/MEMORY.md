@@ -1,3 +1,4 @@
 - [Schema/DB drift & db:push](schema-db-drift.md) — `p2p_dispute_actions` is in the DB but not in schema; never run `drizzle-kit push` blindly (it offers to rename/drop it). Use startup migrations.
 - [KYC document preservation](kyc-archive.md) — KYC docs were silently lost on resubmit/reject/overwrite; `kyc_archives` table snapshots before any destructive action.
 - [OTP & email delivery](otp-email.md) — OTP goes WhatsApp+email via sendOtpToProfile; Resend rejects mail until izichanj.com is verified (set EMAIL_FROM to override sender).
+- [Telegram support bridge](telegram-support-bridge.md) — 'Conv #<id>' in the support Telegram notification is the reply-routing contract; webhook parses it back.
