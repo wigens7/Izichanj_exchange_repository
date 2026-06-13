@@ -3800,7 +3800,7 @@ function ActivityTab() {
               <p className="text-sm">No login activity yet</p>
             </div>
           ) : (
-            <div className="border rounded-md overflow-hidden">
+            <div className="border rounded-md overflow-x-auto [&_td]:whitespace-nowrap [&_th]:whitespace-nowrap">
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -4137,7 +4137,7 @@ function User360Modal({ userId, userName, onClose }: { userId: number; userName:
               <div>
                 <h3 className="text-sm font-semibold mb-2 flex items-center gap-2"><LogIn className="w-4 h-4 text-primary" />Login History ({data.loginLogs?.length ?? 0})</h3>
                 {data.loginLogs?.length > 0 ? (
-                  <div className="border rounded-md overflow-hidden">
+                  <div className="border rounded-md overflow-x-auto [&_td]:whitespace-nowrap [&_th]:whitespace-nowrap">
                     <Table>
                       <TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Method</TableHead><TableHead>IP Address</TableHead><TableHead>Device</TableHead></TableRow></TableHeader>
                       <TableBody>
@@ -4182,7 +4182,7 @@ function User360Modal({ userId, userName, onClose }: { userId: number; userName:
               <div>
                 <h3 className="text-sm font-semibold mb-2 flex items-center gap-2"><History className="w-4 h-4 text-indigo-500" />Balance History ({data.balanceLogs?.length ?? 0})</h3>
                 {data.balanceLogs?.length > 0 ? (
-                  <div className="border rounded-md overflow-hidden">
+                  <div className="border rounded-md overflow-x-auto [&_td]:whitespace-nowrap [&_th]:whitespace-nowrap">
                     <Table>
                       <TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Action</TableHead><TableHead>Change</TableHead><TableHead>Before</TableHead><TableHead>After</TableHead></TableRow></TableHeader>
                       <TableBody>

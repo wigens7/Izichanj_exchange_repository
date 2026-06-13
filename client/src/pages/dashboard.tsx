@@ -34,7 +34,7 @@ export default function DashboardPage() {
   const totalDepositedHtg = totalDepositedUsdt * depositRate;
   const totalWithdrawnHtg = totalWithdrawnUsdt * depositRate;
 
-  const { data: apiPaymentsData } = useQuery<{ payments: any[] }>({
+  const { data: apiPaymentsData, isLoading: isApiPaymentsLoading } = useQuery<{ payments: any[] }>({
     queryKey: ["/api/profile/api-payments"],
   });
   const apiPayments = apiPaymentsData?.payments || [];
@@ -44,6 +44,13 @@ export default function DashboardPage() {
     ...(withdrawals?.map(w => ({ ...w, type: 'withdrawal' as const })) || []),
     ...apiPayments.map(p => ({ ...p, type: p.kind === 'api_purchase' ? 'api_purchase' as const : 'merchant_payment' as const })),
   ].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+  const depositTransactions = allTransactions.filter(
+    (txn) => txn.type === 'deposit' || txn.type === 'merchant_payment'
+  );
+  const withdrawalTransactions = allTransactions.filter(
+    (txn) => txn.type === 'withdrawal' || txn.type === 'api_purchase'
+  );
 
   if (!user) return null;
 
@@ -118,7 +125,7 @@ export default function DashboardPage() {
             </TabsList>
             
             <TabsContent value="all" className="space-y-2">
-              {isDepositsLoading || isWithdrawalsLoading ? (
+              {isDepositsLoading || isWithdrawalsLoading || isApiPaymentsLoading ? (
                 Array.from({ length: 3 }).map((_, i) => (
                     <Skeleton key={i} className="h-16 w-full rounded-md" />
                 ))
@@ -126,6 +133,34 @@ export default function DashboardPage() {
                 <div className="text-center py-12 text-muted-foreground text-sm">{t.dashboard.noTransactions}</div>
               ) : (
                 allTransactions.map((txn) => (
+                  <TransactionRow key={`${txn.type}-${txn.id}`} txn={txn} />
+                ))
+              )}
+            </TabsContent>
+
+            <TabsContent value="deposits" className="space-y-2">
+              {isDepositsLoading || isApiPaymentsLoading ? (
+                Array.from({ length: 3 }).map((_, i) => (
+                    <Skeleton key={i} className="h-16 w-full rounded-md" />
+                ))
+              ) : depositTransactions.length === 0 ? (
+                <div className="text-center py-12 text-muted-foreground text-sm">{t.dashboard.noTransactions}</div>
+              ) : (
+                depositTransactions.map((txn) => (
+                  <TransactionRow key={`${txn.type}-${txn.id}`} txn={txn} />
+                ))
+              )}
+            </TabsContent>
+
+            <TabsContent value="withdrawals" className="space-y-2">
+              {isWithdrawalsLoading || isApiPaymentsLoading ? (
+                Array.from({ length: 3 }).map((_, i) => (
+                    <Skeleton key={i} className="h-16 w-full rounded-md" />
+                ))
+              ) : withdrawalTransactions.length === 0 ? (
+                <div className="text-center py-12 text-muted-foreground text-sm">{t.dashboard.noTransactions}</div>
+              ) : (
+                withdrawalTransactions.map((txn) => (
                   <TransactionRow key={`${txn.type}-${txn.id}`} txn={txn} />
                 ))
               )}
