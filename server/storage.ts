@@ -14,8 +14,9 @@ export interface IStorage {
   updateProfilePassword(id: number, passwordHash: string): Promise<void>;
   markEmailVerified(id: number): Promise<void>;
 
-  createOtp(profileId: number, code: string): Promise<void>;
+  createOtp(profileId: number, code: string, purpose?: string): Promise<void>;
   getValidOtp(profileId: number, code: string): Promise<typeof otps.$inferSelect | undefined>;
+  getValidOtpByPurpose(profileId: number, code: string, purpose: string): Promise<typeof otps.$inferSelect | undefined>;
   markOtpVerified(id: number): Promise<void>;
 
   createDeposit(deposit: InsertDeposit & { profileId: number; depositMethod?: "usdt" | "moncash" | "nowpayments" | "paypal"; amountHtg?: string; moncashTransactionId?: string | null; nowpaymentsPaymentId?: string | null; paypalOrderId?: string | null; payAddress?: string | null; payCurrency?: string | null; expiresAt?: Date | null; ipAddress?: string | null }): Promise<Deposit>;
@@ -225,14 +226,25 @@ export class DatabaseStorage implements IStorage {
     await db.update(profiles).set({ emailVerified: true }).where(eq(profiles.id, id));
   }
 
-  async createOtp(profileId: number, code: string): Promise<void> {
+  async createOtp(profileId: number, code: string, purpose?: string): Promise<void> {
     const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
-    await db.insert(otps).values({ profileId, code, expiresAt });
+    await db.insert(otps).values({ profileId, code, expiresAt, purpose: purpose ?? null });
   }
 
   async getValidOtp(profileId: number, code: string): Promise<typeof otps.$inferSelect | undefined> {
     const [otp] = await db.select().from(otps)
       .where(eq(otps.profileId, profileId))
+      .orderBy(desc(otps.createdAt))
+      .limit(1);
+    if (otp && otp.code === code && !otp.verified && otp.expiresAt > new Date()) {
+      return otp;
+    }
+    return undefined;
+  }
+
+  async getValidOtpByPurpose(profileId: number, code: string, purpose: string): Promise<typeof otps.$inferSelect | undefined> {
+    const [otp] = await db.select().from(otps)
+      .where(and(eq(otps.profileId, profileId), eq(otps.purpose, purpose)))
       .orderBy(desc(otps.createdAt))
       .limit(1);
     if (otp && otp.code === code && !otp.verified && otp.expiresAt > new Date()) {

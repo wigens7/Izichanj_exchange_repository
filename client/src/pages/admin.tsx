@@ -661,6 +661,52 @@ function UserRow({ user, onUpdateBalance, isPending, hasDownloaded }: { user: an
     },
   });
 
+  // Admin contact change (phone/email) with OTP sent to the NEW contact
+  const [showContactModal, setShowContactModal] = useState(false);
+  const [contactStep, setContactStep] = useState<"enter" | "verify">("enter");
+  const [newContactPhone, setNewContactPhone] = useState("");
+  const [newContactEmail, setNewContactEmail] = useState("");
+  const [contactCode, setContactCode] = useState("");
+  const [contactSentTo, setContactSentTo] = useState<{ email: string | null; phone: string | null }>({ email: null, phone: null });
+
+  const sendContactOtpMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/admin/users/${user.id}/contact-otp`, {
+        email: newContactEmail.trim() || undefined,
+        phone: newContactPhone.trim() || undefined,
+      });
+      return res.json();
+    },
+    onSuccess: (data: any) => {
+      setContactSentTo(data.sentTo || { email: null, phone: null });
+      setContactStep("verify");
+      const dest = [data.sentTo?.phone, data.sentTo?.email].filter(Boolean).join(" & ");
+      toast({ title: "Code sent", description: `A 6-digit code was sent to ${dest}. Ask the user for it.` });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Could not send code", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const verifyContactOtpMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/admin/users/${user.id}/contact-verify`, { code: contactCode.trim() });
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Contact updated", description: "The user's contact information was changed." });
+      setShowContactModal(false);
+      setContactStep("enter");
+      setNewContactPhone("");
+      setNewContactEmail("");
+      setContactCode("");
+      qc.invalidateQueries({ queryKey: ["/api/admin/users"] });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Verification failed", description: error.message, variant: "destructive" });
+    },
+  });
+
   return (
     <>
       <TableRow data-testid={`row-user-${user.id}`} className="cursor-pointer" onClick={() => setExpanded(!expanded)}>
@@ -800,6 +846,16 @@ function UserRow({ user, onUpdateBalance, isPending, hasDownloaded }: { user: an
                 Password
               </Button>
             )}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => { setContactStep("enter"); setNewContactPhone(user.phone || ""); setNewContactEmail(user.email || ""); setContactCode(""); setShowContactModal(true); }}
+              data-testid={`button-change-contact-${user.id}`}
+              title="Change this user's phone or email (verified by OTP to the new contact)"
+            >
+              <Mail className="w-3 h-3 mr-1" />
+              Change Contact
+            </Button>
             <Button
               variant={user.isBanned ? "default" : "outline"}
               size="sm"
@@ -1260,6 +1316,104 @@ function UserRow({ user, onUpdateBalance, isPending, hasDownloaded }: { user: an
                 {setPasswordMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
                 {blockOtpOnSet ? "Set Password & Lock Account" : "Set New Password"}
               </Button>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal: change phone/email with OTP verification to the NEW contact */}
+      <Dialog open={showContactModal} onOpenChange={(open) => { if (!open) { setShowContactModal(false); setContactStep("enter"); setContactCode(""); } }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Mail className="w-5 h-5" />
+              Change Contact — {user.fullName}
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="rounded-md bg-indigo-50 dark:bg-indigo-950/30 border border-indigo-200 dark:border-indigo-900 p-3 text-xs text-indigo-900 dark:text-indigo-200">
+            Enter the new phone and/or email. A 6-digit code is sent to the <b>new</b> contact. Ask the user to read it back to you, then enter it below to apply the change.
+          </div>
+
+          {contactStep === "enter" && (
+            <div className="space-y-3">
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">New phone number</label>
+                <Input
+                  type="tel"
+                  placeholder="e.g. 50937000000"
+                  value={newContactPhone}
+                  onChange={(e) => setNewContactPhone(e.target.value)}
+                  data-testid={`input-new-phone-${user.id}`}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">New email address</label>
+                <Input
+                  type="email"
+                  placeholder="user@example.com"
+                  value={newContactEmail}
+                  onChange={(e) => setNewContactEmail(e.target.value)}
+                  data-testid={`input-new-email-${user.id}`}
+                />
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Leave a field unchanged to keep it. At least one value must differ from the current one.
+              </p>
+              <Button
+                onClick={() => sendContactOtpMutation.mutate()}
+                disabled={sendContactOtpMutation.isPending}
+                className="w-full bg-indigo-600 hover:bg-indigo-700 text-white"
+                data-testid={`button-send-contact-otp-${user.id}`}
+              >
+                {sendContactOtpMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Phone className="w-4 h-4 mr-2" />}
+                Send OTP to new contact
+              </Button>
+            </div>
+          )}
+
+          {contactStep === "verify" && (
+            <div className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                Code sent to <b>{[contactSentTo.phone, contactSentTo.email].filter(Boolean).join(" & ")}</b>. Enter the 6-digit code the user gives you.
+              </p>
+              <Input
+                inputMode="numeric"
+                maxLength={6}
+                placeholder="123456"
+                value={contactCode}
+                onChange={(e) => setContactCode(e.target.value.replace(/\D/g, ""))}
+                className="text-center text-lg tracking-[0.4em] font-mono"
+                data-testid={`input-contact-code-${user.id}`}
+              />
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  className="flex-1"
+                  onClick={() => { setContactStep("enter"); setContactCode(""); }}
+                  data-testid={`button-contact-back-${user.id}`}
+                >
+                  Back
+                </Button>
+                <Button
+                  className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white"
+                  onClick={() => verifyContactOtpMutation.mutate()}
+                  disabled={verifyContactOtpMutation.isPending || contactCode.length !== 6}
+                  data-testid={`button-verify-contact-otp-${user.id}`}
+                >
+                  {verifyContactOtpMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
+                  Verify & Update
+                </Button>
+              </div>
+              <button
+                type="button"
+                className="text-xs text-indigo-600 dark:text-indigo-300 hover:underline w-full text-center"
+                onClick={() => sendContactOtpMutation.mutate()}
+                disabled={sendContactOtpMutation.isPending}
+                data-testid={`button-resend-contact-otp-${user.id}`}
+              >
+                Resend code
+              </button>
             </div>
           )}
         </DialogContent>

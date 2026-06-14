@@ -141,6 +141,16 @@ app.use((req, res, next) => {
     console.warn("[startup migration] otp_blocked column skipped:", (e as Error).message);
   }
 
+  // Admin-initiated contact change: pending email/phone awaiting OTP verification
+  try {
+    await db.execute(sql`ALTER TABLE profiles ADD COLUMN IF NOT EXISTS pending_email TEXT`);
+    await db.execute(sql`ALTER TABLE profiles ADD COLUMN IF NOT EXISTS pending_phone TEXT`);
+    await db.execute(sql`ALTER TABLE otps ADD COLUMN IF NOT EXISTS purpose TEXT`);
+    console.log("[startup migration] pending contact columns ensured");
+  } catch (e) {
+    console.warn("[startup migration] pending contact columns skipped:", (e as Error).message);
+  }
+
   // Add last_activity column — presence/online indicator (heartbeat from auth middleware)
   try {
     await db.execute(sql`ALTER TABLE profiles ADD COLUMN IF NOT EXISTS last_activity TIMESTAMP`);

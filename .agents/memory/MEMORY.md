@@ -2,3 +2,5 @@
 - [KYC document preservation](kyc-archive.md) — KYC docs were silently lost on resubmit/reject/overwrite; `kyc_archives` table snapshots before any destructive action.
 - [OTP & email delivery](otp-email.md) — OTP goes WhatsApp+email via sendOtpToProfile; Resend rejects mail until izichanj.com is verified (set EMAIL_FROM to override sender).
 - [Telegram support bridge](telegram-support-bridge.md) — 'Conv #<id>' in the support Telegram notification is the reply-routing contract; webhook parses it back.
+- [OTP purpose binding](otp-purpose-binding.md) — OTPs are global per-profile; bind a purpose or a code from one flow satisfies another.
+- [Admin contact-change OTP](admin-initiated-otp-delivery.md) — server-side pending_email/phone + fail-closed delivery for admin-driven phone/email changes.

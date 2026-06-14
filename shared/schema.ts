@@ -56,6 +56,10 @@ export const profiles = pgTable("profiles", {
   // Newsletter opt-in — admin can email all opted-in users at once.
   newsletterSubscribed: boolean("newsletter_subscribed").default(false).notNull(),
   newsletterSubscribedAt: timestamp("newsletter_subscribed_at"),
+  // Admin-initiated contact change: new email/phone held here until the user
+  // verifies the OTP sent to the new contact, then applied to email/phone.
+  pendingEmail: text("pending_email"),
+  pendingPhone: text("pending_phone"),
 });
 
 export const blacklistedUsers = pgTable("blacklisted_users", {
@@ -116,6 +120,9 @@ export const otps = pgTable("otps", {
   code: text("code").notNull(),
   expiresAt: timestamp("expires_at").notNull(),
   verified: boolean("verified").default(false).notNull(),
+  // Optional flow binding so a code issued for one flow (e.g. login) cannot be
+  // accepted by another (e.g. admin contact change). NULL = generic OTP.
+  purpose: text("purpose"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 

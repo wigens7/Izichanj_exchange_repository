@@ -160,12 +160,12 @@ async function sendOtpToProfile(profile: { id: number; phone: string | null; ful
   ]);
 }
 
-async function sendWhatsAppOtp(phone: string, code: string, name?: string) {
+async function sendWhatsAppOtp(phone: string, code: string, name?: string): Promise<boolean> {
   const instanceId = process.env.ULTRAMSG_INSTANCE_ID;
   const token = process.env.ULTRAMSG_TOKEN;
   if (!instanceId || !token) {
     console.log(`[MOCK WHATSAPP] Sending OTP ${code} to ${phone}`);
-    return;
+    return true;
   }
   try {
     const greeting = buildGreeting(name);
@@ -178,13 +178,15 @@ async function sendWhatsAppOtp(phone: string, code: string, name?: string) {
     const data = await res.json();
     if (data.sent === "true" || data.sent === true) {
       console.log(`[WHATSAPP] OTP sent to ${phone} via UltraMsg`);
-    } else {
-      console.error(`[WHATSAPP ERROR] UltraMsg response:`, JSON.stringify(data));
-      console.log(`[FALLBACK] WhatsApp delivery failed. OTP code for ${phone}: ${code}`);
+      return true;
     }
+    console.error(`[WHATSAPP ERROR] UltraMsg response:`, JSON.stringify(data));
+    console.log(`[FALLBACK] WhatsApp delivery failed. OTP code for ${phone}: ${code}`);
+    return false;
   } catch (error: any) {
     console.error(`[WHATSAPP ERROR] Failed to send OTP to ${phone}:`, error.message);
     console.log(`[FALLBACK] WhatsApp delivery failed. OTP code for ${phone}: ${code}`);
+    return false;
   }
 }
 
@@ -2420,6 +2422,149 @@ export async function registerRoutes(
       res.json({ success: true, firstName, lastName, fullName: newFull });
     } catch (e: any) {
       console.error("Admin edit name error:", e);
+      res.status(500).json({ message: e.message || "Internal Error" });
+    }
+  });
+
+  // Admin: initiate a phone/email change for a user. Sends a 6-digit OTP to the
+  // NEW contact so the user can confirm they control it before it is applied.
+  app.post("/api/admin/users/:id/contact-otp", isAuthenticated, isAdmin, async (req: any, res) => {
+    try {
+      const profileId = Number(req.params.id);
+      const target = await storage.getProfile(profileId);
+      if (!target) return res.status(404).json({ message: "User not found" });
+
+      const rawEmail = req.body?.email != null ? String(req.body.email).trim().toLowerCase() : "";
+      const rawPhone = req.body?.phone != null ? String(req.body.phone).trim() : "";
+      if (!rawEmail && !rawPhone) {
+        return res.status(400).json({ message: "Provide a new email and/or phone number" });
+      }
+
+      let newEmail: string | null = null;
+      let newPhone: string | null = null;
+
+      if (rawEmail) {
+        if (!z.string().email().safeParse(rawEmail).success) {
+          return res.status(400).json({ message: "Invalid email address" });
+        }
+        if (rawEmail !== (target.email || "").toLowerCase()) {
+          const existing = await storage.getProfileByEmail(rawEmail);
+          if (existing && existing.id !== profileId) {
+            return res.status(409).json({ message: "That email is already used by another account" });
+          }
+          newEmail = rawEmail;
+        }
+      }
+      if (rawPhone) {
+        const digits = rawPhone.replace(/[^\d+]/g, "");
+        if (digits.replace(/\D/g, "").length < 8) {
+          return res.status(400).json({ message: "Invalid phone number" });
+        }
+        if (digits !== (target.phone || "")) {
+          const existing = await storage.getProfileByPhone(digits);
+          if (existing && existing.id !== profileId) {
+            return res.status(409).json({ message: "That phone number is already used by another account" });
+          }
+          newPhone = digits;
+        }
+      }
+
+      if (!newEmail && !newPhone) {
+        return res.status(400).json({ message: "New value matches the current one — nothing to change" });
+      }
+
+      const code = crypto.randomInt(100000, 999999).toString();
+
+      // Deliver the code to the NEW contact(s) FIRST. Fail closed: every
+      // requested channel must deliver, otherwise we don't persist anything —
+      // the code must actually reach each new contact to prove ownership.
+      let phoneOk = false;
+      let emailOk = false;
+      if (newPhone) phoneOk = await sendWhatsAppOtp(newPhone, code, target.fullName).catch(() => false);
+      if (newEmail) {
+        const r = await sendVerificationEmail(newEmail, code, target.fullName).catch(() => ({ ok: false }));
+        emailOk = !!(r && (r as any).ok);
+      }
+      if (newPhone && !phoneOk) {
+        return res.status(502).json({ message: "Could not deliver the code to the new phone number. Check it and try again." });
+      }
+      if (newEmail && !emailOk) {
+        return res.status(502).json({ message: "Could not deliver the code to the new email address. Check it and try again." });
+      }
+
+      await storage.createOtp(profileId, code, "admin_contact_change");
+      await storage.updateProfile(profileId, { pendingEmail: newEmail, pendingPhone: newPhone });
+
+      const adminProfile = await getProfileFromReq(req);
+      console.log(`[ADMIN] Contact-change OTP sent for user #${profileId} (email:${newEmail || "-"} phone:${newPhone || "-"}) by ${adminProfile?.email}`);
+
+      res.json({ success: true, sentTo: { email: newEmail, phone: newPhone } });
+    } catch (e: any) {
+      console.error("Admin contact-otp error:", e);
+      res.status(500).json({ message: e.message || "Internal Error" });
+    }
+  });
+
+  // Admin: confirm the OTP and apply the pending phone/email change.
+  app.post("/api/admin/users/:id/contact-verify", isAuthenticated, isAdmin, async (req: any, res) => {
+    try {
+      const profileId = Number(req.params.id);
+      const target = await storage.getProfile(profileId);
+      if (!target) return res.status(404).json({ message: "User not found" });
+
+      const code = String(req.body?.code ?? "").trim();
+      if (!/^\d{6}$/.test(code)) return res.status(400).json({ message: "Enter the 6-digit code" });
+
+      if (!target.pendingEmail && !target.pendingPhone) {
+        return res.status(400).json({ message: "No pending contact change — send a code first" });
+      }
+
+      const otp = await storage.getValidOtpByPurpose(profileId, code, "admin_contact_change");
+      if (!otp) return res.status(400).json({ message: "Invalid or expired code" });
+      await storage.markOtpVerified(otp.id);
+
+      const oldEmail = target.email;
+      const oldPhone = target.phone;
+      const update: any = { pendingEmail: null, pendingPhone: null };
+
+      if (target.pendingEmail) {
+        const existing = await storage.getProfileByEmail(target.pendingEmail);
+        if (existing && existing.id !== profileId) {
+          return res.status(409).json({ message: "That email is now used by another account" });
+        }
+        update.email = target.pendingEmail;
+        update.emailVerified = true;
+      }
+      if (target.pendingPhone) {
+        const existing = await storage.getProfileByPhone(target.pendingPhone);
+        if (existing && existing.id !== profileId) {
+          return res.status(409).json({ message: "That phone number is now used by another account" });
+        }
+        update.phone = target.pendingPhone;
+      }
+
+      const updated = await storage.updateProfile(profileId, update);
+
+      const adminProfile = await getProfileFromReq(req);
+      console.log(`[ADMIN] Contact change applied for user #${profileId} by ${adminProfile?.email}`);
+      sendTelegramMessage(
+        `📇 <b>User Contact Changed by Admin</b>\n\n` +
+        `🆔 <b>User ID:</b> ${target.referenceId || target.id}\n` +
+        (update.email ? `📧 <b>Email:</b> <code>${oldEmail}</code> → <code>${update.email}</code>\n` : "") +
+        (update.phone ? `📱 <b>Phone:</b> <code>${oldPhone || "—"}</code> → <code>${update.phone}</code>\n` : "") +
+        `👮 <b>By:</b> ${adminProfile?.email || "—"}`
+      ).catch(() => {});
+
+      await storage.createNotification({
+        profileId,
+        type: "custom_message",
+        title: "Contact information updated",
+        message: `Your ${update.email && update.phone ? "email and phone number were" : update.email ? "email address was" : "phone number was"} updated by support.`,
+      }).catch(() => {});
+
+      res.json({ success: true, email: updated.email, phone: updated.phone });
+    } catch (e: any) {
+      console.error("Admin contact-verify error:", e);
       res.status(500).json({ message: e.message || "Internal Error" });
     }
   });
