@@ -2475,30 +2475,51 @@ export async function registerRoutes(
 
       const code = crypto.randomInt(100000, 999999).toString();
 
-      // Deliver the code to the NEW contact(s) FIRST. Fail closed: every
-      // requested channel must deliver, otherwise we don't persist anything —
-      // the code must actually reach each new contact to prove ownership.
-      let phoneOk = false;
+      // Deliver the code to the NEW contact(s) FIRST. Fail closed: nothing is
+      // persisted unless the code actually reaches the user.
+      // Phone changes go out by WhatsApp; if the UltraMsg instance is down
+      // (e.g. stopped for non-payment) we fall back to email so the admin can
+      // still complete the change.
+      let whatsappOk = false;
       let emailOk = false;
-      if (newPhone) phoneOk = await sendWhatsAppOtp(newPhone, code, target.fullName).catch(() => false);
+      let phoneFallbackEmail: string | null = null;
+
       if (newEmail) {
         const r = await sendVerificationEmail(newEmail, code, target.fullName).catch(() => ({ ok: false }));
         emailOk = !!(r && (r as any).ok);
+        if (!emailOk) {
+          return res.status(502).json({ message: "Could not deliver the code to the new email address. Check it and try again." });
+        }
       }
-      if (newPhone && !phoneOk) {
-        return res.status(502).json({ message: "Could not deliver the code to the new phone number. Check it and try again." });
-      }
-      if (newEmail && !emailOk) {
-        return res.status(502).json({ message: "Could not deliver the code to the new email address. Check it and try again." });
+
+      if (newPhone) {
+        whatsappOk = await sendWhatsAppOtp(newPhone, code, target.fullName).catch(() => false);
+        if (!whatsappOk) {
+          // WhatsApp unavailable — fall back to email so the user still gets the code.
+          const fallbackTo = newEmail || target.email;
+          if (newEmail && emailOk) {
+            phoneFallbackEmail = newEmail; // code already emailed to the new address above
+          } else if (fallbackTo) {
+            const r = await sendVerificationEmail(fallbackTo, code, target.fullName).catch(() => ({ ok: false }));
+            if (r && (r as any).ok) phoneFallbackEmail = fallbackTo;
+          }
+          if (!phoneFallbackEmail) {
+            return res.status(502).json({ message: "Could not deliver the code by WhatsApp or email. Check the details and try again." });
+          }
+        }
       }
 
       await storage.createOtp(profileId, code, "admin_contact_change");
       await storage.updateProfile(profileId, { pendingEmail: newEmail, pendingPhone: newPhone });
 
       const adminProfile = await getProfileFromReq(req);
-      console.log(`[ADMIN] Contact-change OTP sent for user #${profileId} (email:${newEmail || "-"} phone:${newPhone || "-"}) by ${adminProfile?.email}`);
+      console.log(`[ADMIN] Contact-change OTP sent for user #${profileId} (email:${newEmail || "-"} phone:${newPhone || "-"}${phoneFallbackEmail ? ` via email-fallback:${phoneFallbackEmail}` : ""}) by ${adminProfile?.email}`);
 
-      res.json({ success: true, sentTo: { email: newEmail, phone: newPhone } });
+      res.json({
+        success: true,
+        sentTo: { email: newEmail, phone: whatsappOk ? newPhone : null },
+        phoneFallbackEmail,
+      });
     } catch (e: any) {
       console.error("Admin contact-otp error:", e);
       res.status(500).json({ message: e.message || "Internal Error" });
