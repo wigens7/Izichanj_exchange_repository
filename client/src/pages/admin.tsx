@@ -667,7 +667,7 @@ function UserRow({ user, onUpdateBalance, isPending, hasDownloaded }: { user: an
   const [newContactPhone, setNewContactPhone] = useState("");
   const [newContactEmail, setNewContactEmail] = useState("");
   const [contactCode, setContactCode] = useState("");
-  const [contactSentTo, setContactSentTo] = useState<{ email: string | null; phone: string | null; fallbackEmail: string | null }>({ email: null, phone: null, fallbackEmail: null });
+  const [contactSentTo, setContactSentTo] = useState<{ email: string | null; phone: string | null; emailedTo: string | null }>({ email: null, phone: null, emailedTo: null });
 
   const sendContactOtpMutation = useMutation({
     mutationFn: async () => {
@@ -678,10 +678,10 @@ function UserRow({ user, onUpdateBalance, isPending, hasDownloaded }: { user: an
       return res.json();
     },
     onSuccess: (data: any) => {
-      setContactSentTo({ email: data.sentTo?.email || null, phone: data.sentTo?.phone || null, fallbackEmail: data.phoneFallbackEmail || null });
+      setContactSentTo({ email: data.sentTo?.email || null, phone: data.sentTo?.phone || null, emailedTo: data.phoneEmailedTo || null });
       setContactStep("verify");
       const dests = [data.sentTo?.phone, data.sentTo?.email].filter(Boolean) as string[];
-      if (data.phoneFallbackEmail) dests.push(`${data.phoneFallbackEmail} (WhatsApp unavailable)`);
+      if (data.phoneEmailedTo) dests.push(`${data.phoneEmailedTo} (email)`);
       toast({ title: "Code sent", description: `A 6-digit code was sent to ${dests.join(" & ")}. Ask the user for it.` });
     },
     onError: (error: Error) => {
@@ -1333,7 +1333,7 @@ function UserRow({ user, onUpdateBalance, isPending, hasDownloaded }: { user: an
           </DialogHeader>
 
           <div className="rounded-md bg-indigo-50 dark:bg-indigo-950/30 border border-indigo-200 dark:border-indigo-900 p-3 text-xs text-indigo-900 dark:text-indigo-200">
-            Enter the new phone and/or email. A 6-digit code is sent to the <b>new</b> contact (if WhatsApp is unavailable, it's sent by email instead). Ask the user to read it back to you, then enter it below to apply the change.
+            Enter the new phone and/or email. A 6-digit code is sent to the <b>new</b> contact. For phone changes the code is also emailed to the user, so they always receive it. Ask the user to read it back to you, then enter it below to apply the change.
           </div>
 
           {contactStep === "enter" && (
@@ -1376,7 +1376,7 @@ function UserRow({ user, onUpdateBalance, isPending, hasDownloaded }: { user: an
           {contactStep === "verify" && (
             <div className="space-y-3">
               <p className="text-sm text-muted-foreground">
-                Code sent to <b>{[contactSentTo.phone, contactSentTo.email, contactSentTo.fallbackEmail ? `${contactSentTo.fallbackEmail} (WhatsApp unavailable)` : null].filter(Boolean).join(" & ")}</b>. Enter the 6-digit code the user gives you.
+                Code sent to <b>{[contactSentTo.phone, contactSentTo.email, contactSentTo.emailedTo ? `${contactSentTo.emailedTo} (email)` : null].filter(Boolean).join(" & ")}</b>. Enter the 6-digit code the user gives you.
               </p>
               <Input
                 inputMode="numeric"

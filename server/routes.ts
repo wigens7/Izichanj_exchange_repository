@@ -2477,12 +2477,15 @@ export async function registerRoutes(
 
       // Deliver the code to the NEW contact(s) FIRST. Fail closed: nothing is
       // persisted unless the code actually reaches the user.
-      // Phone changes go out by WhatsApp; if the UltraMsg instance is down
-      // (e.g. stopped for non-payment) we fall back to email so the admin can
-      // still complete the change.
+      // - Email change → send to the NEW email.
+      // - Phone change → send by WhatsApp AND email (to the new email if one is
+      //   being set, otherwise the user's current account email). WhatsApp only
+      //   reaches numbers that have a WhatsApp account, and UltraMsg reports
+      //   "sent" even when the destination has none — so we always email a copy
+      //   so the user reliably gets the code.
       let whatsappOk = false;
       let emailOk = false;
-      let phoneFallbackEmail: string | null = null;
+      let phoneEmailedTo: string | null = null;
 
       if (newEmail) {
         const r = await sendVerificationEmail(newEmail, code, target.fullName).catch(() => ({ ok: false }));
@@ -2493,19 +2496,22 @@ export async function registerRoutes(
       }
 
       if (newPhone) {
-        whatsappOk = await sendWhatsAppOtp(newPhone, code, target.fullName).catch(() => false);
-        if (!whatsappOk) {
-          // WhatsApp unavailable — fall back to email so the user still gets the code.
-          const fallbackTo = newEmail || target.email;
-          if (newEmail && emailOk) {
-            phoneFallbackEmail = newEmail; // code already emailed to the new address above
-          } else if (fallbackTo) {
-            const r = await sendVerificationEmail(fallbackTo, code, target.fullName).catch(() => ({ ok: false }));
-            if (r && (r as any).ok) phoneFallbackEmail = fallbackTo;
-          }
-          if (!phoneFallbackEmail) {
-            return res.status(502).json({ message: "Could not deliver the code by WhatsApp or email. Check the details and try again." });
-          }
+        const alreadyEmailedNew = !!(newEmail && emailOk);
+        const phoneEmailTarget = alreadyEmailedNew ? null : target.email;
+        const [waOk, peOk] = await Promise.all([
+          sendWhatsAppOtp(newPhone, code, target.fullName).catch(() => false),
+          phoneEmailTarget
+            ? sendVerificationEmail(phoneEmailTarget, code, target.fullName)
+                .then((r) => !!(r && (r as any).ok))
+                .catch(() => false)
+            : Promise.resolve(false),
+        ]);
+        whatsappOk = waOk;
+        if (alreadyEmailedNew) phoneEmailedTo = newEmail;
+        else if (peOk) phoneEmailedTo = phoneEmailTarget;
+        // Delivered if the code reached the user on either channel.
+        if (!whatsappOk && !phoneEmailedTo) {
+          return res.status(502).json({ message: "Could not deliver the code by WhatsApp or email. Check the details and try again." });
         }
       }
 
@@ -2513,12 +2519,16 @@ export async function registerRoutes(
       await storage.updateProfile(profileId, { pendingEmail: newEmail, pendingPhone: newPhone });
 
       const adminProfile = await getProfileFromReq(req);
-      console.log(`[ADMIN] Contact-change OTP sent for user #${profileId} (email:${newEmail || "-"} phone:${newPhone || "-"}${phoneFallbackEmail ? ` via email-fallback:${phoneFallbackEmail}` : ""}) by ${adminProfile?.email}`);
+      console.log(`[ADMIN] Contact-change OTP sent for user #${profileId} (email:${newEmail || "-"} phone:${newPhone || "-"}${phoneEmailedTo ? ` emailed-copy:${phoneEmailedTo}` : ""} whatsapp:${whatsappOk}) by ${adminProfile?.email}`);
+
+      // Only surface the emailed-copy address when it differs from the new email
+      // already shown, to avoid listing the same inbox twice in the UI.
+      const phoneEmailedDistinct = phoneEmailedTo && phoneEmailedTo !== newEmail ? phoneEmailedTo : null;
 
       res.json({
         success: true,
         sentTo: { email: newEmail, phone: whatsappOk ? newPhone : null },
-        phoneFallbackEmail,
+        phoneEmailedTo: phoneEmailedDistinct,
       });
     } catch (e: any) {
       console.error("Admin contact-otp error:", e);
