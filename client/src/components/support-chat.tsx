@@ -20,6 +20,7 @@ import {
   FileText,
   Download,
   Image as ImageIcon,
+  ArrowLeft,
 } from "lucide-react";
 
 import { resumeAudioContext } from "./notification-bell";
@@ -252,26 +253,36 @@ export function SupportChat() {
 
   return (
     <>
-      <button
-        onClick={() => setIsOpen(!isOpen)}
-        className="fixed bottom-6 right-6 z-50 w-14 h-14 rounded-full bg-primary text-primary-foreground flex items-center justify-center shadow-lg"
-        data-testid="button-support-chat"
-      >
-        {isOpen ? <X className="w-6 h-6" /> : <MessageCircle className="w-6 h-6" />}
-      </button>
+      {!isOpen && (
+        <button
+          onClick={() => setIsOpen(true)}
+          className="fixed bottom-6 right-6 z-50 w-14 h-14 rounded-full bg-primary text-primary-foreground flex items-center justify-center shadow-lg"
+          data-testid="button-support-chat"
+        >
+          <MessageCircle className="w-6 h-6" />
+        </button>
+      )}
 
       {isOpen && (
-        <div className="fixed bottom-24 right-4 sm:right-6 z-50 w-[calc(100vw-2rem)] sm:w-96 max-h-[500px] bg-background border border-border rounded-md shadow-lg flex flex-col" data-testid="panel-support-chat">
-          <div className="px-4 py-3 border-b border-border bg-primary text-primary-foreground rounded-t-md">
-            <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-2">
-                <Headphones className="w-5 h-5" />
-                <div>
-                  <h3 className="font-semibold text-sm">{t.support?.title || "Support Chat"}</h3>
-                  <p className="text-xs opacity-80">{t.support?.subtitle || "We're here to help"}</p>
+        <div className="fixed inset-0 z-50 bg-background flex flex-col" data-testid="panel-support-chat">
+          <div className="px-3 sm:px-4 py-3 border-b border-border bg-primary text-primary-foreground">
+            <div className="mx-auto w-full max-w-2xl flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 min-w-0">
+                <button
+                  onClick={() => setIsOpen(false)}
+                  className="-ml-1 p-1.5 rounded-full hover:bg-primary-foreground/10 transition-colors flex-shrink-0"
+                  aria-label="Back"
+                  data-testid="button-back-support"
+                >
+                  <ArrowLeft className="w-5 h-5" />
+                </button>
+                <Headphones className="w-5 h-5 flex-shrink-0" />
+                <div className="min-w-0">
+                  <h3 className="font-semibold text-sm truncate">{t.support?.title || "Support Chat"}</h3>
+                  <p className="text-xs opacity-80 truncate">{t.support?.subtitle || "We're here to help"}</p>
                 </div>
               </div>
-              <div className="flex items-center gap-1.5">
+              <div className="flex items-center gap-1.5 flex-shrink-0">
                 {isWaitingAgent && (
                   <Badge variant="secondary" className="text-xs">
                     {t.support?.waitingAgent || "Waiting for agent"}
@@ -293,7 +304,7 @@ export function SupportChat() {
             </div>
           </div>
 
-          <div className="flex-1 overflow-y-auto p-3 space-y-3 min-h-[280px] max-h-[340px]">
+          <div className="flex-1 overflow-y-auto px-4 py-5 space-y-4 mx-auto w-full max-w-2xl">
             {messages.length === 0 && !messagesLoading && (
               <div className="text-center py-6 space-y-3">
                 <Bot className="w-10 h-10 mx-auto text-muted-foreground/40" />
@@ -368,7 +379,7 @@ export function SupportChat() {
           </div>
 
           {showRating && !isClosed && (
-            <div className="px-3 py-4 border-t border-border bg-muted/30">
+            <div className="px-4 py-4 border-t border-border bg-muted/30 mx-auto w-full max-w-2xl">
               <p className="text-sm font-medium text-center mb-2">{t.support?.rateTitle || "Rate your experience"}</p>
               <p className="text-xs text-muted-foreground text-center mb-3">{t.support?.rateMessage || "How was your support experience?"}</p>
               <div className="flex justify-center gap-1 mb-3">
@@ -416,7 +427,7 @@ export function SupportChat() {
           )}
 
           {isClosed && (
-            <div className="px-3 py-4 border-t border-border bg-muted/30 text-center">
+            <div className="px-4 py-4 border-t border-border bg-muted/30 text-center mx-auto w-full max-w-2xl">
               <p className="text-sm text-muted-foreground mb-2">{t.support?.chatEnded || "This conversation has ended"}</p>
               {conversation?.rating && (
                 <div className="flex justify-center gap-0.5 mb-2">
@@ -448,7 +459,7 @@ export function SupportChat() {
           {!isClosed && !showRating && (
             <>
               {!isWaitingAgent && messages.length > 0 && (
-                <div className="px-3 pb-2">
+                <div className="px-4 pb-2 mx-auto w-full max-w-2xl">
                   <Button
                     variant="outline"
                     size="sm"
@@ -464,7 +475,7 @@ export function SupportChat() {
               )}
 
               {pendingFile && (
-                <div className="px-3 pb-1">
+                <div className="px-4 pb-1 mx-auto w-full max-w-2xl">
                   <div className="flex items-center gap-2 px-2 py-1.5 bg-muted rounded-md text-xs">
                     {isImageFile(pendingFile.name) ? (
                       <ImageIcon className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
@@ -483,8 +494,8 @@ export function SupportChat() {
                 </div>
               )}
 
-              <div className="px-3 pb-3 pt-2 border-t border-border">
-                <div className="flex items-center gap-2">
+              <div className="px-4 pb-4 pt-2 border-t border-border bg-background">
+                <div className="flex items-center gap-2 mx-auto w-full max-w-2xl">
                   <input
                     type="file"
                     ref={fileInputRef}

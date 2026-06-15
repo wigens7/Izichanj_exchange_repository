@@ -19,7 +19,7 @@ import {
   Store, ShieldOff, AlertTriangle, Ban, Plus, Pause, Play, Trash2,
   Send, Paperclip, MessageSquare, AlertCircle, CheckCircle2, ChevronRight,
   ShieldCheck, Loader2, RefreshCcw, X, Image as ImageIcon, Clock, Check,
-  Lock, KeyRound, Settings, MessageCircle, Save
+  Lock, KeyRound, Settings, MessageCircle, Save, ArrowLeft
 } from "lucide-react";
 import { formatDistanceToNow, format } from "date-fns";
 import { parseTs, formatTime } from "@/lib/dateUtils";
@@ -951,16 +951,26 @@ function TradeDialog({ open, order, currentUserId, onClose }: { open: boolean; o
     <Dialog open={open} onOpenChange={onClose}>
       {/* Full-height dialog with proper flex column so chat area grows */}
       <DialogContent
-        className="max-w-sm w-full h-[88vh] max-h-[88vh] flex flex-col p-0 gap-0 overflow-hidden"
+        className="max-w-none w-screen h-screen max-h-screen sm:max-w-none rounded-none border-0 left-0 top-0 translate-x-0 translate-y-0 flex flex-col p-0 gap-0 overflow-hidden [&>button]:hidden"
         data-testid="dialog-trade"
       >
-        {/* Header — shadcn adds its own X button; no custom one needed */}
-        <div className="flex items-center justify-between px-4 pt-4 pb-3 border-b border-border shrink-0 gap-3">
-          <div className="min-w-0">
-            <h3 className="font-semibold text-sm">Trade #{order.id}</h3>
-            <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-              <StatusBadge status={order.status} />
-              <span className="text-xs text-muted-foreground">{isBuyer ? "Buying" : "Selling"}</span>
+        {/* Header — back arrow returns to market; default dialog X is hidden via [&>button]:hidden */}
+        <div className="flex items-center justify-between px-3 sm:px-4 pt-4 pb-3 border-b border-border shrink-0 gap-3 mx-auto w-full max-w-2xl">
+          <div className="flex items-center gap-2 min-w-0">
+            <button
+              onClick={onClose}
+              className="-ml-1 p-1.5 rounded-full hover:bg-muted transition-colors flex-shrink-0"
+              aria-label="Back"
+              data-testid="button-back-trade"
+            >
+              <ArrowLeft className="w-5 h-5" />
+            </button>
+            <div className="min-w-0">
+              <h3 className="font-semibold text-sm">Trade #{order.id}</h3>
+              <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                <StatusBadge status={order.status} />
+                <span className="text-xs text-muted-foreground">{isBuyer ? "Buying" : "Selling"}</span>
+              </div>
             </div>
           </div>
           <div className="flex flex-col items-end min-w-0 max-w-[55%]">
@@ -974,7 +984,7 @@ function TradeDialog({ open, order, currentUserId, onClose }: { open: boolean; o
         </div>
 
         {/* Trade summary — compact */}
-        <div className="px-4 py-3 bg-muted/20 border-b border-border shrink-0">
+        <div className="px-4 py-3 bg-muted/20 border-b border-border shrink-0 mx-auto w-full max-w-2xl">
           <div className="grid grid-cols-3 gap-2 text-center">
             <div>
               <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Amount</p>
@@ -996,7 +1006,7 @@ function TradeDialog({ open, order, currentUserId, onClose }: { open: boolean; o
         </div>
 
         {/* Chat area — flex-1 so it fills available space */}
-        <div className="flex-1 min-h-0 overflow-y-auto px-4 py-3 space-y-3">
+        <div className="flex-1 min-h-0 overflow-y-auto px-4 py-4 space-y-3 mx-auto w-full max-w-2xl">
           {(!chat || chat.length === 0) && (
             <p className="text-xs text-center text-muted-foreground py-6">No messages yet. Coordinate your payment here.</p>
           )}
@@ -1064,7 +1074,7 @@ function TradeDialog({ open, order, currentUserId, onClose }: { open: boolean; o
 
         {/* Chat input */}
         {isActive && (
-          <div className="border-t border-border shrink-0 bg-background">
+          <div className="border-t border-border shrink-0 bg-background mx-auto w-full max-w-2xl">
             {pendingFile && (
               <div className="flex items-center gap-3 px-3 pt-2.5 pb-1">
                 <div className="relative">
@@ -1156,7 +1166,7 @@ function TradeDialog({ open, order, currentUserId, onClose }: { open: boolean; o
         )}
 
         {/* Action footer */}
-        <div className="px-4 py-3 border-t border-border space-y-2.5 shrink-0 bg-background">
+        <div className="px-4 py-3 border-t border-border space-y-2.5 shrink-0 bg-background mx-auto w-full max-w-2xl">
           {/* Buyer: pending */}
           {isBuyer && order.status === "pending" && (
             <Button className="w-full" onClick={() => markPaidMut.mutate()} disabled={markPaidMut.isPending} data-testid="button-mark-paid">
