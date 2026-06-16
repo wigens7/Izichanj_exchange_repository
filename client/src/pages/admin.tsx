@@ -2231,6 +2231,7 @@ function KycTab() {
   const { mutate: rejectKyc, isPending: isRejecting } = useAdminRejectKyc();
   const [viewingUser, setViewingUser] = useState<any>(null);
   const [resubmitConfirmId, setResubmitConfirmId] = useState<number | null>(null);
+  const [kycSearch, setKycSearch] = useState("");
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
@@ -2281,8 +2282,16 @@ function KycTab() {
     );
   }
 
-  const kycUsers = users?.filter((u: any) => u.kycStatus !== "not_submitted") || [];
-  const pendingCount = kycUsers.filter((u: any) => u.kycStatus === "pending").length;
+  const allKycUsers = users?.filter((u: any) => u.kycStatus !== "not_submitted") || [];
+  const pendingCount = allKycUsers.filter((u: any) => u.kycStatus === "pending").length;
+  const kycQuery = kycSearch.trim().toLowerCase();
+  const kycUsers = kycQuery
+    ? allKycUsers.filter((u: any) =>
+        [u.fullName, u.email, u.phone, u.referenceId, String(u.id)]
+          .filter(Boolean)
+          .some((field: string) => String(field).toLowerCase().includes(kycQuery))
+      )
+    : allKycUsers;
 
   const getKycDocsForUser = (profileId: number) => {
     return kycDocs?.find((doc: any) => doc.profileId === profileId);
@@ -2291,16 +2300,28 @@ function KycTab() {
   return (
     <>
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between gap-2">
-          <CardTitle className="flex items-center gap-2">
-            <ShieldCheck className="w-5 h-5 text-blue-600" />
-            KYC Verification
-          </CardTitle>
-          {pendingCount > 0 && (
-            <Badge variant="destructive" data-testid="badge-pending-kyc">
-              {pendingCount} pending
-            </Badge>
-          )}
+        <CardHeader className="space-y-3">
+          <div className="flex flex-row items-center justify-between gap-2">
+            <CardTitle className="flex items-center gap-2">
+              <ShieldCheck className="w-5 h-5 text-blue-600" />
+              KYC Verification
+            </CardTitle>
+            {pendingCount > 0 && (
+              <Badge variant="destructive" data-testid="badge-pending-kyc">
+                {pendingCount} pending
+              </Badge>
+            )}
+          </div>
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <Input
+              placeholder="Search by name, email, phone, or Reference ID..."
+              value={kycSearch}
+              onChange={(e) => setKycSearch(e.target.value)}
+              className="pl-9"
+              data-testid="input-search-kyc"
+            />
+          </div>
         </CardHeader>
         <CardContent>
           <div className="overflow-x-auto">
@@ -2434,7 +2455,7 @@ function KycTab() {
                 {kycUsers.length === 0 && (
                   <TableRow>
                     <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
-                      No KYC submissions yet
+                      {kycQuery ? "No users match your search" : "No KYC submissions yet"}
                     </TableCell>
                   </TableRow>
                 )}

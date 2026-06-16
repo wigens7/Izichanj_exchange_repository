@@ -302,7 +302,7 @@ export default function DepositPage() {
       )}
 
       {depositMethod === "crypto" && !cryptoSuccess && !addressGenerated && (
-        <Card className={!kycVerified ? "opacity-50 pointer-events-none" : ""}>
+        <Card>
           <CardHeader className="pb-3">
             <CardTitle className="text-base">{t.deposit.npTitle}</CardTitle>
             <CardDescription className="text-xs">{t.deposit.npSubtitle}</CardDescription>
