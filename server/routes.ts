@@ -9465,7 +9465,8 @@ export async function registerRoutes(
   });
 
   // ── APK Download Tracking ──
-  const APK_DRIVE_URL = "https://drive.google.com/uc?export=download&id=14Jyjou9BpgDuCusGMMykAw7e6RecxenJ";
+  const APK_OBJECT_PATH = "app/izichanj.apk";
+  const APK_FILE_NAME = "izichanj.apk";
 
   app.get("/api/download-app", async (req: any, res) => {
     try {
@@ -9484,7 +9485,31 @@ export async function registerRoutes(
     } catch (e) {
       console.warn("Download tracking failed:", (e as Error).message);
     }
-    res.redirect(302, APK_DRIVE_URL);
+
+    try {
+      const { ObjectStorageService } = await import("./replit_integrations/object_storage");
+      const objectStorage = new ObjectStorageService();
+      const apkFile = await objectStorage.searchPublicObject(APK_OBJECT_PATH);
+      if (!apkFile) {
+        return res.status(404).json({ message: "App file not available" });
+      }
+      const [metadata] = await apkFile.getMetadata();
+      res.set({
+        "Content-Type": "application/vnd.android.package-archive",
+        "Content-Length": metadata.size,
+        "Content-Disposition": `attachment; filename="${APK_FILE_NAME}"`,
+        "Cache-Control": "public, max-age=3600",
+      });
+      const stream = apkFile.createReadStream();
+      stream.on("error", (err) => {
+        console.error("APK stream error:", err);
+        if (!res.headersSent) res.status(500).json({ message: "Failed to download app" });
+      });
+      stream.pipe(res);
+    } catch (e) {
+      console.error("APK download failed:", (e as Error).message);
+      if (!res.headersSent) res.status(500).json({ message: "Failed to download app" });
+    }
   });
 
   app.get("/api/admin/app-downloads", isAuthenticated, isAdmin, async (_req, res) => {
