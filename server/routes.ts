@@ -8041,6 +8041,34 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 
+  // GET /api/admin/p2p/trade-lookup?q=<tradeId> — admin-only P2P trade search by Trade ID
+  // Matches the numeric Trade # shown to users OR the order_id reference string.
+  app.get("/api/admin/p2p/trade-lookup", isAuthenticated, isAdmin, async (req: any, res) => {
+    try {
+      const q = String(req.query.q ?? "").trim();
+      if (!q) return res.status(400).json({ message: "Trade ID is required" });
+      const numericId = /^\d+$/.test(q) ? Number(q) : null;
+      const rows = await db.execute(sql`
+        SELECT
+          o.id, o.order_id, o.status, o.amount_usdt, o.amount_local, o.rate, o.currency,
+          o.payment_method, o.cancelled_by, o.cancellation_reason, o.dispute_reason,
+          o.seller_confirmed_receipt, o.paid_at, o.released_at, o.cancelled_at, o.created_at,
+          s.full_name AS seller_real_name, s.p2p_merchant_name AS seller_merchant_name,
+          s.email AS seller_email, s.reference_id AS seller_ref, s.phone AS seller_phone,
+          b.full_name AS buyer_real_name, b.p2p_merchant_name AS buyer_merchant_name,
+          b.email AS buyer_email, b.reference_id AS buyer_ref, b.phone AS buyer_phone
+        FROM p2p_orders o
+        JOIN profiles s ON s.id = o.seller_id
+        JOIN profiles b ON b.id = o.buyer_id
+        WHERE LOWER(o.order_id) = LOWER(${q})
+           OR (${numericId}::int IS NOT NULL AND o.id = ${numericId}::int)
+        ORDER BY o.created_at DESC
+        LIMIT 25
+      `);
+      res.json(rows.rows);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
   // POST /api/admin/p2p/disputes/:id/resolve — release to buyer OR refund to seller
   app.post("/api/admin/p2p/disputes/:id/resolve", isAuthenticated, isAdmin, async (req: any, res) => {
     const adminId = req.session.profileId;
