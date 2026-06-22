@@ -5393,7 +5393,7 @@ function P2PTradeLookupTab() {
     toast({ title: "Copied", description: text });
   };
 
-  const Party = ({ title, merchant, real, email, ref, phone }: { title: string; merchant: string | null; real: string; email: string; ref: string | null; phone: string | null }) => (
+  const Party = ({ title, merchant, real, email, refCode, phone }: { title: string; merchant: string | null; real: string; email: string; refCode: string | null; phone: string | null }) => (
     <div className="rounded-lg border border-border p-3 space-y-1.5 flex-1 min-w-[220px]">
       <div className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide">
         <User className="w-3.5 h-3.5" /> {title}
@@ -5408,7 +5408,7 @@ function P2PTradeLookupTab() {
       </div>
       <div className="text-xs text-muted-foreground break-all">{email}</div>
       {phone && <div className="text-xs text-muted-foreground">{phone}</div>}
-      {ref && <div className="text-[11px] text-muted-foreground">Ref: {ref}</div>}
+      {refCode && <div className="text-[11px] text-muted-foreground">Ref: {refCode}</div>}
     </div>
   );
 
@@ -5473,8 +5473,8 @@ function P2PTradeLookupTab() {
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="flex flex-wrap gap-3">
-                  <Party title="Seller" merchant={t.seller_merchant_name} real={t.seller_real_name} email={t.seller_email} ref={t.seller_ref} phone={t.seller_phone} />
-                  <Party title="Buyer" merchant={t.buyer_merchant_name} real={t.buyer_real_name} email={t.buyer_email} ref={t.buyer_ref} phone={t.buyer_phone} />
+                  <Party title="Seller" merchant={t.seller_merchant_name} real={t.seller_real_name} email={t.seller_email} refCode={t.seller_ref} phone={t.seller_phone} />
+                  <Party title="Buyer" merchant={t.buyer_merchant_name} real={t.buyer_real_name} email={t.buyer_email} refCode={t.buyer_ref} phone={t.buyer_phone} />
                 </div>
 
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm">
