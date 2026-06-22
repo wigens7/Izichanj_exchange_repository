@@ -3,7 +3,7 @@ import type { Server } from "http";
 import { ProxyAgent } from "undici";
 import { storage } from "./storage";
 import { api } from "@shared/routes";
-import { registerSchema, loginSchema, forgotPasswordSchema, resetPasswordSchema, resetPinSchema } from "@shared/schema";
+import { registerSchema, loginSchema, forgotPasswordSchema, resetPasswordSchema, resetPinSchema, insertSupportQuickReplySchema } from "@shared/schema";
 import { z } from "zod";
 import { setupAuth, isAuthenticated } from "./auth";
 import { registerMerchantRoutes } from "./merchant";
@@ -4119,6 +4119,14 @@ export async function registerRoutes(
     }
   }
 
+  // Escape user/admin-supplied text before embedding it in HTML Telegram messages.
+  function escapeHtml(s: string): string {
+    return String(s)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
+  }
+
   // Secret token Telegram echoes back on each webhook call. Derived from
   // SESSION_SECRET; if that is missing we fall back to an unpredictable random
   // value (never a hardcoded default) so the public webhook can't be forged.
@@ -4358,6 +4366,58 @@ export async function registerRoutes(
     }
   });
 
+  // ======= Support quick replies (canned responses) =======
+  app.get("/api/admin/support/quick-replies", isAuthenticated, isAdmin, async (_req: any, res) => {
+    try {
+      const list = await storage.getQuickReplies();
+      res.json(list);
+    } catch (e) {
+      res.status(500).json({ message: "Internal Error" });
+    }
+  });
+
+  app.post("/api/admin/support/quick-replies", isAuthenticated, isAdmin, async (req: any, res) => {
+    try {
+      const parsed = insertSupportQuickReplySchema.parse(req.body);
+      const existing = await storage.getQuickReplyByShortcut(parsed.shortcut);
+      if (existing) return res.status(409).json({ message: "A quick reply with that shortcut already exists." });
+      const qr = await storage.createQuickReply(parsed);
+      res.json(qr);
+    } catch (e: any) {
+      if (e?.issues) return res.status(400).json({ message: e.issues[0]?.message || "Invalid data" });
+      res.status(500).json({ message: "Internal Error" });
+    }
+  });
+
+  app.patch("/api/admin/support/quick-replies/:id", isAuthenticated, isAdmin, async (req: any, res) => {
+    try {
+      const id = Number(req.params.id);
+      if (!id) return res.status(400).json({ message: "Invalid id" });
+      const parsed = insertSupportQuickReplySchema.partial().parse(req.body);
+      if (parsed.shortcut) {
+        const existing = await storage.getQuickReplyByShortcut(parsed.shortcut);
+        if (existing && existing.id !== id) return res.status(409).json({ message: "A quick reply with that shortcut already exists." });
+      }
+      const qr = await storage.updateQuickReply(id, parsed);
+      if (!qr) return res.status(404).json({ message: "Not found" });
+      res.json(qr);
+    } catch (e: any) {
+      if (e?.issues) return res.status(400).json({ message: e.issues[0]?.message || "Invalid data" });
+      res.status(500).json({ message: "Internal Error" });
+    }
+  });
+
+  app.delete("/api/admin/support/quick-replies/:id", isAuthenticated, isAdmin, async (req: any, res) => {
+    try {
+      const id = Number(req.params.id);
+      if (!id) return res.status(400).json({ message: "Invalid id" });
+      await storage.deleteQuickReply(id);
+      res.json({ ok: true });
+    } catch (e) {
+      res.status(500).json({ message: "Internal Error" });
+    }
+  });
+
   // ======= Telegram two-way bridge =======
   // Inbound webhook: admin replies to a support notification inside Telegram and
   // the reply is injected into the matching conversation as an "admin" message.
@@ -4377,9 +4437,23 @@ export async function registerRoutes(
       const text = (msg.text || msg.caption || "").trim();
       if (!text) return;
 
-      // Ignore Telegram bot commands like /start.
+      // Helper: render the list of available quick-reply shortcuts.
+      const renderQuickList = async (): Promise<string> => {
+        const list = await storage.getQuickReplies();
+        if (list.length === 0) {
+          return "No quick replies saved yet. Add some in Admin → Support.";
+        }
+        const lines = list.map((q) => `<b>/${escapeHtml(q.shortcut)}</b> — ${escapeHtml(q.label)}`);
+        return `⚡ <b>Quick replies</b>\n${lines.join("\n")}\n\nReply to a support message and send <code>/shortcut</code> to send the saved text.`;
+      };
+
+      // Bot commands and quick-reply listing (no conversation needed).
       if (text.startsWith("/start") || text.startsWith("/help")) {
-        await sendTelegramMessage("👋 To answer a user, use Telegram's <b>Reply</b> on a support notification, or send <code>#&lt;id&gt; your message</code>.");
+        await sendTelegramMessage("👋 To answer a user, use Telegram's <b>Reply</b> on a support notification, or send <code>#&lt;id&gt; your message</code>.\n\nSend <code>/quick</code> to see your quick replies.");
+        return;
+      }
+      if (/^\/(quick|shortcuts|qr)\b/i.test(text)) {
+        await sendTelegramMessage(await renderQuickList());
         return;
       }
 
@@ -4405,6 +4479,18 @@ export async function registerRoutes(
         return;
       }
 
+      // Quick-reply shortcut: if the body is a single /code token, expand it to
+      // the saved message before sending it to the user.
+      const shortcutMatch = body.match(/^\/([a-zA-Z0-9_-]+)$/);
+      if (shortcutMatch) {
+        const qr = await storage.getQuickReplyByShortcut(shortcutMatch[1]);
+        if (!qr) {
+          await sendTelegramMessage(`⚠️ No quick reply for <code>/${escapeHtml(shortcutMatch[1])}</code>.\n\n${await renderQuickList()}`);
+          return;
+        }
+        body = qr.message;
+      }
+
       await storage.addMessage({
         conversationId: convId,
         sender: "admin",
@@ -4413,7 +4499,8 @@ export async function registerRoutes(
       if (conv.status !== "active") {
         await storage.updateConversationStatus(convId, "active");
       }
-      await sendTelegramMessage(`✅ Sent to user (Conv #${convId}).`);
+      const preview = body.length > 80 ? body.slice(0, 80) + "…" : body;
+      await sendTelegramMessage(`✅ Sent to user (Conv #${convId}):\n${escapeHtml(preview)}`);
     } catch (e: any) {
       console.error("[Telegram] webhook error:", e?.message || e);
     }

@@ -39,6 +39,8 @@ import {
   X,
   FileImage,
   Headphones,
+  Zap,
+  Plus,
   MessageCircle,
   User,
   Bot,
@@ -3025,6 +3027,54 @@ function SupportTab() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
+  const [qrManagerOpen, setQrManagerOpen] = useState(false);
+  const [editingQr, setEditingQr] = useState<any>(null);
+  const [qrForm, setQrForm] = useState({ shortcut: "", label: "", message: "" });
+  const replyInputRef = useRef<HTMLInputElement>(null);
+
+  const { data: quickReplies = [] } = useQuery<any[]>({
+    queryKey: ["/api/admin/support/quick-replies"],
+  });
+
+  const saveQrMutation = useMutation({
+    mutationFn: async (payload: { id?: number; shortcut: string; label: string; message: string }) => {
+      const { id, ...body } = payload;
+      const res = await apiRequest(id ? "PATCH" : "POST", id ? `/api/admin/support/quick-replies/${id}` : "/api/admin/support/quick-replies", body);
+      return res.json();
+    },
+    onSuccess: () => {
+      setEditingQr(null);
+      setQrForm({ shortcut: "", label: "", message: "" });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/support/quick-replies"] });
+      toast({ title: "Quick reply saved" });
+    },
+    onError: (e: any) => {
+      let msg = "Could not save quick reply";
+      try { const j = JSON.parse((e?.message || "").split(": ").slice(1).join(": ")); msg = j?.message || msg; } catch {}
+      toast({ title: "Error", description: msg, variant: "destructive" });
+    },
+  });
+
+  const deleteQrMutation = useMutation({
+    mutationFn: async (id: number) => {
+      await apiRequest("DELETE", `/api/admin/support/quick-replies/${id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/support/quick-replies"] });
+      toast({ title: "Quick reply deleted" });
+    },
+  });
+
+  const insertQuickReply = (message: string) => {
+    setReplyText((prev) => (prev.trim() ? prev.replace(/\s*$/, " ") + message : message));
+    replyInputRef.current?.focus();
+  };
+
+  const startEditQr = (qr: any) => {
+    setEditingQr(qr);
+    setQrForm({ shortcut: qr.shortcut, label: qr.label, message: qr.message });
+  };
+
   const { data: messages = [], isLoading: messagesLoading } = useQuery<any[]>({
     queryKey: ["/api/support/messages", selectedConvo?.id],
     queryFn: async () => {
@@ -3145,11 +3195,22 @@ function SupportTab() {
             <Headphones className="w-5 h-5" />
             Support Chats
           </CardTitle>
-          {waitingCount > 0 && (
-            <Badge variant="destructive" data-testid="badge-waiting-support">
-              {waitingCount} waiting
-            </Badge>
-          )}
+          <div className="flex items-center gap-2">
+            {waitingCount > 0 && (
+              <Badge variant="destructive" data-testid="badge-waiting-support">
+                {waitingCount} waiting
+              </Badge>
+            )}
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setQrManagerOpen(true)}
+              data-testid="button-manage-quick-replies"
+            >
+              <Zap className="w-3.5 h-3.5 mr-1" />
+              Quick Replies
+            </Button>
+          </div>
         </CardHeader>
         <CardContent className="p-0">
           <div className="max-h-[500px] overflow-y-auto">
@@ -3303,6 +3364,23 @@ function SupportTab() {
               </div>
               {selectedConvo.status !== "closed" && (
                 <div className="px-4 pb-4 pt-2 border-t border-border space-y-2">
+                  {quickReplies.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5" data-testid="quick-reply-chips">
+                      {quickReplies.map((qr: any) => (
+                        <button
+                          key={qr.id}
+                          type="button"
+                          onClick={() => insertQuickReply(qr.message)}
+                          title={qr.message}
+                          className="text-xs px-2 py-1 rounded-full border border-border bg-muted hover-elevate"
+                          data-testid={`chip-quick-reply-${qr.id}`}
+                        >
+                          <Zap className="w-3 h-3 inline mr-1 text-primary" />
+                          {qr.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                   {pendingFile && (
                     <div className="flex items-center gap-2 px-2 py-1.5 bg-muted rounded-md text-xs">
                       {isImageFile(pendingFile.name) ? (
@@ -3339,6 +3417,7 @@ function SupportTab() {
                       <Paperclip className="w-4 h-4" />
                     </Button>
                     <Input
+                      ref={replyInputRef}
                       value={replyText}
                       onChange={(e: any) => setReplyText(e.target.value)}
                       onKeyDown={(e: any) => {
@@ -3367,6 +3446,102 @@ function SupportTab() {
           </>
         )}
       </Card>
+
+      <Dialog open={qrManagerOpen} onOpenChange={(o) => { setQrManagerOpen(o); if (!o) { setEditingQr(null); setQrForm({ shortcut: "", label: "", message: "" }); } }}>
+        <DialogContent className="max-w-lg max-h-[90vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Zap className="w-5 h-5 text-primary" />
+              Quick Replies
+            </DialogTitle>
+          </DialogHeader>
+          <p className="text-xs text-muted-foreground">
+            Saved replies appear as one-tap buttons above the chat box. In Telegram, reply to a support alert and send <code className="bg-muted px-1 rounded">/shortcut</code> to send the saved text. Send <code className="bg-muted px-1 rounded">/quick</code> to list them.
+          </p>
+
+          <div className="space-y-2 border border-border rounded-md p-3">
+            <p className="text-sm font-medium">{editingQr ? "Edit quick reply" : "Add quick reply"}</p>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1">
+                <Label className="text-xs">Shortcut</Label>
+                <Input
+                  value={qrForm.shortcut}
+                  onChange={(e: any) => setQrForm((f) => ({ ...f, shortcut: e.target.value.replace(/\s+/g, "") }))}
+                  placeholder="greeting"
+                  className="text-sm"
+                  data-testid="input-qr-shortcut"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Label</Label>
+                <Input
+                  value={qrForm.label}
+                  onChange={(e: any) => setQrForm((f) => ({ ...f, label: e.target.value }))}
+                  placeholder="Greeting"
+                  className="text-sm"
+                  data-testid="input-qr-label"
+                />
+              </div>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Message</Label>
+              <Textarea
+                value={qrForm.message}
+                onChange={(e: any) => setQrForm((f) => ({ ...f, message: e.target.value }))}
+                placeholder="Hello! Thanks for contacting Izichanj support. How can we help you today?"
+                className="text-sm min-h-[80px]"
+                data-testid="input-qr-message"
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              {editingQr && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => { setEditingQr(null); setQrForm({ shortcut: "", label: "", message: "" }); }}
+                  data-testid="button-qr-cancel-edit"
+                >
+                  Cancel
+                </Button>
+              )}
+              <Button
+                size="sm"
+                onClick={() => saveQrMutation.mutate({ id: editingQr?.id, ...qrForm })}
+                disabled={saveQrMutation.isPending || !qrForm.shortcut.trim() || !qrForm.label.trim() || !qrForm.message.trim()}
+                data-testid="button-qr-save"
+              >
+                {saveQrMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : editingQr ? <Pencil className="w-3.5 h-3.5 mr-1" /> : <Plus className="w-3.5 h-3.5 mr-1" />}
+                {editingQr ? "Update" : "Add"}
+              </Button>
+            </div>
+          </div>
+
+          <div className="flex-1 overflow-y-auto space-y-2">
+            {quickReplies.length === 0 && (
+              <p className="text-center text-muted-foreground text-sm py-6">No quick replies yet. Add one above.</p>
+            )}
+            {quickReplies.map((qr: any) => (
+              <div key={qr.id} className="flex items-start gap-2 border border-border rounded-md p-2.5" data-testid={`qr-item-${qr.id}`}>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <code className="text-xs bg-muted px-1.5 py-0.5 rounded text-primary">/{qr.shortcut}</code>
+                    <span className="text-sm font-medium truncate">{qr.label}</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{qr.message}</p>
+                </div>
+                <div className="flex gap-1 flex-shrink-0">
+                  <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => startEditQr(qr)} data-testid={`button-qr-edit-${qr.id}`}>
+                    <Pencil className="w-3.5 h-3.5" />
+                  </Button>
+                  <Button size="icon" variant="ghost" className="h-7 w-7 text-destructive" onClick={() => deleteQrMutation.mutate(qr.id)} disabled={deleteQrMutation.isPending} data-testid={`button-qr-delete-${qr.id}`}>
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

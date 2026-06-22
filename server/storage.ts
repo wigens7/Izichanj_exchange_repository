@@ -1,4 +1,4 @@
-import { profiles, deposits, withdrawals, kycDocuments, otps, webauthnCredentials, notifications, supportConversations, supportMessages, virtualCards, blacklistedUsers, kycArchives, p2pTransfers, loginLogs, fraudRejections, cardTransactions, topUpTransactions, securityEvents, balanceLogs, userReports, referralEarnings, referralPayoutRequests, nfcCards, nfcCardTransactions, type Profile, type Deposit, type InsertDeposit, type Withdrawal, type InsertWithdrawal, type KycDocument, type WebAuthnCredential, type Notification, type SupportConversation, type SupportMessage, type VirtualCard, type BlacklistedUser, type KycArchive, type P2PTransfer, type LoginLog, type FraudRejection, type CardTransaction, type TopUpTransaction, type SecurityEvent, type BalanceLog, type UserReport, type ReferralEarning, type ReferralPayoutRequest, type NfcCard, type NfcCardTransaction, merchants, merchantTransactions, type Merchant, type MerchantTransaction, payoutRequests, type PayoutRequest, type InsertPayoutRequest } from "@shared/schema";
+import { profiles, deposits, withdrawals, kycDocuments, otps, webauthnCredentials, notifications, supportConversations, supportMessages, supportQuickReplies, virtualCards, blacklistedUsers, kycArchives, p2pTransfers, loginLogs, fraudRejections, cardTransactions, topUpTransactions, securityEvents, balanceLogs, userReports, referralEarnings, referralPayoutRequests, nfcCards, nfcCardTransactions, type Profile, type Deposit, type InsertDeposit, type Withdrawal, type InsertWithdrawal, type KycDocument, type WebAuthnCredential, type Notification, type SupportConversation, type SupportMessage, type SupportQuickReply, type InsertSupportQuickReply, type VirtualCard, type BlacklistedUser, type KycArchive, type P2PTransfer, type LoginLog, type FraudRejection, type CardTransaction, type TopUpTransaction, type SecurityEvent, type BalanceLog, type UserReport, type ReferralEarning, type ReferralPayoutRequest, type NfcCard, type NfcCardTransaction, merchants, merchantTransactions, type Merchant, type MerchantTransaction, payoutRequests, type PayoutRequest, type InsertPayoutRequest } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, ne, lt, sql, or, ilike, inArray } from "drizzle-orm";
 import crypto from "crypto";
@@ -79,6 +79,11 @@ export interface IStorage {
   getAllConversations(): Promise<(SupportConversation & { profile: Profile; lastMessage?: string; unreadCount: number })[]>;
   getUnreadSupportCount(profileId: number): Promise<number>;
   getInactiveConversations(minutesInactive: number): Promise<SupportConversation[]>;
+  getQuickReplies(): Promise<SupportQuickReply[]>;
+  getQuickReplyByShortcut(shortcut: string): Promise<SupportQuickReply | undefined>;
+  createQuickReply(data: InsertSupportQuickReply): Promise<SupportQuickReply>;
+  updateQuickReply(id: number, data: Partial<InsertSupportQuickReply>): Promise<SupportQuickReply | undefined>;
+  deleteQuickReply(id: number): Promise<void>;
 
   createVirtualCard(data: { profileId: number; cardId: string; cardType: string; nameOnCard: string; last4?: string; brand?: string; status?: VirtualCard["status"]; balance?: string; currency?: string; cardDetail?: any }): Promise<VirtualCard>;
   getVirtualCards(profileId: number): Promise<VirtualCard[]>;
@@ -579,6 +584,45 @@ export class DatabaseStorage implements IStorage {
         sql`${supportConversations.status} != 'closed'`,
         sql`${supportConversations.updatedAt} < ${cutoff}`
       ));
+  }
+
+  async getQuickReplies(): Promise<SupportQuickReply[]> {
+    return db.select().from(supportQuickReplies)
+      .orderBy(supportQuickReplies.sortOrder, supportQuickReplies.shortcut);
+  }
+
+  async getQuickReplyByShortcut(shortcut: string): Promise<SupportQuickReply | undefined> {
+    const [qr] = await db.select().from(supportQuickReplies)
+      .where(sql`lower(${supportQuickReplies.shortcut}) = lower(${shortcut})`);
+    return qr;
+  }
+
+  async createQuickReply(data: InsertSupportQuickReply): Promise<SupportQuickReply> {
+    const [qr] = await db.insert(supportQuickReplies).values({
+      shortcut: data.shortcut,
+      label: data.label,
+      message: data.message,
+      sortOrder: data.sortOrder ?? 0,
+    }).returning();
+    return qr;
+  }
+
+  async updateQuickReply(id: number, data: Partial<InsertSupportQuickReply>): Promise<SupportQuickReply | undefined> {
+    const updates: Record<string, any> = {};
+    if (data.shortcut !== undefined) updates.shortcut = data.shortcut;
+    if (data.label !== undefined) updates.label = data.label;
+    if (data.message !== undefined) updates.message = data.message;
+    if (data.sortOrder !== undefined) updates.sortOrder = data.sortOrder;
+    if (Object.keys(updates).length === 0) {
+      const [existing] = await db.select().from(supportQuickReplies).where(eq(supportQuickReplies.id, id));
+      return existing;
+    }
+    const [qr] = await db.update(supportQuickReplies).set(updates).where(eq(supportQuickReplies.id, id)).returning();
+    return qr;
+  }
+
+  async deleteQuickReply(id: number): Promise<void> {
+    await db.delete(supportQuickReplies).where(eq(supportQuickReplies.id, id));
   }
 
   async getAllConversations(): Promise<(SupportConversation & { profile: Profile; lastMessage?: string; unreadCount: number })[]> {

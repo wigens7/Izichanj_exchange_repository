@@ -223,6 +223,28 @@ export const supportMessages = pgTable("support_messages", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+export const supportQuickReplies = pgTable("support_quick_replies", {
+  id: serial("id").primaryKey(),
+  shortcut: text("shortcut").notNull().unique(),
+  label: text("label").notNull(),
+  message: text("message").notNull(),
+  sortOrder: integer("sort_order").default(0).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertSupportQuickReplySchema = createInsertSchema(supportQuickReplies)
+  .omit({ id: true, createdAt: true })
+  .extend({
+    shortcut: z
+      .string()
+      .min(1, "Shortcut is required")
+      .max(40, "Shortcut too long")
+      .regex(/^[a-zA-Z0-9_-]+$/, "Use only letters, numbers, - and _ (no spaces)"),
+    label: z.string().min(1, "Label is required").max(80, "Label too long"),
+    message: z.string().min(1, "Message is required").max(4000, "Message too long"),
+    sortOrder: z.coerce.number().int().optional(),
+  });
+
 export const insertDepositSchema = createInsertSchema(deposits).omit({ id: true, profileId: true, status: true, createdAt: true, depositMethod: true, amountHtg: true, moncashTransactionId: true });
 export const insertWithdrawalSchema = createInsertSchema(withdrawals).omit({ id: true, profileId: true, status: true, createdAt: true });
 export const insertKycSchema = createInsertSchema(kycDocuments).omit({ id: true, profileId: true, submittedAt: true });
@@ -280,6 +302,8 @@ export type WebAuthnCredential = typeof webauthnCredentials.$inferSelect;
 export type Notification = typeof notifications.$inferSelect;
 export type SupportConversation = typeof supportConversations.$inferSelect;
 export type SupportMessage = typeof supportMessages.$inferSelect;
+export type SupportQuickReply = typeof supportQuickReplies.$inferSelect;
+export type InsertSupportQuickReply = z.infer<typeof insertSupportQuickReplySchema>;
 export type BlacklistedUser = typeof blacklistedUsers.$inferSelect;
 export type KycArchive = typeof kycArchives.$inferSelect;
 export type P2PTransfer = typeof p2pTransfers.$inferSelect;

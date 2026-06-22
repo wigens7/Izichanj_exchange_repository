@@ -744,6 +744,26 @@ app.use((req, res, next) => {
     console.warn("[startup migration] kyc_archives skipped:", (e as Error).message);
   }
 
+  try {
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS support_quick_replies (
+        id SERIAL PRIMARY KEY,
+        shortcut TEXT NOT NULL UNIQUE,
+        label TEXT NOT NULL,
+        message TEXT NOT NULL,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    `);
+    await db.execute(sql`
+      CREATE UNIQUE INDEX IF NOT EXISTS support_quick_replies_shortcut_lower_idx
+        ON support_quick_replies (lower(shortcut))
+    `);
+    console.log("[startup migration] support_quick_replies table ensured");
+  } catch (e) {
+    console.warn("[startup migration] support_quick_replies skipped:", (e as Error).message);
+  }
+
   await registerRoutes(httpServer, app);
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
