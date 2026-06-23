@@ -11,6 +11,7 @@ import { ArrowUpRight, ArrowDownLeft, Wallet, TrendingUp, TrendingDown, ArrowRig
 import { useState } from "react";
 import { formatDateTime } from "@/lib/dateUtils";
 import { StatusBadge } from "@/components/status-badge";
+import { ReceiptDialog } from "@/components/receipt-dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
 
@@ -188,6 +189,7 @@ function TransactionRow({ txn }: { txn: any }) {
         : Number(txn.amount);
     const amountHtg = amountUsdt * depositRate;
     const [copied, setCopied] = useState(false);
+    const [showReceipt, setShowReceipt] = useState(false);
 
     if (isApiTxn) {
       return (
@@ -254,6 +256,7 @@ function TransactionRow({ txn }: { txn: any }) {
     };
 
     return (
+        <>
         <div className="rounded-md border border-border bg-card hover:bg-muted/30 transition-colors" data-testid={`txn-${txn.type}-${txn.id}`}>
             <div className="flex items-center justify-between gap-4 p-3.5">
             <div className="flex items-center gap-3 min-w-0">
@@ -280,22 +283,17 @@ function TransactionRow({ txn }: { txn: any }) {
                     <StatusBadge status={txn.status} className="mt-1 text-[10px]" />
                 </div>
                 {hasReceipt && (
-                    <a
-                        href={receiptUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
+                    <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setShowReceipt(true)}
                         data-testid={`button-view-receipt-${txn.type}-${txn.id}`}
-                        title="View Receipt"
+                        title={t.receipt.view}
+                        className="h-8 px-2.5 gap-1.5 text-xs border-indigo-500/40 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/40"
                     >
-                        <Button
-                            size="sm"
-                            variant="outline"
-                            className="h-8 px-2.5 gap-1.5 text-xs border-indigo-500/40 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/40"
-                        >
-                            <FileText className="w-3 h-3" />
-                            Receipt
-                        </Button>
-                    </a>
+                        <FileText className="w-3 h-3" />
+                        {t.receipt.view}
+                    </Button>
                 )}
             </div>
             </div>
@@ -324,5 +322,7 @@ function TransactionRow({ txn }: { txn: any }) {
                 </div>
             )}
         </div>
+        <ReceiptDialog url={showReceipt ? receiptUrl : null} onClose={() => setShowReceipt(false)} />
+        </>
     )
 }

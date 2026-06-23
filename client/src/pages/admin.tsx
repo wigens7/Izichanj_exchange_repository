@@ -19,6 +19,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { StatusBadge } from "@/components/status-badge";
+import { ReceiptDialog } from "@/components/receipt-dialog";
 import { useState, useRef, useEffect } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
@@ -1432,7 +1433,7 @@ function UserRow({ user, onUpdateBalance, isPending, hasDownloaded }: { user: an
   );
 }
 
-async function approveAndRelease(type: "deposits" | "withdrawals", id: number, setLoading: (v: boolean) => void) {
+async function approveAndRelease(type: "deposits" | "withdrawals", id: number, setLoading: (v: boolean) => void, onReceipt: (url: string) => void) {
   setLoading(true);
   try {
     const res = await fetch(`/api/admin/${type}/${id}/approve-release`, {
@@ -1440,13 +1441,8 @@ async function approveAndRelease(type: "deposits" | "withdrawals", id: number, s
       credentials: "include",
     });
     if (!res.ok) throw new Error("Failed");
-    const blob = await res.blob();
-    const link = document.createElement("a");
-    link.href = URL.createObjectURL(blob);
-    link.download = `izichanj-receipt-${id}.pdf`;
-    link.click();
-    URL.revokeObjectURL(link.href);
-    window.location.reload();
+    queryClient.invalidateQueries();
+    onReceipt(`/api/admin/receipts/${type === "deposits" ? "deposit" : "withdrawal"}/${id}`);
   } catch (e) {
     console.error("Approve & Release failed", e);
   } finally {
@@ -1454,8 +1450,8 @@ async function approveAndRelease(type: "deposits" | "withdrawals", id: number, s
   }
 }
 
-function previewReceipt(type: "deposits" | "withdrawals", id: number) {
-  window.open(`/api/admin/receipts/${type === "deposits" ? "deposit" : "withdrawal"}/${id}`, "_blank");
+function previewReceipt(type: "deposits" | "withdrawals", id: number, onReceipt: (url: string) => void) {
+  onReceipt(`/api/admin/receipts/${type === "deposits" ? "deposit" : "withdrawal"}/${id}`);
 }
 
 function DepositsTab() {
@@ -1466,6 +1462,7 @@ function DepositsTab() {
   const { mutate: rejectWithReason, isPending: isRejectingWithReason } = useAdminRejectDepositWithReason();
   const { mutate: rejectForFraud, isPending: isRejectingForFraud } = useAdminRejectDepositForFraud();
   const [releaseLoadingId, setReleaseLoadingId] = useState<number | null>(null);
+  const [receiptUrl, setReceiptUrl] = useState<string | null>(null);
   const [rejectModalDepositId, setRejectModalDepositId] = useState<number | null>(null);
   const [fraudModalDepositId, setFraudModalDepositId] = useState<number | null>(null);
   const [rejectReason, setRejectReason] = useState("");
@@ -1856,7 +1853,7 @@ function DepositsTab() {
                             )}
                             <Button
                               size="sm"
-                              onClick={() => approveAndRelease("deposits", deposit.id, (v) => setReleaseLoadingId(v ? deposit.id : null))}
+                              onClick={() => approveAndRelease("deposits", deposit.id, (v) => setReleaseLoadingId(v ? deposit.id : null), setReceiptUrl)}
                               disabled={releaseLoadingId === deposit.id || (isCryptoDeposit(deposit) && !deposit.txHash)}
                               className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs disabled:opacity-40"
                               title={isCryptoDeposit(deposit) && !deposit.txHash ? "Set TxtID before approving" : undefined}
@@ -1919,7 +1916,7 @@ function DepositsTab() {
                             <Button
                               size="sm"
                               variant="outline"
-                              onClick={() => previewReceipt("deposits", deposit.id)}
+                              onClick={() => previewReceipt("deposits", deposit.id, setReceiptUrl)}
                               className="text-xs border-indigo-500/40 text-indigo-600 hover:bg-indigo-50"
                               data-testid={`button-preview-receipt-deposit-${deposit.id}`}
                             >
@@ -1929,7 +1926,7 @@ function DepositsTab() {
                             {!deposit.receiptId && (
                               <Button
                                 size="sm"
-                                onClick={() => approveAndRelease("deposits", deposit.id, (v) => setReleaseLoadingId(v ? deposit.id : null))}
+                                onClick={() => approveAndRelease("deposits", deposit.id, (v) => setReleaseLoadingId(v ? deposit.id : null), setReceiptUrl)}
                                 disabled={releaseLoadingId === deposit.id}
                                 className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs"
                                 data-testid={`button-release-receipt-deposit-${deposit.id}`}
@@ -1963,6 +1960,7 @@ function DepositsTab() {
           </div>
         </CardContent>
       </Card>
+      <ReceiptDialog url={receiptUrl} onClose={() => setReceiptUrl(null)} />
     </>
   );
 }
@@ -2062,6 +2060,7 @@ function WithdrawalsTab() {
   const { mutate: approve, isPending: isApproving } = useAdminApproveWithdrawal();
   const { mutate: reject, isPending: isRejecting } = useAdminRejectWithdrawal();
   const [releaseLoadingId, setReleaseLoadingId] = useState<number | null>(null);
+  const [receiptUrl, setReceiptUrl] = useState<string | null>(null);
 
   if (isLoading) {
     return (
@@ -2078,6 +2077,7 @@ function WithdrawalsTab() {
   const pendingCount = withdrawals?.filter((w: any) => w.status === "pending").length || 0;
 
   return (
+    <>
     <Card>
       <CardHeader className="flex flex-row items-center justify-between gap-2">
         <CardTitle className="flex items-center gap-2">
@@ -2155,7 +2155,7 @@ function WithdrawalsTab() {
                       <div className="flex flex-col gap-1.5">
                         <Button
                           size="sm"
-                          onClick={() => approveAndRelease("withdrawals", w.id, (v) => setReleaseLoadingId(v ? w.id : null))}
+                          onClick={() => approveAndRelease("withdrawals", w.id, (v) => setReleaseLoadingId(v ? w.id : null), setReceiptUrl)}
                           disabled={releaseLoadingId === w.id}
                           className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs"
                           data-testid={`button-approve-release-withdrawal-${w.id}`}
@@ -2192,7 +2192,7 @@ function WithdrawalsTab() {
                         <Button
                           size="sm"
                           variant="outline"
-                          onClick={() => previewReceipt("withdrawals", w.id)}
+                          onClick={() => previewReceipt("withdrawals", w.id, setReceiptUrl)}
                           className="text-xs border-indigo-500/40 text-indigo-600 hover:bg-indigo-50"
                           data-testid={`button-preview-receipt-withdrawal-${w.id}`}
                         >
@@ -2202,7 +2202,7 @@ function WithdrawalsTab() {
                         {!w.receiptId && (
                           <Button
                             size="sm"
-                            onClick={() => approveAndRelease("withdrawals", w.id, (v) => setReleaseLoadingId(v ? w.id : null))}
+                            onClick={() => approveAndRelease("withdrawals", w.id, (v) => setReleaseLoadingId(v ? w.id : null), setReceiptUrl)}
                             disabled={releaseLoadingId === w.id}
                             className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs"
                             data-testid={`button-release-receipt-withdrawal-${w.id}`}
@@ -2230,6 +2230,8 @@ function WithdrawalsTab() {
         </div>
       </CardContent>
     </Card>
+    <ReceiptDialog url={receiptUrl} onClose={() => setReceiptUrl(null)} />
+    </>
   );
 }
 

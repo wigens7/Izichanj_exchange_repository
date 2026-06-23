@@ -37,7 +37,7 @@ function computeDepositFeeAndNet(deposit: { amountUsdt: string | number; payCurr
   const net = Math.max(0, total - fee);
   return { fee, net };
 }
-import { generateReceiptPDF, generateAdjustmentReceiptPDF, generateCardStatementPDF, type CardStatementTxn } from "./receipt";
+import { generateAdjustmentReceiptPDF, generateCardStatementPDF, type CardStatementTxn } from "./receipt";
 import * as paypalModule from "./paypal";
 import { ensureKycImageSize } from "./image-compress";
 import { deposits, profiles, virtualCards, nfcCards, nfcCardTransactions } from "@shared/schema";
@@ -3080,7 +3080,6 @@ export async function registerRoutes(
       const prof = await storage.getProfile(deposit.profileId);
 
       const receiptData = await buildReceiptData("deposit", deposit, prof);
-      const pdfBuffer = await generateReceiptPDF({ ...receiptData, receiptId });
 
       const htgAmount = formatHtg(rateUsdtToHtg(netAmountToCredit));
       const receiptMsg = depositFee > 0
@@ -3091,8 +3090,7 @@ export async function registerRoutes(
         sendWhatsAppNotification(prof.phone, `*Izichanj*\n\n✅ Deposit Approved\n\n${receiptMsg}\n\nhttps://izichanj.com`, prof.fullName);
       }
 
-      res.set({ "Content-Type": "application/pdf", "Content-Disposition": `inline; filename="receipt-${receiptId}.pdf"` });
-      res.send(pdfBuffer);
+      res.json({ ...receiptData, receiptId });
     } catch (e: any) {
       console.error("[approve-release deposit]", e);
       res.status(500).json({ message: e.message });
@@ -3114,7 +3112,6 @@ export async function registerRoutes(
       const prof = await storage.getProfile(withdrawal.profileId);
 
       const receiptData = await buildReceiptData("withdrawal", withdrawal, prof);
-      const pdfBuffer = await generateReceiptPDF({ ...receiptData, receiptId });
 
       const htgAmount = formatHtg(rateUsdtToHtg(Number(withdrawal.amount)));
       const receiptMsg = `Your withdrawal of ${Number(withdrawal.amount).toFixed(2)} USDT (${htgAmount} HTG) has been approved. Your receipt is now available for download.`;
@@ -3123,8 +3120,7 @@ export async function registerRoutes(
         sendWhatsAppNotification(prof.phone, `*Izichanj*\n\n✅ Withdrawal Approved\n\n${receiptMsg}\n\nhttps://izichanj.com`, prof.fullName);
       }
 
-      res.set({ "Content-Type": "application/pdf", "Content-Disposition": `inline; filename="receipt-${receiptId}.pdf"` });
-      res.send(pdfBuffer);
+      res.json({ ...receiptData, receiptId });
     } catch (e: any) {
       console.error("[approve-release withdrawal]", e);
       res.status(500).json({ message: e.message });
@@ -3142,9 +3138,7 @@ export async function registerRoutes(
       if (!rid) { rid = crypto.randomUUID(); await storage.setDepositReceipt(deposit.id, rid); }
       const prof = await storage.getProfile(deposit.profileId);
       const data = await buildReceiptData("deposit", deposit, prof);
-      const pdfBuffer = await generateReceiptPDF({ ...data, receiptId: rid });
-      res.set({ "Content-Type": "application/pdf", "Content-Disposition": `inline; filename="receipt-${rid}.pdf"` });
-      res.send(pdfBuffer);
+      res.json({ ...data, receiptId: rid });
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 
@@ -3157,9 +3151,7 @@ export async function registerRoutes(
       if (!rid) { rid = crypto.randomUUID(); await storage.setWithdrawalReceipt(w.id, rid); }
       const prof = await storage.getProfile(w.profileId);
       const data = await buildReceiptData("withdrawal", w, prof);
-      const pdfBuffer = await generateReceiptPDF({ ...data, receiptId: rid });
-      res.set({ "Content-Type": "application/pdf", "Content-Disposition": `inline; filename="receipt-${rid}.pdf"` });
-      res.send(pdfBuffer);
+      res.json({ ...data, receiptId: rid });
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 
@@ -3175,9 +3167,7 @@ export async function registerRoutes(
       if (!deposit.receiptId) return res.status(400).json({ message: "Receipt has not been released yet" });
       const prof = await storage.getProfile(profileId);
       const data = await buildReceiptData("deposit", deposit, prof);
-      const pdfBuffer = await generateReceiptPDF({ ...data, receiptId: deposit.receiptId });
-      res.set({ "Content-Type": "application/pdf", "Content-Disposition": `inline; filename="izichanj-receipt-${deposit.receiptId.slice(0, 8)}.pdf"` });
-      res.send(pdfBuffer);
+      res.json({ ...data, receiptId: deposit.receiptId });
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 
@@ -3191,9 +3181,7 @@ export async function registerRoutes(
       if (!w.receiptId) return res.status(400).json({ message: "Receipt has not been released yet" });
       const prof = await storage.getProfile(profileId);
       const data = await buildReceiptData("withdrawal", w, prof);
-      const pdfBuffer = await generateReceiptPDF({ ...data, receiptId: w.receiptId });
-      res.set({ "Content-Type": "application/pdf", "Content-Disposition": `inline; filename="izichanj-receipt-${w.receiptId.slice(0, 8)}.pdf"` });
-      res.send(pdfBuffer);
+      res.json({ ...data, receiptId: w.receiptId });
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 
