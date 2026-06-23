@@ -81,6 +81,7 @@ export interface IStorage {
   getInactiveConversations(minutesInactive: number): Promise<SupportConversation[]>;
   getQuickReplies(): Promise<SupportQuickReply[]>;
   getQuickReplyByShortcut(shortcut: string): Promise<SupportQuickReply | undefined>;
+  getQuickReplyById(id: number): Promise<SupportQuickReply | undefined>;
   createQuickReply(data: InsertSupportQuickReply): Promise<SupportQuickReply>;
   updateQuickReply(id: number, data: Partial<InsertSupportQuickReply>): Promise<SupportQuickReply | undefined>;
   deleteQuickReply(id: number): Promise<void>;
@@ -597,6 +598,12 @@ export class DatabaseStorage implements IStorage {
   async getQuickReplyByShortcut(shortcut: string): Promise<SupportQuickReply | undefined> {
     const [qr] = await db.select().from(supportQuickReplies)
       .where(sql`lower(${supportQuickReplies.shortcut}) = lower(${shortcut})`);
+    return qr;
+  }
+
+  async getQuickReplyById(id: number): Promise<SupportQuickReply | undefined> {
+    const [qr] = await db.select().from(supportQuickReplies)
+      .where(eq(supportQuickReplies.id, id));
     return qr;
   }
 

@@ -4161,7 +4161,7 @@ export async function registerRoutes(
     return `${visible}***@${domain}`;
   }
 
-  async function sendTelegramMessage(text: string): Promise<void> {
+  async function sendTelegramMessage(text: string, replyMarkup?: any): Promise<void> {
     const token = process.env.TELEGRAM_BOT_TOKEN;
     const chatId = process.env.TELEGRAM_CHAT_ID;
     if (!token || !chatId) {
@@ -4169,10 +4169,12 @@ export async function registerRoutes(
       return;
     }
     try {
+      const payload: Record<string, any> = { chat_id: chatId, text, parse_mode: "HTML" };
+      if (replyMarkup) payload.reply_markup = replyMarkup;
       const r = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ chat_id: chatId, text, parse_mode: "HTML" }),
+        body: JSON.stringify(payload),
       });
       if (!r.ok) {
         // Log Telegram API rejections so missing alerts can be diagnosed.
@@ -4185,6 +4187,22 @@ export async function registerRoutes(
     } catch (e: any) {
       console.error("[Telegram] Failed to send message:", e?.message || e);
     }
+  }
+
+  // Build an inline keyboard of saved quick replies for a conversation so admins
+  // can answer with one tap inside Telegram. callback_data is "qr:<convId>:<qrId>"
+  // (well under Telegram's 64-byte limit). Returns undefined when none exist.
+  async function buildQuickReplyKeyboard(convId: number): Promise<any | undefined> {
+    const list = await storage.getQuickReplies();
+    if (!list.length) return undefined;
+    const buttons = list.slice(0, 12).map((q) => ({
+      text: `⚡ ${q.label}`.slice(0, 60),
+      callback_data: `qr:${convId}:${q.id}`,
+    }));
+    // Two buttons per row.
+    const rows: any[] = [];
+    for (let i = 0; i < buttons.length; i += 2) rows.push(buttons.slice(i, i + 2));
+    return { inline_keyboard: rows };
   }
 
   // Escape user/admin-supplied text before embedding it in HTML Telegram messages.
@@ -4301,9 +4319,10 @@ export async function registerRoutes(
         fileName: fileName || undefined,
       });
 
-      // Telegram alert for every user message
-      const telegramText = `💬 <b>New Support Message</b>\n\n👤 <b>Name:</b> ${profile.fullName}\n📧 <b>Email:</b> ${profile.email}\n🆔 <b>User ID:</b> ${profile.referenceId || profile.id}\n💬 <b>Conv #${conv.id}</b>\n\n📝 <b>Message:</b>\n${fileUrl ? `[File: ${fileName || "attachment"}]` : displayMsg}\n\n↩️ <b>Reply to this message</b> here in Telegram to answer the user.`;
-      sendTelegramMessage(telegramText).catch(() => {});
+      // Telegram alert for every user message, with one-tap quick-reply buttons.
+      const telegramText = `💬 <b>New Support Message</b>\n\n👤 <b>Name:</b> ${profile.fullName}\n📧 <b>Email:</b> ${profile.email}\n🆔 <b>User ID:</b> ${profile.referenceId || profile.id}\n💬 <b>Conv #${conv.id}</b>\n\n📝 <b>Message:</b>\n${fileUrl ? `[File: ${fileName || "attachment"}]` : displayMsg}\n\n↩️ <b>Reply to this message</b> here in Telegram to answer, or tap a quick reply below.`;
+      const quickReplyKeyboard = await buildQuickReplyKeyboard(conv.id).catch(() => undefined);
+      sendTelegramMessage(telegramText, quickReplyKeyboard).catch(() => {});
 
       const botAnswer = getBotResponse(message);
       const responseMessages = [userMsg];
@@ -4497,6 +4516,39 @@ export async function registerRoutes(
     // Acknowledge immediately so Telegram doesn't retry.
     res.sendStatus(200);
     try {
+      // ── Quick-reply button taps (inline keyboard) ───────────────────────
+      const cq = req.body?.callback_query;
+      if (cq) {
+        const cqChatId = cq.message?.chat?.id;
+        // Only honor taps from the authorized admin chat.
+        if (String(cqChatId) !== String(process.env.TELEGRAM_CHAT_ID)) {
+          await telegramApi("answerCallbackQuery", { callback_query_id: cq.id }).catch(() => {});
+          return;
+        }
+        const m = String(cq.data || "").match(/^qr:(\d+):(\d+)$/);
+        if (!m) {
+          await telegramApi("answerCallbackQuery", { callback_query_id: cq.id, text: "Unknown action" }).catch(() => {});
+          return;
+        }
+        const cbConvId = Number(m[1]);
+        const qrId = Number(m[2]);
+        const qr = await storage.getQuickReplyById(qrId);
+        const conv = await storage.getConversation(cbConvId);
+        if (!qr || !conv) {
+          await telegramApi("answerCallbackQuery", { callback_query_id: cq.id, text: !qr ? "Quick reply not found" : "Conversation not found" }).catch(() => {});
+          return;
+        }
+        await storage.addMessage({ conversationId: cbConvId, sender: "admin", message: qr.message });
+        if (conv.status !== "active") {
+          await storage.updateConversationStatus(cbConvId, "active");
+        }
+        // Pop-up toast on the tapped button + a chat confirmation.
+        await telegramApi("answerCallbackQuery", { callback_query_id: cq.id, text: `Sent: ${qr.label}`.slice(0, 200) }).catch(() => {});
+        const preview = qr.message.length > 80 ? qr.message.slice(0, 80) + "…" : qr.message;
+        await sendTelegramMessage(`✅ Quick reply sent to user (Conv #${cbConvId}):\n${escapeHtml(preview)}`);
+        return;
+      }
+
       // Only handle fresh messages; ignore edits to avoid duplicate replies.
       const msg = req.body?.message;
       if (!msg) return;
@@ -4585,7 +4637,7 @@ export async function registerRoutes(
       const result = await telegramApi("setWebhook", {
         url,
         secret_token: TELEGRAM_WEBHOOK_SECRET,
-        allowed_updates: ["message"],
+        allowed_updates: ["message", "callback_query"],
         drop_pending_updates: true,
       });
       if (!result.ok) {
