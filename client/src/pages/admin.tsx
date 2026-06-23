@@ -1433,18 +1433,26 @@ function UserRow({ user, onUpdateBalance, isPending, hasDownloaded }: { user: an
   );
 }
 
-async function approveAndRelease(type: "deposits" | "withdrawals", id: number, setLoading: (v: boolean) => void, onReceipt: (url: string) => void) {
+async function approveAndRelease(type: "deposits" | "withdrawals", id: number, setLoading: (v: boolean) => void, onReceipt: (url: string) => void, onError?: (msg: string) => void) {
   setLoading(true);
   try {
     const res = await fetch(`/api/admin/${type}/${id}/approve-release`, {
       method: "PATCH",
       credentials: "include",
     });
-    if (!res.ok) throw new Error("Failed");
+    if (!res.ok) {
+      let msg = "Approve & Release failed";
+      try {
+        const body = await res.json();
+        if (body?.message) msg = body.message;
+      } catch {}
+      throw new Error(msg);
+    }
     queryClient.invalidateQueries();
     onReceipt(`/api/admin/receipts/${type === "deposits" ? "deposit" : "withdrawal"}/${id}`);
-  } catch (e) {
+  } catch (e: any) {
     console.error("Approve & Release failed", e);
+    onError?.(e?.message || "Approve & Release failed");
   } finally {
     setLoading(false);
   }
@@ -1853,7 +1861,7 @@ function DepositsTab() {
                             )}
                             <Button
                               size="sm"
-                              onClick={() => approveAndRelease("deposits", deposit.id, (v) => setReleaseLoadingId(v ? deposit.id : null), setReceiptUrl)}
+                              onClick={() => approveAndRelease("deposits", deposit.id, (v) => setReleaseLoadingId(v ? deposit.id : null), setReceiptUrl, (msg) => toast({ title: "Error", description: msg, variant: "destructive" }))}
                               disabled={releaseLoadingId === deposit.id || (isCryptoDeposit(deposit) && !deposit.txHash)}
                               className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs disabled:opacity-40"
                               title={isCryptoDeposit(deposit) && !deposit.txHash ? "Set TxtID before approving" : undefined}
@@ -1926,7 +1934,7 @@ function DepositsTab() {
                             {!deposit.receiptId && (
                               <Button
                                 size="sm"
-                                onClick={() => approveAndRelease("deposits", deposit.id, (v) => setReleaseLoadingId(v ? deposit.id : null), setReceiptUrl)}
+                                onClick={() => approveAndRelease("deposits", deposit.id, (v) => setReleaseLoadingId(v ? deposit.id : null), setReceiptUrl, (msg) => toast({ title: "Error", description: msg, variant: "destructive" }))}
                                 disabled={releaseLoadingId === deposit.id}
                                 className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs"
                                 data-testid={`button-release-receipt-deposit-${deposit.id}`}
@@ -2055,6 +2063,7 @@ function WithdrawalRiskBadge({ withdrawalId, ipAddress }: { withdrawalId: number
 }
 
 function WithdrawalsTab() {
+  const { toast } = useToast();
   const { data: withdrawals, isLoading } = useAdminWithdrawals();
   const { depositRate } = useRates();
   const { mutate: approve, isPending: isApproving } = useAdminApproveWithdrawal();
@@ -2155,7 +2164,7 @@ function WithdrawalsTab() {
                       <div className="flex flex-col gap-1.5">
                         <Button
                           size="sm"
-                          onClick={() => approveAndRelease("withdrawals", w.id, (v) => setReleaseLoadingId(v ? w.id : null), setReceiptUrl)}
+                          onClick={() => approveAndRelease("withdrawals", w.id, (v) => setReleaseLoadingId(v ? w.id : null), setReceiptUrl, (msg) => toast({ title: "Error", description: msg, variant: "destructive" }))}
                           disabled={releaseLoadingId === w.id}
                           className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs"
                           data-testid={`button-approve-release-withdrawal-${w.id}`}
@@ -2202,7 +2211,7 @@ function WithdrawalsTab() {
                         {!w.receiptId && (
                           <Button
                             size="sm"
-                            onClick={() => approveAndRelease("withdrawals", w.id, (v) => setReleaseLoadingId(v ? w.id : null), setReceiptUrl)}
+                            onClick={() => approveAndRelease("withdrawals", w.id, (v) => setReleaseLoadingId(v ? w.id : null), setReceiptUrl, (msg) => toast({ title: "Error", description: msg, variant: "destructive" }))}
                             disabled={releaseLoadingId === w.id}
                             className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs"
                             data-testid={`button-release-receipt-withdrawal-${w.id}`}
