@@ -1195,6 +1195,58 @@ export async function registerRoutes(
       const isFreeze    = lowerEvent.includes("freeze") || lowerEvent.includes("blocked") || lowerEvent.includes("suspend");
       const isKycEvent  = lowerEvent.includes("kyc") || lowerEvent.includes("verification");
 
+      // ── Idempotency guard ────────────────────────────────────────────────
+      // Strowallet delivers the same transaction more than once (authorization
+      // + settlement, plus delivery retries), which previously made admin get
+      // the same Telegram alert several times for a single spend. We record a
+      // stable key for each event and bail out on duplicates so every alert and
+      // user notification fires exactly once per transaction.
+      const providerEventId = String(
+        event.id || event.transaction_id || event.txn_id || event.trans_id ||
+        event.reference || event.ref || event.uuid || event.tx_ref || ""
+      ).trim();
+      // Collapse by transaction OUTCOME, not the raw provider event string, so
+      // that an authorization + settlement for the same spend (both "debit"
+      // events, often with different event strings) produce ONE alert — while a
+      // success and a failure stay distinct (one notification each).
+      const outcomeClass =
+        isNoFunds  ? "nofunds"  :
+        isFailure  ? "failure"  :
+        isDebit    ? "debit"    :
+        isSuccess  ? "success"  :
+        isFreeze   ? "freeze"   :
+        isKycEvent ? "kyc"      : `other:${lowerEvent}`;
+      let dedupKey: string;
+      if (providerEventId) {
+        // Scope by card so provider ids that aren't globally unique can't collide.
+        dedupKey = `${cardId || "?"}:${providerEventId}:${outcomeClass}`;
+      } else {
+        // No stable provider id — collapse rapid duplicate deliveries of the
+        // same logical transaction. Prefer the provider's own event timestamp
+        // (minute precision) and fall back to a coarse 5-minute receive bucket.
+        const evtTs = event.created_at || event.createdAt || event.date || event.timestamp || event.time;
+        const parsed = evtTs ? new Date(evtTs).getTime() : NaN;
+        const bucket = !isNaN(parsed)
+          ? Math.floor(parsed / (60 * 1000))            // minute bucket from provider time
+          : Math.floor(Date.now() / (5 * 60 * 1000));   // 5-min bucket from receive time
+        dedupKey = `${cardId}:${amount}:${merchant}:${outcomeClass}:${bucket}`;
+      }
+      try {
+        const dedupResult = await db.execute(sql`
+          INSERT INTO webhook_dedup (event_key, source)
+          VALUES (${dedupKey}, 'strowallet')
+          ON CONFLICT (event_key) DO NOTHING
+        `);
+        if ((dedupResult.rowCount ?? 0) === 0) {
+          console.log(`[STROWALLET WEBHOOK] Duplicate delivery ignored: ${dedupKey}`);
+          return; // already processed — don't re-notify
+        }
+      } catch (dedupErr) {
+        // Fail open: if the dedup store is unavailable we'd rather risk a
+        // duplicate alert than drop a real transaction notification entirely.
+        console.warn("[STROWALLET WEBHOOK] dedup check failed, proceeding:", (dedupErr as Error).message);
+      }
+
       // ── Choose emoji & header label ──────────────────────────────────────
       let emoji = "🔔";
       let label = "Strowallet Event";

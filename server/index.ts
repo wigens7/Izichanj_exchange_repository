@@ -310,6 +310,23 @@ app.use((req, res, next) => {
     console.warn("[startup migration] nfc_card_transactions.provider_tx_id skipped:", (e as Error).message);
   }
 
+  // Idempotency store for inbound provider webhooks (Strowallet card events).
+  // Strowallet delivers the same transaction more than once (authorization +
+  // settlement, plus delivery retries). We record each event key here so admin
+  // Telegram alerts and user notifications fire exactly once per transaction.
+  try {
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS webhook_dedup (
+        event_key TEXT PRIMARY KEY,
+        source TEXT NOT NULL DEFAULT 'strowallet',
+        created_at TIMESTAMP DEFAULT NOW() NOT NULL
+      )
+    `);
+    console.log("[startup migration] webhook_dedup table ensured");
+  } catch (e) {
+    console.warn("[startup migration] webhook_dedup table skipped:", (e as Error).message);
+  }
+
   // Fix: reset any card marked "active" that still has a pending_ card_id (never really issued)
   try {
     const fixed = await db.execute(sql`
