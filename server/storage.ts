@@ -1,6 +1,6 @@
 import { profiles, deposits, withdrawals, kycDocuments, otps, webauthnCredentials, notifications, supportConversations, supportMessages, supportQuickReplies, virtualCards, blacklistedUsers, kycArchives, p2pTransfers, loginLogs, fraudRejections, cardTransactions, topUpTransactions, securityEvents, balanceLogs, userReports, referralEarnings, referralPayoutRequests, nfcCards, nfcCardTransactions, type Profile, type Deposit, type InsertDeposit, type Withdrawal, type InsertWithdrawal, type KycDocument, type WebAuthnCredential, type Notification, type SupportConversation, type SupportMessage, type SupportQuickReply, type InsertSupportQuickReply, type VirtualCard, type BlacklistedUser, type KycArchive, type P2PTransfer, type LoginLog, type FraudRejection, type CardTransaction, type TopUpTransaction, type SecurityEvent, type BalanceLog, type UserReport, type ReferralEarning, type ReferralPayoutRequest, type NfcCard, type NfcCardTransaction, merchants, merchantTransactions, type Merchant, type MerchantTransaction, payoutRequests, type PayoutRequest, type InsertPayoutRequest } from "@shared/schema";
 import { db } from "./db";
-import { eq, desc, and, ne, lt, sql, or, ilike, inArray } from "drizzle-orm";
+import { eq, desc, and, ne, lt, sql, or, ilike, inArray, isNull } from "drizzle-orm";
 import crypto from "crypto";
 import { sendPushToProfile } from "./fcm";
 
@@ -109,7 +109,10 @@ export interface IStorage {
   createTopUpTransaction(data: { profileId: number; operatorId: string; operatorName: string; phone: string; amountUsd: string; transactionId?: string; status?: string }): Promise<TopUpTransaction>;
   getTopUpTransactions(profileId: number): Promise<TopUpTransaction[]>;
 
-  createP2PTransfer(data: { senderProfileId: number; receiverProfileId: number; amount: string; note?: string; transactionId?: string }): Promise<P2PTransfer>;
+  createP2PTransfer(data: { senderProfileId: number; receiverProfileId: number; amount: string; note?: string; transactionId?: string; receiptId?: string }): Promise<P2PTransfer>;
+  getP2PTransferById(id: number): Promise<P2PTransfer | undefined>;
+  getP2PTransferByReceiptId(receiptId: string): Promise<P2PTransfer | undefined>;
+  setP2PTransferReceipt(id: number, receiptId: string): Promise<P2PTransfer>;
   getP2PTransfers(profileId: number): Promise<P2PTransfer[]>;
 
   getProfileByReferenceId(referenceId: string): Promise<Profile | undefined>;
@@ -882,9 +885,29 @@ export class DatabaseStorage implements IStorage {
     return entry;
   }
 
-  async createP2PTransfer(data: { senderProfileId: number; receiverProfileId: number; amount: string; note?: string; transactionId?: string }): Promise<P2PTransfer> {
+  async createP2PTransfer(data: { senderProfileId: number; receiverProfileId: number; amount: string; note?: string; transactionId?: string; receiptId?: string }): Promise<P2PTransfer> {
     const [transfer] = await db.insert(p2pTransfers).values(data).returning();
     return transfer;
+  }
+
+  async getP2PTransferById(id: number): Promise<P2PTransfer | undefined> {
+    const [transfer] = await db.select().from(p2pTransfers).where(eq(p2pTransfers.id, id));
+    return transfer;
+  }
+
+  async getP2PTransferByReceiptId(receiptId: string): Promise<P2PTransfer | undefined> {
+    const [transfer] = await db.select().from(p2pTransfers).where(eq(p2pTransfers.receiptId, receiptId));
+    return transfer;
+  }
+
+  async setP2PTransferReceipt(id: number, receiptId: string): Promise<P2PTransfer> {
+    const [updated] = await db.update(p2pTransfers)
+      .set({ receiptId })
+      .where(and(eq(p2pTransfers.id, id), isNull(p2pTransfers.receiptId)))
+      .returning();
+    if (updated) return updated;
+    const [existing] = await db.select().from(p2pTransfers).where(eq(p2pTransfers.id, id));
+    return existing;
   }
 
   async getP2PTransfers(profileId: number): Promise<P2PTransfer[]> {

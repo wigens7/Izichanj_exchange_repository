@@ -194,6 +194,7 @@ const translations = {
       noTransfers: "No transfers yet",
       sent: "Sent",
       received: "Received",
+      receipt: "Receipt",
       to: "To",
       from: "From",
       kycRequired: "KYC Required",
@@ -571,6 +572,7 @@ const translations = {
       noTransfers: "Aucun transfert",
       sent: "Envoy\u00e9",
       received: "Re\u00e7u",
+      receipt: "Re\u00e7u PDF",
       to: "\u00c0",
       from: "De",
       kycRequired: "KYC requis",
@@ -948,6 +950,7 @@ const translations = {
       noTransfers: "Pa gen transf\u00e8 ank\u00f2",
       sent: "Voye",
       received: "Resevwa",
+      receipt: "Resi",
       to: "Bay",
       from: "De",
       kycRequired: "KYC obligatwa",
@@ -1148,7 +1151,7 @@ type TranslationSet = {
   deposit: { title: string; subtitle: string; copied: string; copiedDescription: string; methodCrypto: string; methodMoncash: string; npTitle: string; npSubtitle: string; npAmount: string; npCurrency: string; npPayButton: string; npCreating: string; npPaymentCreated: string; npSendToAddress: string; npPayAddress: string; npAmountToSend: string; npYouReceive: string; npWaitingNote: string; npNewPayment: string; npSuccess: string; npSuccessDesc: string; npStatusWaiting: string; npStatusConfirming: string; npStatusConfirmed: string; npStatusFinished: string; npStatusFailed: string; npStatusExpired: string; moncashTitle: string; moncashSubtitle: string; moncashAmount: string; moncashAmountPlaceholder: string; moncashMinimum: string; moncashPayButton: string; moncashComingSoon: string; moncashComingSoonDesc: string; methodNatcash: string; manualWalletLabel: string; manualSendTo: string; manualTxId: string; manualTxIdPlaceholder: string; manualProof: string; manualProofDesc: string; manualProofUploaded: string; manualProofUploading: string; manualSubmitting: string; manualSuccess: string; manualSuccessDesc: string; manualWarning: string; manualUsdtEquiv: string };
   withdraw: { title: string; subtitle: string; securityVerification: string; securityDescription: string; walletType: string; selectWallet: string; amountUsdt: string; htgEquivalent: string; exchangeRate: string; youWillReceive: string; withdrawMethod: string; phoneMethod: string; qrCodeMethod: string; phoneNumber: string; qrCodeUpload: string; qrCodeDescription: string; qrCodeUploaded: string; clickToUploadQr: string; verification: string; sendOtp: string; enterCode: string; codeSent: string; confirmWithdrawal: string; amountError: string; phoneError: string; qrCodeError: string; otpError: string };
   profile: { status: string; joined: string; language: string; selectLanguage: string; kycTitle: string; kycDescription: string; verified: string; verifiedDescription: string; underReview: string; underReviewDescription: string; idFront: string; idBack: string; selfie: string; clickToUpload: string; uploaded: string; uploading: string; submitVerification: string; referenceId?: string; referenceIdDescription?: string; copied?: string; copiedDesc?: string };
-  transfer: { title: string; subtitle: string; recipientLabel: string; recipientPlaceholder: string; lookupButton: string; looking: string; recipientFound: string; amount: string; amountPlaceholder: string; note: string; notePlaceholder: string; yourBalance: string; sendButton: string; sending: string; success: string; successDesc: string; minAmount: string; insufficientBalance: string; userNotFound: string; history: string; noTransfers: string; sent: string; received: string; to: string; from: string; kycRequired: string; kycRequiredDesc: string };
+  transfer: { title: string; subtitle: string; recipientLabel: string; recipientPlaceholder: string; lookupButton: string; looking: string; recipientFound: string; amount: string; amountPlaceholder: string; note: string; notePlaceholder: string; yourBalance: string; sendButton: string; sending: string; success: string; successDesc: string; minAmount: string; insufficientBalance: string; userNotFound: string; history: string; noTransfers: string; sent: string; received: string; receipt: string; to: string; from: string; kycRequired: string; kycRequiredDesc: string };
   security: { title: string; description: string; twoFactorAuth: string; twoFactorDescription: string; twoFactorEnabled: string; twoFactorDisabled: string; enable2FA: string; disable2FA: string; scanQRCode: string; manualKey: string; enterCode: string; verify: string; disableConfirm: string; confirmDisable: string; cancel: string; fingerprint: string; fingerprintDescription: string; registerFingerprint: string; registeredDevices: string; noDevices: string; removeDevice: string; twoFARequired: string; enter2FACode: string; verifyLogin: string; fingerprintLogin: string; pinLogin: string; pinDescription: string; pinEnabled: string; pinDisabledBadge: string; pinActive: string; setupPin: string; changePin: string; removePin: string; enterPin: string; confirmPassword: string; passwordPlaceholder: string; savePin: string; pinSetSuccess: string; pinSetSuccessDesc: string; pinRemoved: string; pinRemovedDesc: string; pinWelcome: string; enterYourPin: string; signInWithPin: string; usePassword: string; forgotPin: string; forgotPinTitle: string; forgotPinSubtitle: string; forgotPinPhone: string; forgotPinSendCode: string; forgotPinCodeSent: string; forgotPinEnterCode: string; forgotPinNewPin: string; forgotPinConfirmPin: string; forgotPinResetButton: string; forgotPinSuccess: string; forgotPinSuccessDesc: string; forgotPinBackToLogin: string };
   kyc: { required: string; depositMessage: string; withdrawMessage: string; goToProfile: string };
   virtualCard: { title: string; subtitle: string; applyTitle: string; applyDescription: string; initialFunding: string; minFunding: string; applyButton: string; applying: string; myCards: string; noCards: string; cardBalance: string; fundCard: string; freezeCard: string; unfreezeCard: string; viewDetails: string; transactions: string; fundAmount: string; fundButton: string; funding: string; cardNumber: string; expiry: string; cvv: string; noTransactions: string; kycRequired: string; kycRequiredDesc: string; cardCreated: string; cardFunded: string; frozen: string; active: string; cardCost: string; yourBalance: string; insufficientBalance: string; maintenanceTitle: string; maintenanceDesc: string };

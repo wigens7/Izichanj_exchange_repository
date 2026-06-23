@@ -186,6 +186,7 @@ export const p2pTransfers = pgTable("p2p_transfers", {
   receiverProfileId: integer("receiver_profile_id").references(() => profiles.id).notNull(),
   amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
   note: text("note"),
+  receiptId: text("receipt_id").unique(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 

@@ -37,7 +37,7 @@ function computeDepositFeeAndNet(deposit: { amountUsdt: string | number; payCurr
   const net = Math.max(0, total - fee);
   return { fee, net };
 }
-import { generateReceiptPDF, generateAdjustmentReceiptPDF, generateCardStatementPDF, type CardStatementTxn } from "./receipt";
+import { generateReceiptPDF, generateAdjustmentReceiptPDF, generateCardStatementPDF, generateTransferReceiptPDF, type CardStatementTxn } from "./receipt";
 import * as paypalModule from "./paypal";
 import { ensureKycImageSize } from "./image-compress";
 import { deposits, profiles, virtualCards, nfcCards, nfcCardTransactions } from "@shared/schema";
@@ -3145,6 +3145,35 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 
+  app.get("/api/receipts/transfer/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const profileId = req.session.profileId;
+      const transfer = await storage.getP2PTransferById(Number(req.params.id));
+      if (!transfer) return res.status(404).json({ message: "Not found" });
+      if (transfer.senderProfileId !== profileId && transfer.receiverProfileId !== profileId) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+      let rid = transfer.receiptId;
+      if (!rid) { rid = crypto.randomUUID(); await storage.setP2PTransferReceipt(transfer.id, rid); }
+      const sender = await storage.getProfile(transfer.senderProfileId);
+      const recipient = await storage.getProfile(transfer.receiverProfileId);
+      const pdfBuffer = await generateTransferReceiptPDF({
+        receiptId: rid,
+        transactionId: transfer.transactionId || `IZ${String(transfer.id).padStart(10, "0")}`,
+        createdAt: transfer.createdAt,
+        amount: parseFloat(transfer.amount),
+        fee: 0,
+        senderName: sender?.fullName || "Unknown",
+        recipientName: recipient?.fullName || "Unknown",
+        network: "Izichanj Internal (Off-chain)",
+        status: "Completed",
+        note: transfer.note,
+      });
+      res.set({ "Content-Type": "application/pdf", "Content-Disposition": `inline; filename="izichanj-transfer-${rid.slice(0, 8)}.pdf"` });
+      res.send(pdfBuffer);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
   // ── Receipt: Public Verification ──────────────────────────────────────────
 
   app.get("/api/verify/:receiptId", async (req, res) => {
@@ -3176,6 +3205,22 @@ export async function registerRoutes(
           currency: w.currency,
           createdAt: w.createdAt,
           userName: prof?.fullName?.split(" ")[0] || "User",
+        });
+      }
+      const transfer = await storage.getP2PTransferByReceiptId(receiptId);
+      if (transfer) {
+        const sender = await storage.getProfile(transfer.senderProfileId);
+        const recipient = await storage.getProfile(transfer.receiverProfileId);
+        return res.json({
+          found: true,
+          type: "transfer",
+          receiptId,
+          status: "Completed",
+          amount: transfer.amount,
+          createdAt: transfer.createdAt,
+          userName: sender?.fullName?.split(" ")[0] || "User",
+          recipientName: recipient?.fullName?.split(" ")[0] || "User",
+          network: "Izichanj Internal",
         });
       }
       res.json({ found: false });
@@ -5124,6 +5169,7 @@ export async function registerRoutes(
       const mi = String(now.getMinutes()).padStart(2, "0");
       const ss = String(now.getSeconds()).padStart(2, "0");
       const txId = `IZ${dd}${mm}${yyyy}${hh}${mi}${ss}`;
+      const receiptId = crypto.randomUUID();
 
       const transfer = await storage.createP2PTransfer({
         senderProfileId: profile.id,
@@ -5131,6 +5177,7 @@ export async function registerRoutes(
         amount: sendAmount.toFixed(2),
         note: note || undefined,
         transactionId: txId,
+        receiptId,
       });
       const receiverBalBefore = parseFloat(recipient.balance);
       storage.createBalanceLog({ profileId: profile.id, previousBalance: senderBalanceBefore, newBalance: newSenderBalance, change: -sendAmount, action: "p2p_send", referenceId: String(transfer.id) }).catch(() => {});

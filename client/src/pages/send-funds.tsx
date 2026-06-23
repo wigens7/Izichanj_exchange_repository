@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, Search, Send, ArrowUpRight, ArrowDownLeft, ShieldAlert, CheckCircle2, User } from "lucide-react";
+import { Loader2, Search, Send, ArrowUpRight, ArrowDownLeft, ShieldAlert, CheckCircle2, User, FileText } from "lucide-react";
 
 interface RecipientInfo {
   id: number;
@@ -28,6 +28,8 @@ interface TransferRecord {
   amount: string;
   note: string | null;
   createdAt: string;
+  transactionId: string | null;
+  receiptId: string | null;
   senderName: string;
   receiverName: string;
   direction: "sent" | "received";
@@ -311,6 +313,22 @@ export default function SendFundsPage() {
                     <p className="text-[11px] text-muted-foreground">
                       {formatDate(tr.createdAt)}
                     </p>
+                    <a
+                      href={`/api/receipts/transfer/${tr.id}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      title={t.transfer.receipt}
+                      data-testid={`button-transfer-receipt-${tr.id}`}
+                    >
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 px-2 mt-1.5 gap-1 text-[11px] border-indigo-500/40 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/40"
+                      >
+                        <FileText className="w-3 h-3" />
+                        {t.transfer.receipt}
+                      </Button>
+                    </a>
                   </div>
                 </div>
               ))}

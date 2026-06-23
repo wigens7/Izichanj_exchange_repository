@@ -67,12 +67,16 @@ export default function VerifyReceiptPage() {
 
                 {/* Transaction type */}
                 <div className="flex items-center gap-2 pt-1">
-                  <div className={`w-8 h-8 rounded-md flex items-center justify-center flex-shrink-0 ${data.type === "deposit" ? "bg-emerald-500/10 text-emerald-400" : "bg-amber-500/10 text-amber-400"}`}>
+                  <div className={`w-8 h-8 rounded-md flex items-center justify-center flex-shrink-0 ${data.type === "deposit" ? "bg-emerald-500/10 text-emerald-400" : data.type === "transfer" ? "bg-indigo-500/10 text-indigo-400" : "bg-amber-500/10 text-amber-400"}`}>
                     {data.type === "deposit" ? <ArrowDownLeft className="w-4 h-4" /> : <ArrowUpRight className="w-4 h-4" />}
                   </div>
                   <div>
                     <p className="text-sm font-semibold text-white capitalize">
-                      {data.type === "deposit" ? `USDT Deposit${data.network ? ` (${data.network})` : ""}` : `${data.currency} Withdrawal`}
+                      {data.type === "deposit"
+                        ? `USDT Deposit${data.network ? ` (${data.network})` : ""}`
+                        : data.type === "transfer"
+                        ? "P2P Transfer (Send Funds)"
+                        : `${data.currency} Withdrawal`}
                     </p>
                     <p className="text-xs text-slate-500">
                       {data.createdAt ? formatDateTimeFull(data.createdAt) : "N/A"}
@@ -83,10 +87,11 @@ export default function VerifyReceiptPage() {
                 {/* Details */}
                 <div className="divide-y divide-slate-800 rounded-lg border border-slate-800 overflow-hidden">
                   {[
-                    ["Type", data.type === "deposit" ? "Crypto Deposit" : "Mobile Money Withdrawal"],
-                    ["Amount", data.type === "deposit" ? `${Number(data.amountUsdt).toFixed(2)} USDT` : `${Number(data.amount).toFixed(2)} USDT`],
+                    ["Type", data.type === "deposit" ? "Crypto Deposit" : data.type === "transfer" ? "P2P Transfer" : "Mobile Money Withdrawal"],
+                    ["Amount", `${Number(data.type === "deposit" ? data.amountUsdt : data.amount).toFixed(2)} USDT`],
                     ["Status", data.status],
-                    ["Account Holder", data.userName || "—"],
+                    [data.type === "transfer" ? "Sender" : "Account Holder", data.userName || "—"],
+                    ...(data.type === "transfer" ? [["Recipient", data.recipientName || "—"]] : []),
                     ["Receipt ID", receiptId?.slice(0, 16) + "..."],
                   ].map(([label, value], i) => (
                     <div key={i} className="flex items-center justify-between px-4 py-2.5 bg-slate-900/40">

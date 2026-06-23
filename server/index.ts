@@ -151,6 +151,15 @@ app.use((req, res, next) => {
     console.warn("[startup migration] pending contact columns skipped:", (e as Error).message);
   }
 
+  // P2P transfer receipts: store a unique receipt id generated at send time
+  try {
+    await db.execute(sql`ALTER TABLE p2p_transfers ADD COLUMN IF NOT EXISTS receipt_id TEXT`);
+    await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS p2p_transfers_receipt_id_unique ON p2p_transfers(receipt_id) WHERE receipt_id IS NOT NULL`);
+    console.log("[startup migration] p2p_transfers receipt_id column ensured");
+  } catch (e) {
+    console.warn("[startup migration] p2p_transfers receipt_id column skipped:", (e as Error).message);
+  }
+
   // Add last_activity column — presence/online indicator (heartbeat from auth middleware)
   try {
     await db.execute(sql`ALTER TABLE profiles ADD COLUMN IF NOT EXISTS last_activity TIMESTAMP`);
