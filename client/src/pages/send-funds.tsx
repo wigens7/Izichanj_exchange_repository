@@ -12,7 +12,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, Search, Send, ArrowUpRight, ArrowDownLeft, ShieldAlert, CheckCircle2, User, FileText } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Loader2, Search, Send, ArrowUpRight, ArrowDownLeft, ShieldAlert, CheckCircle2, User, Receipt } from "lucide-react";
 
 interface RecipientInfo {
   id: number;
@@ -45,6 +46,7 @@ export default function SendFundsPage() {
   const [recipient, setRecipient] = useState<RecipientInfo | null>(null);
   const [amount, setAmount] = useState("");
   const [note, setNote] = useState("");
+  const [receiptTr, setReceiptTr] = useState<TransferRecord | null>(null);
 
   const { data: transfers = [], isLoading: loadingHistory } = useQuery<TransferRecord[]>({
     queryKey: ["/api/transfers"],
@@ -313,22 +315,17 @@ export default function SendFundsPage() {
                     <p className="text-[11px] text-muted-foreground">
                       {formatDate(tr.createdAt)}
                     </p>
-                    <a
-                      href={`/api/receipts/transfer/${tr.id}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setReceiptTr(tr)}
                       title={t.transfer.receipt}
                       data-testid={`button-transfer-receipt-${tr.id}`}
+                      className="h-7 px-2 mt-1.5 gap-1 text-[11px] border-indigo-500/40 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/40"
                     >
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="h-7 px-2 mt-1.5 gap-1 text-[11px] border-indigo-500/40 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/40"
-                      >
-                        <FileText className="w-3 h-3" />
-                        {t.transfer.receipt}
-                      </Button>
-                    </a>
+                      <Receipt className="w-3 h-3" />
+                      {t.transfer.receipt}
+                    </Button>
                   </div>
                 </div>
               ))}
@@ -336,6 +333,61 @@ export default function SendFundsPage() {
           )}
         </CardContent>
       </Card>
+
+      <Dialog open={receiptTr !== null} onOpenChange={(o) => !o && setReceiptTr(null)}>
+        <DialogContent className="max-w-sm" data-testid="dialog-transfer-receipt">
+          <DialogHeader>
+            <DialogTitle className="sr-only">{t.transfer.receipt}</DialogTitle>
+          </DialogHeader>
+          {receiptTr && (
+            <div className="space-y-5">
+              <div className="flex flex-col items-center text-center gap-2 pt-1">
+                <div className="w-14 h-14 rounded-full bg-emerald-500/10 flex items-center justify-center">
+                  <CheckCircle2 className="w-8 h-8 text-emerald-500" />
+                </div>
+                <p className={`text-2xl font-bold ${
+                  receiptTr.direction === "sent"
+                    ? "text-red-600 dark:text-red-400"
+                    : "text-emerald-600 dark:text-emerald-400"
+                }`} data-testid="text-receipt-amount">
+                  {receiptTr.direction === "sent" ? "-" : "+"}{formatUsdt(parseFloat(receiptTr.amount))} USDT
+                </p>
+                <Badge className="bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/15">
+                  {t.transfer.completed}
+                </Badge>
+              </div>
+
+              <div className="divide-y divide-border rounded-lg border border-border overflow-hidden">
+                {([
+                  [t.transfer.receiptType, t.transfer.p2pTransfer],
+                  [t.transfer.amount, `${formatUsdt(parseFloat(receiptTr.amount))} USDT`],
+                  [t.transfer.fee, "0.00 USDT"],
+                  [t.transfer.sender, receiptTr.senderName],
+                  [t.transfer.recipient, receiptTr.receiverName],
+                  [t.transfer.network, "Izichanj Internal"],
+                  ...(receiptTr.note ? [[t.transfer.note, receiptTr.note]] : []),
+                  [t.transfer.date, formatDate(receiptTr.createdAt)],
+                  ["ID", receiptTr.transactionId || `IZ${String(receiptTr.id).padStart(10, "0")}`],
+                ] as [string, string][]).map(([label, value], i) => (
+                  <div key={i} className="flex items-start justify-between gap-3 px-3 py-2.5 text-sm">
+                    <span className="text-muted-foreground shrink-0">{label}</span>
+                    <span className="font-medium text-right break-all" data-testid={`text-receipt-${i}`}>{value}</span>
+                  </div>
+                ))}
+              </div>
+
+              <Button
+                variant="outline"
+                className="w-full"
+                onClick={() => setReceiptTr(null)}
+                data-testid="button-close-receipt"
+              >
+                {t.transfer.close}
+              </Button>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -23,7 +23,7 @@ import { Separator } from "@/components/ui/separator";
 import {
   Nfc, Smartphone, Plus, DollarSign, Loader2, Eye, EyeOff, Copy, CheckCircle,
   ArrowDownLeft, ArrowUpRight, Clock, ShieldCheck, RefreshCw, Sparkles, Wallet,
-  AlertTriangle, Lock, ShieldAlert,
+  AlertTriangle, ShieldAlert,
 } from "lucide-react";
 import { SiApplepay, SiGooglepay } from "react-icons/si";
 import { formatDateTime } from "@/lib/dateUtils";
@@ -64,10 +64,6 @@ export default function NfcCardsPage() {
   const missingFields = readiness?.missingFields ?? [];
 
   const [revealId, setRevealId] = useState<number | null>(null);
-  // Password unlock gate before showing card details.
-  const [unlockId, setUnlockId] = useState<number | null>(null);
-  const [unlockPassword, setUnlockPassword] = useState("");
-  const [showUnlockPw, setShowUnlockPw] = useState(false);
   // Best-effort screenshot mitigation: hide sensitive values when the
   // page loses focus (Android often hides web content briefly during a screenshot).
   const [hideSensitive, setHideSensitive] = useState(false);
@@ -373,7 +369,7 @@ export default function NfcCardsPage() {
                     variant="outline"
                     size="sm"
                     disabled={card.status !== "active"}
-                    onClick={() => { setUnlockId(card.id); setUnlockPassword(""); setShowUnlockPw(false); }}
+                    onClick={() => setRevealId(card.id)}
                     data-testid={`button-nfc-reveal-${card.id}`}
                   >
                     <Eye className="w-4 h-4 mr-1" /> View
@@ -462,62 +458,6 @@ export default function NfcCardsPage() {
               {createMut.isPending ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Issuing…</> : <>Pay ${NFC_CARD_TOTAL_PRICE_USD.toFixed(2)}</>}
             </Button>
           </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* UNLOCK dialog — verify login password before revealing card details */}
-      <Dialog open={unlockId !== null} onOpenChange={(o) => { if (!o) { setUnlockId(null); setUnlockPassword(""); } }}>
-        <DialogContent data-testid="dialog-nfc-unlock">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2"><Lock className="w-4 h-4" /> Confirm your identity</DialogTitle>
-            <DialogDescription>Enter your account password to view sensitive card details.</DialogDescription>
-          </DialogHeader>
-          <form
-            onSubmit={async (e) => {
-              e.preventDefault();
-              if (unlockId == null || !unlockPassword) return;
-              try {
-                const r = await apiRequest("POST", `/api/nfc-cards/${unlockId}/unlock-details`, { password: unlockPassword });
-                const data = await r.json().catch(() => ({}));
-                if (!r.ok || !data?.ok) {
-                  toast({ title: "Incorrect password", description: data?.message || "Please try again.", variant: "destructive" });
-                  return;
-                }
-                const id = unlockId;
-                setUnlockId(null);
-                setUnlockPassword("");
-                setRevealId(id);
-              } catch (err: any) {
-                toast({ title: "Incorrect password", description: err?.message || "Please try again.", variant: "destructive" });
-              }
-            }}
-            className="space-y-3"
-          >
-            <div className="space-y-1.5">
-              <div className="flex items-center justify-between">
-                <Label>Password</Label>
-                <button type="button" className="text-xs text-indigo-600 dark:text-indigo-300 hover:underline" onClick={() => setShowUnlockPw((s) => !s)} data-testid="button-toggle-unlock-pw">
-                  {showUnlockPw ? "Hide" : "Show"}
-                </button>
-              </div>
-              <Input
-                type={showUnlockPw ? "text" : "password"}
-                value={unlockPassword}
-                onChange={(e) => setUnlockPassword(e.target.value)}
-                placeholder="Your account password"
-                autoFocus
-                autoComplete="current-password"
-                data-testid="input-nfc-unlock-password"
-              />
-              <p className="text-xs text-muted-foreground">Same password you use to log in.</p>
-            </div>
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => { setUnlockId(null); setUnlockPassword(""); }} data-testid="button-cancel-nfc-unlock">Cancel</Button>
-              <Button type="submit" disabled={!unlockPassword} className="bg-gradient-to-r from-indigo-600 to-purple-600 text-white" data-testid="button-confirm-nfc-unlock">
-                Unlock
-              </Button>
-            </DialogFooter>
-          </form>
         </DialogContent>
       </Dialog>
 

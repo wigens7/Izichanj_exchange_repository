@@ -37,7 +37,7 @@ function computeDepositFeeAndNet(deposit: { amountUsdt: string | number; payCurr
   const net = Math.max(0, total - fee);
   return { fee, net };
 }
-import { generateReceiptPDF, generateAdjustmentReceiptPDF, generateCardStatementPDF, generateTransferReceiptPDF, type CardStatementTxn } from "./receipt";
+import { generateReceiptPDF, generateAdjustmentReceiptPDF, generateCardStatementPDF, type CardStatementTxn } from "./receipt";
 import * as paypalModule from "./paypal";
 import { ensureKycImageSize } from "./image-compress";
 import { deposits, profiles, virtualCards, nfcCards, nfcCardTransactions } from "@shared/schema";
@@ -3141,35 +3141,6 @@ export async function registerRoutes(
       const data = await buildReceiptData("withdrawal", w, prof);
       const pdfBuffer = await generateReceiptPDF({ ...data, receiptId: w.receiptId });
       res.set({ "Content-Type": "application/pdf", "Content-Disposition": `inline; filename="izichanj-receipt-${w.receiptId.slice(0, 8)}.pdf"` });
-      res.send(pdfBuffer);
-    } catch (e: any) { res.status(500).json({ message: e.message }); }
-  });
-
-  app.get("/api/receipts/transfer/:id", isAuthenticated, async (req: any, res) => {
-    try {
-      const profileId = req.session.profileId;
-      const transfer = await storage.getP2PTransferById(Number(req.params.id));
-      if (!transfer) return res.status(404).json({ message: "Not found" });
-      if (transfer.senderProfileId !== profileId && transfer.receiverProfileId !== profileId) {
-        return res.status(403).json({ message: "Forbidden" });
-      }
-      let rid = transfer.receiptId;
-      if (!rid) { rid = crypto.randomUUID(); await storage.setP2PTransferReceipt(transfer.id, rid); }
-      const sender = await storage.getProfile(transfer.senderProfileId);
-      const recipient = await storage.getProfile(transfer.receiverProfileId);
-      const pdfBuffer = await generateTransferReceiptPDF({
-        receiptId: rid,
-        transactionId: transfer.transactionId || `IZ${String(transfer.id).padStart(10, "0")}`,
-        createdAt: transfer.createdAt,
-        amount: parseFloat(transfer.amount),
-        fee: 0,
-        senderName: sender?.fullName || "Unknown",
-        recipientName: recipient?.fullName || "Unknown",
-        network: "Izichanj Internal (Off-chain)",
-        status: "Completed",
-        note: transfer.note,
-      });
-      res.set({ "Content-Type": "application/pdf", "Content-Disposition": `inline; filename="izichanj-transfer-${rid.slice(0, 8)}.pdf"` });
       res.send(pdfBuffer);
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
@@ -7028,33 +6999,6 @@ export async function registerRoutes(
         });
       }
       res.status(500).json({ message: e.message || "Internal Error" });
-    }
-  });
-
-  // Verify the user's login password before revealing sensitive NFC card details.
-  // Reuses the same password used to log in — no separate PIN to set up.
-  app.post("/api/nfc-cards/:id/unlock-details", isAuthenticated, async (req: any, res) => {
-    try {
-      const profile = await getProfileFromReq(req);
-      if (!profile) return res.status(401).json({ message: "Unauthorized" });
-      const card = await storage.getNfcCard(Number(req.params.id), profile.id);
-      if (!card) return res.status(404).json({ message: "NFC card not found" });
-
-      const { password } = req.body || {};
-      if (typeof password !== "string" || password.length === 0) {
-        return res.status(400).json({ message: "Password is required" });
-      }
-      if (!profile.passwordHash) {
-        return res.status(400).json({ message: "Account password not set" });
-      }
-      const ok = await bcrypt.compare(password, profile.passwordHash);
-      if (!ok) {
-        return res.status(401).json({ message: "Incorrect password" });
-      }
-      res.json({ ok: true });
-    } catch (e: any) {
-      console.error("[NFC unlock-details]", e);
-      res.status(500).json({ message: "Internal Error" });
     }
   });
 
