@@ -8239,6 +8239,223 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 
+  // GET /api/admin/transaction-lookup?q=<id|reference|receipt> — admin-only unified transaction search
+  // Searches across deposits, withdrawals, P2P transfers, P2P market trades, virtual card txns,
+  // and Izichanj Pay (merchant) payments. Returns a normalized list with full details per type.
+  app.get("/api/admin/transaction-lookup", isAuthenticated, isAdmin, async (req: any, res) => {
+    try {
+      const q = String(req.query.q ?? "").trim();
+      if (!q) return res.status(400).json({ message: "Search value is required" });
+      const numericId = /^\d+$/.test(q) ? Number(q) : null;
+      const fmtNum = (v: any) => (v === null || v === undefined ? null : Number(v));
+      const results: any[] = [];
+
+      // ── Deposits ──────────────────────────────────────────────
+      const dep = await db.execute(sql`
+        SELECT d.id, d.amount_usdt, d.amount_htg, d.deposit_method, d.tx_hash, d.moncash_transaction_id,
+               d.nowpayments_payment_id, d.paypal_order_id, d.pay_currency, d.status, d.receipt_id, d.created_at,
+               p.full_name, p.email, p.reference_id, p.phone
+        FROM deposits d JOIN profiles p ON p.id = d.profile_id
+        WHERE (${numericId}::int IS NOT NULL AND d.id = ${numericId}::int)
+           OR LOWER(d.receipt_id) = LOWER(${q})
+           OR LOWER(d.tx_hash) = LOWER(${q})
+           OR LOWER(d.moncash_transaction_id) = LOWER(${q})
+           OR LOWER(d.nowpayments_payment_id) = LOWER(${q})
+           OR LOWER(d.paypal_order_id) = LOWER(${q})
+        ORDER BY d.created_at DESC LIMIT 25
+      `);
+      for (const r of dep.rows as any[]) {
+        results.push({
+          type: "deposit", typeLabel: "Deposit", id: r.id,
+          reference: r.receipt_id || null, status: r.status,
+          primaryAmount: fmtNum(r.amount_usdt), primaryCurrency: "USDT",
+          localAmount: fmtNum(r.amount_htg), localCurrency: "HTG",
+          createdAt: r.created_at,
+          parties: [{ role: "User", name: r.full_name, email: r.email, phone: r.phone, ref: r.reference_id }],
+          details: [
+            { label: "Method", value: r.deposit_method },
+            { label: "Receipt ID", value: r.receipt_id },
+            { label: "Tx Hash", value: r.tx_hash },
+            { label: "MonCash Txn ID", value: r.moncash_transaction_id },
+            { label: "NOWPayments ID", value: r.nowpayments_payment_id },
+            { label: "PayPal Order ID", value: r.paypal_order_id },
+          ],
+          timeline: [{ label: "Created", value: r.created_at }],
+        });
+      }
+
+      // ── Withdrawals ───────────────────────────────────────────
+      const wd = await db.execute(sql`
+        SELECT w.id, w.amount, w.fee, w.trc_address, w.currency, w.withdraw_method, w.phone_number,
+               w.status, w.receipt_id, w.created_at,
+               p.full_name, p.email, p.reference_id, p.phone
+        FROM withdrawals w JOIN profiles p ON p.id = w.profile_id
+        WHERE (${numericId}::int IS NOT NULL AND w.id = ${numericId}::int)
+           OR LOWER(w.receipt_id) = LOWER(${q})
+        ORDER BY w.created_at DESC LIMIT 25
+      `);
+      for (const r of wd.rows as any[]) {
+        results.push({
+          type: "withdrawal", typeLabel: "Withdrawal", id: r.id,
+          reference: r.receipt_id || null, status: r.status,
+          primaryAmount: fmtNum(r.amount), primaryCurrency: "USDT", createdAt: r.created_at,
+          parties: [{ role: "User", name: r.full_name, email: r.email, phone: r.phone, ref: r.reference_id }],
+          details: [
+            { label: "Method", value: r.withdraw_method },
+            { label: "Fee", value: r.fee != null ? `${Number(r.fee).toFixed(2)} USDT` : null },
+            { label: "TRC-20 Address", value: r.trc_address },
+            { label: "Phone", value: r.phone_number },
+            { label: "Receipt ID", value: r.receipt_id },
+          ],
+          timeline: [{ label: "Created", value: r.created_at }],
+        });
+      }
+
+      // ── P2P transfers (user-to-user USDT) ─────────────────────
+      const tr = await db.execute(sql`
+        SELECT t.id, t.transaction_id, t.amount, t.note, t.receipt_id, t.created_at,
+               s.full_name AS sender_name, s.email AS sender_email, s.reference_id AS sender_ref, s.phone AS sender_phone,
+               rc.full_name AS receiver_name, rc.email AS receiver_email, rc.reference_id AS receiver_ref, rc.phone AS receiver_phone
+        FROM p2p_transfers t
+        JOIN profiles s ON s.id = t.sender_profile_id
+        JOIN profiles rc ON rc.id = t.receiver_profile_id
+        WHERE (${numericId}::int IS NOT NULL AND t.id = ${numericId}::int)
+           OR LOWER(t.transaction_id) = LOWER(${q})
+           OR LOWER(t.receipt_id) = LOWER(${q})
+        ORDER BY t.created_at DESC LIMIT 25
+      `);
+      for (const r of tr.rows as any[]) {
+        results.push({
+          type: "p2p_transfer", typeLabel: "P2P Transfer", id: r.id,
+          reference: r.transaction_id || r.receipt_id || null, status: "completed",
+          primaryAmount: fmtNum(r.amount), primaryCurrency: "USDT", createdAt: r.created_at,
+          parties: [
+            { role: "Sender", name: r.sender_name, email: r.sender_email, phone: r.sender_phone, ref: r.sender_ref },
+            { role: "Receiver", name: r.receiver_name, email: r.receiver_email, phone: r.receiver_phone, ref: r.receiver_ref },
+          ],
+          details: [
+            { label: "Order ID", value: r.transaction_id },
+            { label: "Receipt ID", value: r.receipt_id },
+            { label: "Note", value: r.note },
+          ],
+          timeline: [{ label: "Sent", value: r.created_at }],
+        });
+      }
+
+      // ── P2P market trades (escrow) ────────────────────────────
+      const tradeRows = await db.execute(sql`
+        SELECT o.id, o.order_id, o.status, o.amount_usdt, o.amount_local, o.rate, o.currency,
+               o.payment_method, o.cancelled_by, o.cancellation_reason, o.dispute_reason,
+               o.paid_at, o.released_at, o.cancelled_at, o.created_at,
+               s.full_name AS seller_name, s.p2p_merchant_name AS seller_merchant, s.email AS seller_email, s.reference_id AS seller_ref, s.phone AS seller_phone,
+               b.full_name AS buyer_name, b.p2p_merchant_name AS buyer_merchant, b.email AS buyer_email, b.reference_id AS buyer_ref, b.phone AS buyer_phone
+        FROM p2p_orders o
+        JOIN profiles s ON s.id = o.seller_id
+        JOIN profiles b ON b.id = o.buyer_id
+        WHERE (${numericId}::int IS NOT NULL AND o.id = ${numericId}::int)
+           OR LOWER(o.order_id) = LOWER(${q})
+        ORDER BY o.created_at DESC LIMIT 25
+      `);
+      for (const r of tradeRows.rows as any[]) {
+        results.push({
+          type: "p2p_trade", typeLabel: "P2P Market Trade", id: r.id,
+          reference: r.order_id || null, status: r.status,
+          primaryAmount: fmtNum(r.amount_usdt), primaryCurrency: "USDT",
+          localAmount: fmtNum(r.amount_local), localCurrency: r.currency, rate: fmtNum(r.rate),
+          createdAt: r.created_at,
+          parties: [
+            { role: "Seller", name: r.seller_name, merchant: r.seller_merchant, email: r.seller_email, phone: r.seller_phone, ref: r.seller_ref },
+            { role: "Buyer", name: r.buyer_name, merchant: r.buyer_merchant, email: r.buyer_email, phone: r.buyer_phone, ref: r.buyer_ref },
+          ],
+          details: [
+            { label: "Order ID", value: r.order_id },
+            { label: "Local Amount", value: `${Number(r.amount_local).toLocaleString()} ${r.currency} @ ${Number(r.rate).toFixed(2)}` },
+            { label: "Payment Method", value: r.payment_method },
+            { label: "Cancelled By", value: r.cancelled_by },
+            { label: "Cancellation Reason", value: r.cancellation_reason },
+            { label: "Dispute Reason", value: r.dispute_reason },
+          ],
+          timeline: [
+            { label: "Created", value: r.created_at },
+            { label: "Buyer marked Paid", value: r.paid_at },
+            { label: "Seller Released", value: r.released_at },
+            { label: "Cancelled", value: r.cancelled_at },
+          ],
+        });
+      }
+
+      // ── Virtual card transactions ─────────────────────────────
+      const card = await db.execute(sql`
+        SELECT c.id, c.type, c.amount, c.currency, c.description, c.created_at,
+               vc.last4, vc.name_on_card, vc.brand,
+               p.full_name, p.email, p.reference_id, p.phone
+        FROM card_transactions c
+        JOIN virtual_cards vc ON vc.id = c.card_id
+        JOIN profiles p ON p.id = c.profile_id
+        WHERE (${numericId}::int IS NOT NULL AND c.id = ${numericId}::int)
+        ORDER BY c.created_at DESC LIMIT 25
+      `);
+      for (const r of card.rows as any[]) {
+        results.push({
+          type: "card", typeLabel: "Virtual Card Transaction", id: r.id,
+          reference: r.last4 ? `•••• ${r.last4}` : null, status: "completed",
+          primaryAmount: fmtNum(r.amount), primaryCurrency: r.currency || "USD", createdAt: r.created_at,
+          parties: [{ role: "Cardholder", name: r.name_on_card || r.full_name, email: r.email, phone: r.phone, ref: r.reference_id }],
+          details: [
+            { label: "Type", value: r.type },
+            { label: "Card", value: r.last4 ? `${r.brand || "Visa"} •••• ${r.last4}` : null },
+            { label: "Description", value: r.description },
+          ],
+          timeline: [{ label: "Created", value: r.created_at }],
+        });
+      }
+
+      // ── Izichanj Pay (merchant) payments ──────────────────────
+      const mt = await db.execute(sql`
+        SELECT m.id, m.payment_id, m.order_id, m.amount, m.currency, m.amount_usdt, m.amount_htg,
+               m.fee_usdt, m.net_usdt, m.exchange_rate, m.status, m.description, m.paid_at, m.created_at,
+               mer.business_name,
+               payer.full_name AS payer_name, payer.email AS payer_email, payer.reference_id AS payer_ref, payer.phone AS payer_phone
+        FROM merchant_transactions m
+        JOIN merchants mer ON mer.id = m.merchant_id
+        LEFT JOIN profiles payer ON payer.id = m.payer_profile_id
+        WHERE (${numericId}::int IS NOT NULL AND m.id = ${numericId}::int)
+           OR LOWER(m.payment_id) = LOWER(${q})
+           OR LOWER(m.order_id) = LOWER(${q})
+        ORDER BY m.created_at DESC LIMIT 25
+      `);
+      for (const r of mt.rows as any[]) {
+        results.push({
+          type: "merchant", typeLabel: "Izichanj Pay Payment", id: r.id,
+          reference: r.payment_id || r.order_id || null, status: r.status,
+          primaryAmount: fmtNum(r.amount), primaryCurrency: r.currency,
+          localAmount: r.currency === "HTG" ? null : fmtNum(r.amount_htg), localCurrency: "HTG",
+          createdAt: r.created_at,
+          parties: [
+            { role: "Merchant", name: r.business_name },
+            ...(r.payer_name ? [{ role: "Payer", name: r.payer_name, email: r.payer_email, phone: r.payer_phone, ref: r.payer_ref }] : []),
+          ],
+          details: [
+            { label: "Payment ID", value: r.payment_id },
+            { label: "Merchant Order ID", value: r.order_id },
+            { label: "Gross", value: `${Number(r.amount).toFixed(2)} ${r.currency}` },
+            { label: "Fee", value: r.fee_usdt != null ? `${Number(r.fee_usdt).toFixed(2)} USDT` : null },
+            { label: "Net", value: r.net_usdt != null ? `${Number(r.net_usdt).toFixed(2)} USDT` : null },
+            { label: "Exchange Rate", value: r.exchange_rate },
+            { label: "Description", value: r.description },
+          ],
+          timeline: [
+            { label: "Created", value: r.created_at },
+            { label: "Paid", value: r.paid_at },
+          ],
+        });
+      }
+
+      results.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      res.json(results);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
   // POST /api/admin/p2p/disputes/:id/resolve — release to buyer OR refund to seller
   app.post("/api/admin/p2p/disputes/:id/resolve", isAuthenticated, isAdmin, async (req: any, res) => {
     const adminId = req.session.profileId;

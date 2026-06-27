@@ -195,8 +195,8 @@ export default function AdminPage() {
               <span>Disputes</span>
             </TabsTrigger>
             <TabsTrigger value="p2p-trades" className="flex-col items-center gap-1 shrink-0 min-w-[60px] h-auto py-2.5 px-2 text-[10px] font-medium" data-testid="tab-admin-p2p-trades">
-              <ArrowRightLeft className="w-5 h-5" />
-              <span>Trades</span>
+              <Search className="w-5 h-5" />
+              <span>Lookup</span>
             </TabsTrigger>
             <TabsTrigger value="canalplus" className="flex-col items-center gap-1 shrink-0 min-w-[60px] h-auto py-2.5 px-2 text-[10px] font-medium" data-testid="tab-admin-canalplus">
               <Tv className="w-5 h-5" />
@@ -260,7 +260,7 @@ export default function AdminPage() {
           <P2PDisputesTab key="p2p-disputes" />
         </TabsContent>
         <TabsContent value="p2p-trades">
-          <P2PTradeLookupTab key="p2p-trades" />
+          <TransactionLookupTab key="p2p-trades" />
         </TabsContent>
         <TabsContent value="canalplus">
           <CanalplusTab />
@@ -5359,19 +5359,19 @@ function ReferralPayoutsTab() {
   );
 }
 
-// ─── P2P Trade Lookup (admin-only investigation by Trade ID) ─────────────────
-function P2PTradeLookupTab() {
+// ─── Transaction Lookup (admin-only unified search across all transaction types) ─────────────────
+function TransactionLookupTab() {
   const { toast } = useToast();
   const [input, setInput] = useState("");
   const [query, setQuery] = useState("");
 
-  const { data: trades, isLoading, isFetching } = useQuery<any[]>({
-    queryKey: ["/api/admin/p2p/trade-lookup", query],
+  const { data: txns, isLoading, isFetching } = useQuery<any[]>({
+    queryKey: ["/api/admin/transaction-lookup", query],
     queryFn: async () => {
-      const r = await fetch(`/api/admin/p2p/trade-lookup?q=${encodeURIComponent(query)}`, { credentials: "include" });
+      const r = await fetch(`/api/admin/transaction-lookup?q=${encodeURIComponent(query)}`, { credentials: "include" });
       if (!r.ok) {
         const err = await r.json().catch(() => ({}));
-        throw new Error(err?.message || "Failed to look up trade");
+        throw new Error(err?.message || "Failed to look up transaction");
       }
       const data = await r.json();
       return Array.isArray(data) ? data : [];
@@ -5382,20 +5382,38 @@ function P2PTradeLookupTab() {
   const runSearch = () => {
     const q = input.trim();
     if (!q) {
-      toast({ title: "Enter a Trade ID", description: "Type the Trade ID number to search.", variant: "destructive" });
+      toast({ title: "Enter a search value", description: "Type an Order ID, Reference, Receipt ID, or transaction number.", variant: "destructive" });
       return;
     }
     setQuery(q);
   };
 
   const fmt = (d: any) => (d ? new Date(d).toLocaleString() : "—");
+
+  const typeInfo = (type: string): { icon: JSX.Element; cls: string } => {
+    switch (type) {
+      case "deposit": return { icon: <ArrowDownCircle className="w-4 h-4" />, cls: "text-green-600 dark:text-green-400" };
+      case "withdrawal": return { icon: <ArrowUpCircle className="w-4 h-4" />, cls: "text-amber-600 dark:text-amber-400" };
+      case "p2p_transfer": return { icon: <Send className="w-4 h-4" />, cls: "text-blue-600 dark:text-blue-400" };
+      case "p2p_trade": return { icon: <ArrowRightLeft className="w-4 h-4" />, cls: "text-primary" };
+      case "card": return { icon: <CreditCard className="w-4 h-4" />, cls: "text-purple-600 dark:text-purple-400" };
+      case "merchant": return { icon: <Landmark className="w-4 h-4" />, cls: "text-indigo-600 dark:text-indigo-400" };
+      default: return { icon: <Hash className="w-4 h-4" />, cls: "text-muted-foreground" };
+    }
+  };
+
   const statusInfo = (s: string): { label: string; cls: string; icon: JSX.Element } => {
     switch (s) {
-      case "released": return { label: "Successful (Released)", cls: "bg-green-500/15 text-green-600 dark:text-green-400 border-green-500/30", icon: <CheckCircle className="w-3.5 h-3.5" /> };
-      case "cancelled": return { label: "Cancelled", cls: "bg-red-500/15 text-red-600 dark:text-red-400 border-red-500/30", icon: <XCircle className="w-3.5 h-3.5" /> };
+      case "released":
+      case "completed":
+      case "approved":
+      case "paid_out": return { label: s === "released" ? "Successful (Released)" : "Completed", cls: "bg-green-500/15 text-green-600 dark:text-green-400 border-green-500/30", icon: <CheckCircle className="w-3.5 h-3.5" /> };
+      case "rejected":
+      case "cancelled":
+      case "expired": return { label: s.charAt(0).toUpperCase() + s.slice(1), cls: "bg-red-500/15 text-red-600 dark:text-red-400 border-red-500/30", icon: <XCircle className="w-3.5 h-3.5" /> };
       case "disputed": return { label: "Disputed", cls: "bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30", icon: <AlertTriangle className="w-3.5 h-3.5" /> };
       case "paid": return { label: "Paid — awaiting release", cls: "bg-blue-500/15 text-blue-600 dark:text-blue-400 border-blue-500/30", icon: <Clock className="w-3.5 h-3.5" /> };
-      default: return { label: "Pending payment", cls: "bg-muted text-muted-foreground border-border", icon: <Clock className="w-3.5 h-3.5" /> };
+      default: return { label: s ? s.charAt(0).toUpperCase() + s.slice(1) : "Pending", cls: "bg-muted text-muted-foreground border-border", icon: <Clock className="w-3.5 h-3.5" /> };
     }
   };
 
@@ -5404,22 +5422,21 @@ function P2PTradeLookupTab() {
     toast({ title: "Copied", description: text });
   };
 
-  const Party = ({ title, merchant, real, email, refCode, phone }: { title: string; merchant: string | null; real: string; email: string; refCode: string | null; phone: string | null }) => (
-    <div className="rounded-lg border border-border p-3 space-y-1.5 flex-1 min-w-[220px]">
+  const Party = ({ p }: { p: any }) => (
+    <div className="rounded-lg border border-border p-3 space-y-1 flex-1 min-w-[200px]">
       <div className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-        <User className="w-3.5 h-3.5" /> {title}
+        <User className="w-3.5 h-3.5" /> {p.role}
       </div>
-      <div className="text-sm">
-        <span className="text-muted-foreground">Merchant name: </span>
-        <span className="font-semibold" data-testid={`text-${title.toLowerCase()}-merchant`}>{merchant || <span className="italic text-muted-foreground">Anonymous</span>}</span>
-      </div>
-      <div className="text-sm">
-        <span className="text-muted-foreground">Real name: </span>
-        <span className="font-semibold" data-testid={`text-${title.toLowerCase()}-realname`}>{real}</span>
-      </div>
-      <div className="text-xs text-muted-foreground break-all">{email}</div>
-      {phone && <div className="text-xs text-muted-foreground">{phone}</div>}
-      {refCode && <div className="text-[11px] text-muted-foreground">Ref: {refCode}</div>}
+      {p.merchant !== undefined && (
+        <div className="text-sm">
+          <span className="text-muted-foreground">Merchant name: </span>
+          <span className="font-semibold">{p.merchant || <span className="italic text-muted-foreground">Anonymous</span>}</span>
+        </div>
+      )}
+      <div className="text-sm font-semibold">{p.name || "—"}</div>
+      {p.email && <div className="text-xs text-muted-foreground break-all">{p.email}</div>}
+      {p.phone && <div className="text-xs text-muted-foreground">{p.phone}</div>}
+      {p.ref && <div className="text-[11px] text-muted-foreground">Ref: {p.ref}</div>}
     </div>
   );
 
@@ -5428,11 +5445,11 @@ function P2PTradeLookupTab() {
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="flex items-center gap-2 text-base">
-            <ArrowRightLeft className="w-5 h-5 text-primary" />
-            P2P Trade Lookup
+            <Search className="w-5 h-5 text-primary" />
+            Transaction Look up
           </CardTitle>
           <CardDescription className="text-xs">
-            Search a P2P market trade by its Trade ID to view both parties, status, and the exact time payment / release was confirmed. Admin only.
+            Search any transaction — deposits, withdrawals, P2P transfers, P2P market trades, virtual card transactions, and Izichanj Pay payments — by Order ID, Reference, Receipt ID, transaction hash, or numeric ID. Admin only.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -5440,15 +5457,15 @@ function P2PTradeLookupTab() {
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <Input
-                placeholder="Enter Trade ID (e.g. 1234)…"
+                placeholder="Order ID, Reference, Receipt ID, or transaction #…"
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => { if (e.key === "Enter") runSearch(); }}
                 className="pl-9"
-                data-testid="input-search-trade"
+                data-testid="input-search-transaction"
               />
             </div>
-            <Button onClick={runSearch} disabled={isFetching} data-testid="button-search-trade">
+            <Button onClick={runSearch} disabled={isFetching} data-testid="button-search-transaction">
               {isFetching ? <Loader2 className="w-4 h-4 animate-spin" /> : "Search"}
             </Button>
           </div>
@@ -5457,74 +5474,75 @@ function P2PTradeLookupTab() {
 
       {query && isLoading ? (
         <div className="flex justify-center py-10"><Loader2 className="w-6 h-6 animate-spin text-primary" /></div>
-      ) : query && (!trades || trades.length === 0) ? (
+      ) : query && (!txns || txns.length === 0) ? (
         <div className="flex flex-col items-center justify-center py-14 gap-3 text-muted-foreground">
           <Search className="w-10 h-10 opacity-30" />
-          <p className="text-sm" data-testid="text-no-trade">No trade found for "{query}"</p>
+          <p className="text-sm" data-testid="text-no-transaction">No transaction found for "{query}"</p>
         </div>
       ) : (
-        trades?.map((t: any) => {
+        txns?.map((t: any) => {
           const si = statusInfo(t.status);
+          const ti = typeInfo(t.type);
+          const details = (t.details || []).filter((d: any) => d.value !== null && d.value !== undefined && d.value !== "");
+          const timeline = (t.timeline || []).filter((d: any) => d.value);
           return (
-            <Card key={t.id} data-testid={`card-trade-${t.id}`}>
+            <Card key={`${t.type}-${t.id}`} data-testid={`card-txn-${t.type}-${t.id}`}>
               <CardHeader className="pb-3">
                 <div className="flex items-center justify-between gap-2 flex-wrap">
                   <CardTitle className="flex items-center gap-2 text-base">
-                    <Hash className="w-4 h-4 text-muted-foreground" />
-                    Trade #{t.id}
-                    <button onClick={() => copy(String(t.id))} className="text-muted-foreground hover:text-foreground" data-testid={`button-copy-trade-${t.id}`}>
+                    <span className={ti.cls}>{ti.icon}</span>
+                    {t.typeLabel} #{t.id}
+                    <button onClick={() => copy(t.reference || String(t.id))} className="text-muted-foreground hover:text-foreground" data-testid={`button-copy-txn-${t.type}-${t.id}`}>
                       <Copy className="w-3.5 h-3.5" />
                     </button>
                   </CardTitle>
-                  <Badge variant="outline" className={`gap-1 ${si.cls}`} data-testid={`badge-trade-status-${t.id}`}>
+                  <Badge variant="outline" className={`gap-1 ${si.cls}`} data-testid={`badge-txn-status-${t.type}-${t.id}`}>
                     {si.icon}{si.label}
                   </Badge>
                 </div>
-                {t.order_id && <CardDescription className="text-xs">Reference: {t.order_id}</CardDescription>}
+                {t.reference && <CardDescription className="text-xs break-all">Reference: {t.reference}</CardDescription>}
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="flex flex-wrap gap-3">
-                  <Party title="Seller" merchant={t.seller_merchant_name} real={t.seller_real_name} email={t.seller_email} refCode={t.seller_ref} phone={t.seller_phone} />
-                  <Party title="Buyer" merchant={t.buyer_merchant_name} real={t.buyer_real_name} email={t.buyer_email} refCode={t.buyer_ref} phone={t.buyer_phone} />
-                </div>
+                {t.parties?.length > 0 && (
+                  <div className="flex flex-wrap gap-3">
+                    {t.parties.map((p: any, i: number) => <Party key={i} p={p} />)}
+                  </div>
+                )}
 
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm">
-                  <div className="flex items-center gap-1.5">
-                    <Wallet className="w-3.5 h-3.5 text-muted-foreground" />
-                    <span className="font-semibold">{Number(t.amount_usdt).toFixed(2)} USDT</span>
-                  </div>
-                  <div className="text-muted-foreground">
-                    {Number(t.amount_local).toLocaleString()} {t.currency} @ {Number(t.rate).toFixed(2)}
-                  </div>
-                  <div className="text-muted-foreground">{t.payment_method}</div>
-                </div>
-
-                <div className="rounded-lg border border-border divide-y divide-border text-sm">
-                  <div className="flex items-center justify-between px-3 py-2">
-                    <span className="flex items-center gap-1.5 text-muted-foreground"><Calendar className="w-3.5 h-3.5" /> Created</span>
-                    <span data-testid={`text-trade-created-${t.id}`}>{fmt(t.created_at)}</span>
-                  </div>
-                  <div className="flex items-center justify-between px-3 py-2">
-                    <span className="flex items-center gap-1.5 text-muted-foreground"><Clock className="w-3.5 h-3.5" /> Buyer clicked "Paid"</span>
-                    <span data-testid={`text-trade-paid-${t.id}`}>{fmt(t.paid_at)}</span>
-                  </div>
-                  <div className="flex items-center justify-between px-3 py-2">
-                    <span className="flex items-center gap-1.5 text-muted-foreground"><CheckCircle className="w-3.5 h-3.5" /> Seller clicked "Release"</span>
-                    <span data-testid={`text-trade-released-${t.id}`}>{fmt(t.released_at)}</span>
-                  </div>
-                  {t.cancelled_at && (
-                    <div className="flex items-center justify-between px-3 py-2">
-                      <span className="flex items-center gap-1.5 text-red-500"><XCircle className="w-3.5 h-3.5" /> Cancelled</span>
-                      <span data-testid={`text-trade-cancelled-${t.id}`}>{fmt(t.cancelled_at)}{t.cancelled_by ? ` · by ${t.cancelled_by}` : ""}</span>
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-sm">
+                  {t.primaryAmount != null && (
+                    <div className="flex items-center gap-1.5">
+                      <Wallet className="w-3.5 h-3.5 text-muted-foreground" />
+                      <span className="font-semibold">{Number(t.primaryAmount).toFixed(2)} {t.primaryCurrency}</span>
+                    </div>
+                  )}
+                  {t.localAmount != null && (
+                    <div className="text-muted-foreground">
+                      {Number(t.localAmount).toLocaleString()} {t.localCurrency}{t.rate ? ` @ ${Number(t.rate).toFixed(2)}` : ""}
                     </div>
                   )}
                 </div>
 
-                {t.cancellation_reason && (
-                  <p className="text-xs text-red-500 italic">Cancellation reason: {t.cancellation_reason}</p>
+                {details.length > 0 && (
+                  <div className="rounded-lg border border-border divide-y divide-border text-sm">
+                    {details.map((d: any, i: number) => (
+                      <div key={i} className="flex items-start justify-between gap-3 px-3 py-2">
+                        <span className="text-muted-foreground shrink-0">{d.label}</span>
+                        <span className="text-right break-all font-medium" data-testid={`text-txn-detail-${t.type}-${t.id}-${i}`}>{String(d.value)}</span>
+                      </div>
+                    ))}
+                  </div>
                 )}
-                {t.dispute_reason && (
-                  <p className="text-xs text-amber-500 italic">Dispute reason: {t.dispute_reason}</p>
+
+                {timeline.length > 0 && (
+                  <div className="rounded-lg border border-border divide-y divide-border text-sm">
+                    {timeline.map((d: any, i: number) => (
+                      <div key={i} className="flex items-center justify-between px-3 py-2">
+                        <span className="flex items-center gap-1.5 text-muted-foreground"><Calendar className="w-3.5 h-3.5" /> {d.label}</span>
+                        <span data-testid={`text-txn-time-${t.type}-${t.id}-${i}`}>{fmt(d.value)}</span>
+                      </div>
+                    ))}
+                  </div>
                 )}
               </CardContent>
             </Card>
