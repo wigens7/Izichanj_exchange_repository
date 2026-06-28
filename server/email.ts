@@ -25,28 +25,27 @@ function escapeHtml(s: string): string {
 function buildOtpHtml(opts: { title: string; intro: string; code: string; footer: string; recipientName?: string | null }): string {
   const greeting = opts.recipientName ? `Hi ${escapeHtml(opts.recipientName)},` : "Hi,";
   return `<!DOCTYPE html>
-<html><body style="margin:0;padding:0;background:#f4f5f7;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Inter,sans-serif;color:#0f172a">
-  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f5f7;padding:32px 12px">
+<html><body style="margin:0;padding:0;background:#111111;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;color:#ffffff">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#111111;padding:32px 10px">
     <tr><td align="center">
-      <table width="560" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border-radius:14px;overflow:hidden;box-shadow:0 1px 3px rgba(15,23,42,0.06)">
-        <tr><td style="background:linear-gradient(135deg,#4f46e5,#7c3aed);padding:24px 28px;color:#ffffff">
-          <div style="font-size:22px;font-weight:700;letter-spacing:0.2px">Izichanj</div>
-          <div style="font-size:13px;opacity:0.85;margin-top:2px">Crypto to Cash, simplified.</div>
-        </td></tr>
-        <tr><td style="padding:28px">
-          <div style="font-size:13px;color:#64748b;margin-bottom:6px">${escapeHtml(opts.title)}</div>
-          <div style="font-size:18px;font-weight:600;color:#0f172a;margin-bottom:14px">${greeting}</div>
-          <p style="font-size:15px;line-height:1.55;color:#334155;margin:0 0 18px 0">${escapeHtml(opts.intro)}</p>
-          <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:18px;text-align:center;margin:6px 0 18px 0">
-            <div style="font-size:12px;color:#64748b;letter-spacing:1.5px;text-transform:uppercase;margin-bottom:8px">Your code</div>
-            <div style="font-size:34px;font-weight:700;letter-spacing:8px;color:#0f172a;font-family:'SF Mono',Menlo,Consolas,monospace">${escapeHtml(opts.code)}</div>
-            <div style="font-size:12px;color:#94a3b8;margin-top:10px">Expires in 5 minutes</div>
+      <table width="500" cellpadding="0" cellspacing="0" style="max-width:500px;background:#1a1a1a;border:1px solid #D4AF37;border-radius:12px;overflow:hidden;box-shadow:0 4px 15px rgba(0,0,0,0.5)">
+        <tr><td style="padding:30px 30px 0 30px">
+          <div style="text-align:center;margin-bottom:25px">
+            <h1 style="color:#D4AF37;margin:0;font-size:28px;font-weight:700;letter-spacing:2px;text-transform:uppercase">Izichanj</h1>
+            <div style="height:2px;width:60px;background-color:#D4AF37;margin:10px auto 0 auto"></div>
           </div>
-          <p style="font-size:13px;line-height:1.55;color:#64748b;margin:0">${escapeHtml(opts.footer)}</p>
         </td></tr>
-        <tr><td style="background:#f8fafc;padding:16px 28px;border-top:1px solid #e2e8f0;font-size:12px;color:#94a3b8;text-align:center">
-          You're receiving this email because you requested it on Izichanj.<br>
-          If this wasn't you, please ignore this message — no changes have been made.
+        <tr><td style="padding:0 30px 30px 30px">
+          <h2 style="color:#ffffff;font-size:20px;font-weight:600;margin-top:0;margin-bottom:6px">${escapeHtml(opts.title)}</h2>
+          <p style="font-size:15px;line-height:1.6;color:#dddddd;margin:0 0 6px 0">${greeting}</p>
+          <p style="font-size:15px;line-height:1.6;color:#dddddd;margin:0 0 18px 0">${escapeHtml(opts.intro)}</p>
+          <div style="background-color:#111111;border:1px dashed #D4AF37;padding:20px;text-align:center;font-size:32px;font-weight:700;letter-spacing:8px;border-radius:8px;margin:25px 0;color:#D4AF37;font-family:'SF Mono',Menlo,Consolas,monospace">${escapeHtml(opts.code)}</div>
+          <p style="font-size:14px;line-height:1.5;color:#b3b3b3;margin:0 0 6px 0">Expires in 5 minutes. Don't share it with anyone.</p>
+          <p style="font-size:14px;line-height:1.5;color:#b3b3b3;margin:0">${escapeHtml(opts.footer)}</p>
+          <p style="color:#a0a0a0;font-size:12px;line-height:1.6;text-align:center;margin-top:30px;border-top:1px solid #333;padding-top:20px">
+            If you didn't request this, you can safely ignore this email.<br>
+            &copy; 2026 Izichanj. All rights reserved.
+          </p>
         </td></tr>
       </table>
     </td></tr>
