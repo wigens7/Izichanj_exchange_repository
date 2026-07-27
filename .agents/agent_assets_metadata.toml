@@ -18,3 +18,15 @@ id = "fJ5Eo5df3OCE7oQZZc1Dp"
 uri = "file://recovered_kyc/SELFIE_DELICE_PIRENSE.jpg"
 type = "image"
 title = "Selfie — DELICE PIRENSE kenbe ID a"
+
+[[outputs]]
+id = "Rvi42Rjmt0pfhmGRaJF7z"
+uri = "file://screenshots/admin-card-pricing-1.jpg"
+type = "image"
+title = "Admin panel — paj konplè ak seksyon pri kat yo"
+
+[[outputs]]
+id = "czjSPVs9n70YJNX7GNx0_"
+uri = "file://screenshots/admin-card-pricing-2.jpg"
+type = "image"
+title = "Seksyon 'Visa Card Pricing & Fees' (zoom)"
