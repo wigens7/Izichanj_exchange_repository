@@ -4,10 +4,8 @@ import { apiRequest } from "@/lib/queryClient";
 import { useLanguage } from "@/lib/i18n";
 import { useUser } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
-import {
-  CARD_LOAD_AMOUNT_USD, CARD_CREATION_FEE_USD, CARD_TOPUP_FIXED_FEE_USD, CARD_TOPUP_MIN_USD,
-  calcCardCreationCost, calcCardTopUpCost,
-} from "@shared/constants";
+import { calcCardCreationCost, calcCardTopUpCost } from "@shared/constants";
+import { useCardPricing } from "@/hooks/use-card-pricing";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -129,8 +127,9 @@ function ApplyCardSection() {
   const { toast } = useToast();
   const qc = useQueryClient();
 
-  // Pricing breakdown (single source of truth in @shared/constants)
-  const cardBreakdown = calcCardCreationCost(CARD_LOAD_AMOUNT_USD);
+  // Pricing breakdown (live admin-configurable pricing)
+  const pricing = useCardPricing();
+  const cardBreakdown = calcCardCreationCost(pricing.virtual.loadAmount, pricing.virtual.price);
   const CARD_COST        = cardBreakdown.total;        // e.g. $35.68
   const CARD_LOAD_AMOUNT = cardBreakdown.loadAmount;   // $20
   const CARD_FIXED_FEE   = cardBreakdown.fixedFee;     // $15
@@ -521,6 +520,7 @@ function CardItem({ card }: { card: VirtualCard }) {
   const vc = t.virtualCard;
   const { toast } = useToast();
   const qc = useQueryClient();
+  const pricing = useCardPricing();
   const [showDetails, setShowDetails] = useState(false);
   const [showFund, setShowFund] = useState(false);
   const [fundAmount, setFundAmount] = useState("");
@@ -830,30 +830,30 @@ function CardItem({ card }: { card: VirtualCard }) {
 
           {showFund && (() => {
             const fundNum = parseFloat(fundAmount) || 0;
-            const fundBreakdown = fundNum >= CARD_TOPUP_MIN_USD ? calcCardTopUpCost(fundNum) : null;
+            const fundBreakdown = fundNum >= pricing.virtual.topupMin ? calcCardTopUpCost(fundNum, pricing.virtual.topupFixedFee, pricing.virtual.topupVarPct) : null;
             return (
               <div className="bg-muted/30 rounded-md p-3 space-y-3">
                 <div>
                   <Label>{vc.fundAmount}</Label>
-                  <p className="text-xs text-muted-foreground mt-0.5">Minimum ${CARD_TOPUP_MIN_USD.toFixed(2)} USD</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">Minimum ${pricing.virtual.topupMin.toFixed(2)} USD</p>
                 </div>
                 <div className="flex items-center gap-2">
                   <div className="relative flex-1">
                     <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                     <Input
                       type="number"
-                      min={CARD_TOPUP_MIN_USD}
+                      min={pricing.virtual.topupMin}
                       step="0.01"
                       value={fundAmount}
                       onChange={(e) => setFundAmount(e.target.value)}
                       className="pl-9"
-                      placeholder={String(CARD_TOPUP_MIN_USD)}
+                      placeholder={String(pricing.virtual.topupMin)}
                       data-testid={`input-fund-amount-${card.id}`}
                     />
                   </div>
                   <Button
                     onClick={() => fundMutation.mutate(fundAmount)}
-                    disabled={fundMutation.isPending || !fundAmount || fundNum < CARD_TOPUP_MIN_USD}
+                    disabled={fundMutation.isPending || !fundAmount || fundNum < pricing.virtual.topupMin}
                     data-testid={`button-fund-card-${card.id}`}
                   >
                     {fundMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : vc.fundButton}
@@ -866,7 +866,7 @@ function CardItem({ card }: { card: VirtualCard }) {
                       <span>${fundBreakdown.fixedFee.toFixed(2)}</span>
                     </div>
                     <div className="flex justify-between text-xs text-muted-foreground">
-                      <span>🌐 Network fee (1.9%)</span>
+                      <span>🌐 Network fee ({(pricing.virtual.topupVarPct * 100).toFixed(1)}%)</span>
                       <span>${fundBreakdown.variableFee.toFixed(2)}</span>
                     </div>
                     <div className="flex justify-between text-xs text-emerald-600 dark:text-emerald-400 font-medium">

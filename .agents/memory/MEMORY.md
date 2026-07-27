@@ -4,4 +4,5 @@
 - [Telegram support bridge](telegram-support-bridge.md) — 'Conv #<id>' in the support Telegram notification is the reply-routing contract; webhook parses it back.
 - [OTP purpose binding](otp-purpose-binding.md) — OTPs are global per-profile; bind a purpose or a code from one flow satisfies another.
 - [Admin contact-change OTP](admin-initiated-otp-delivery.md) — server-side pending_email/phone + fail-closed delivery for admin-driven phone/email changes.
+- [Dynamic card pricing](card-pricing-dynamic.md) — Visa/NFC prices & fees come from getCardPricing() (app_settings `card_pricing`), never constants; pending-card retries use the stored pricingSnapshot.
 - [Strowallet webhook dedup](strowallet-webhook-dedup.md) — card webhook fires multiple times per tx (auth+settlement+retries); dedup by tx identity + outcome class via webhook_dedup table.

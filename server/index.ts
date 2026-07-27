@@ -375,6 +375,14 @@ app.use((req, res, next) => {
     console.warn("[rates] Could not load from DB, using defaults:", (e as Error).message);
   }
 
+  // Load dynamic card pricing (admin-editable) from DB into memory
+  try {
+    const { loadCardPricing } = await import("./cardPricing");
+    await loadCardPricing(db, sql);
+  } catch (e) {
+    console.warn("[card-pricing] startup load skipped:", (e as Error).message);
+  }
+
   // IP tracking columns on profiles, deposits, withdrawals
   try {
     await db.execute(sql`ALTER TABLE profiles ADD COLUMN IF NOT EXISTS last_ip TEXT`);

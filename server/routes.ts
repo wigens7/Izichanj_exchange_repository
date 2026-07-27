@@ -19,6 +19,7 @@ import {
   calcNfcCardCreationCost, calcNfcCardTopUpCost, calcNfcCardWithdrawCost,
 } from "@shared/constants";
 import { getDepositRate, getWithdrawalRate, setRates, rateUsdtToHtg, rateHtgToUsdt, rateUsdtToHtgWithdrawal } from "./rates";
+import { getCardPricing, saveCardPricing } from "./cardPricing";
 
 /**
  * Compute the network fee and the net USDT amount to credit for a deposit.
@@ -2131,6 +2132,24 @@ export async function registerRoutes(
     }
   });
 
+  // ── Card pricing (public read, admin write) ──
+  app.get("/api/settings/card-pricing", async (_req, res) => {
+    res.json(getCardPricing());
+  });
+
+  app.patch("/api/admin/settings/card-pricing", isAuthenticated, isAdmin, async (req: any, res) => {
+    try {
+      const { appSettings } = await import("@shared/schema");
+      const err = await saveCardPricing(db, appSettings, req.body);
+      if (err) return res.status(400).json({ message: err });
+      console.log(`[card-pricing] Updated by admin ${req.user?.id}:`, JSON.stringify(getCardPricing()));
+      res.json(getCardPricing());
+    } catch (e) {
+      console.error("Update card pricing error:", e);
+      res.status(500).json({ message: "Failed to update card pricing" });
+    }
+  });
+
   // GeoIP lookup for admin (server-side, avoids CORS issues)
   app.get("/api/admin/geoip/:ip", isAuthenticated, isAdmin, async (req: any, res) => {
     try {
@@ -3549,7 +3568,7 @@ export async function registerRoutes(
 
       const { profileId, cardDetail } = cancelled[0];
       const detail: any = cardDetail || {};
-      const refundAmount = Number(detail.amountHeld) || NFC_CARD_TOTAL_PRICE_USD;
+      const refundAmount = Number(detail.amountHeld) || getCardPricing().nfc.price;
 
       // Atomic credit — read-modify-write would race with concurrent deposits/withdrawals.
       const credited = await db
@@ -3617,7 +3636,8 @@ export async function registerRoutes(
       const pendingCards2 = allCards.filter(c => c.status === "pending").length;
       const frozenCards   = allCards.filter(c => c.status === "frozen").length;
       const totalIssued   = activeCards + frozenCards; // cards that actually went through
-      const breakdown     = calcCardCreationCost();          // flat $19 / $4 to card
+      const pricing       = getCardPricing();
+      const breakdown     = calcCardCreationCost(pricing.virtual.loadAmount, pricing.virtual.price);
       const CARD_PRICE    = breakdown.total;                 // user pays $19.00
       const STRO_FIXED    = 4.40;                            // $2.50 + $1.90 Strowallet fixed
       const STRO_VAR      = Number((breakdown.loadAmount * 0.034).toFixed(2)); // 3.4% of load (absorbed)
@@ -3767,8 +3787,10 @@ export async function registerRoutes(
 
       // IMPORTANT: User's balance was already deducted (CARD_TOTAL_PRICE_USD) when the pending card was created.
       // This retry only calls Strowallet's API — it does NOT touch the user's balance again.
-      // Strowallet receives the configured load amount (Strowallet enforces $5 minimum).
-      const fundAmount = CARD_LOAD_AMOUNT_USD;
+      // Strowallet receives the load amount SNAPSHOTTED when the user was charged
+      // (falls back to current pricing for legacy pending cards without a snapshot).
+      const snapshotLoad = Number((card.cardDetail as any)?.pricingSnapshot?.loadAmount);
+      const fundAmount = Number.isFinite(snapshotLoad) && snapshotLoad >= 5 ? snapshotLoad : getCardPricing().virtual.loadAmount;
       const nameOnCard = card.nameOnCard || profile.fullName;
 
       const createCardPayload: Record<string, string> = {
@@ -5770,7 +5792,8 @@ export async function registerRoutes(
       // ── Flat pricing ──────────────────────────────────────────────────
       // User pays exactly $19.00. $4.00 → card, rest covers Strowallet
       // fixed/variable fees and Izichanj margin (variable absorbed internally).
-      const breakdown = calcCardCreationCost(CARD_LOAD_AMOUNT_USD);
+      const cardPricing = getCardPricing();
+      const breakdown = calcCardCreationCost(cardPricing.virtual.loadAmount, cardPricing.virtual.price);
       const CARD_COST_USD          = breakdown.total;       // flat $19.00
       const STROWALLET_FUND_AMOUNT = breakdown.loadAmount;  // $4.00 → loaded on card
 
@@ -5852,7 +5875,13 @@ export async function registerRoutes(
             status: "pending",
             balance: CARD_COST_USD.toString(),
             currency: "USD",
-            cardDetail: { pendingReason: "provider_no_funds", requestedAt: new Date().toISOString() },
+            cardDetail: {
+              pendingReason: "provider_no_funds",
+              requestedAt: new Date().toISOString(),
+              // Pricing snapshot at charge time — retries MUST use these values,
+              // not live pricing, so an admin price change can't misprice this card.
+              pricingSnapshot: { loadAmount: STROWALLET_FUND_AMOUNT, total: CARD_COST_USD },
+            },
           });
 
           // In-app notification for the user
@@ -6072,8 +6101,10 @@ export async function registerRoutes(
       const _stroKey = process.env.STROWALLET_PUBLIC_KEY || "";
 
       // NOTE: No balance deduction — the full charge was already deducted when the pending card was created.
-      // Strowallet receives the configured load amount (Strowallet enforces $5 minimum).
-      const fundAmount = CARD_LOAD_AMOUNT_USD;
+      // Strowallet receives the load amount SNAPSHOTTED when the user was charged
+      // (falls back to current pricing for legacy pending cards without a snapshot).
+      const snapshotLoad2 = Number((card.cardDetail as any)?.pricingSnapshot?.loadAmount);
+      const fundAmount = Number.isFinite(snapshotLoad2) && snapshotLoad2 >= 5 ? snapshotLoad2 : getCardPricing().virtual.loadAmount;
 
       const payload: Record<string, string> = {
         name_on_card: card.nameOnCard || profile.fullName,
@@ -6248,13 +6279,14 @@ export async function registerRoutes(
 
       const { amount } = req.body;
       const fundAmount = parseFloat(amount);
-      if (isNaN(fundAmount) || fundAmount < CARD_TOPUP_MIN_USD) {
-        return res.status(400).json({ message: `Minimum funding is $${CARD_TOPUP_MIN_USD.toFixed(2)} USD` });
+      const vPricing = getCardPricing().virtual;
+      if (isNaN(fundAmount) || fundAmount < vPricing.topupMin) {
+        return res.status(400).json({ message: `Minimum funding is $${vPricing.topupMin.toFixed(2)} USD` });
       }
 
       // ── Top-up pricing ───────────────────────────────────────────────
-      // Total = fundAmount + $2.15 fixed ($0.25 Izichanj + $1.90 Strowallet) + 1.9% Strowallet variable
-      const breakdown = calcCardTopUpCost(fundAmount);
+      // Total = fundAmount + fixed fee + variable % (admin-configurable)
+      const breakdown = calcCardTopUpCost(fundAmount, vPricing.topupFixedFee, vPricing.topupVarPct);
       const totalCharge = breakdown.total;
 
       const balanceUsdt = parseFloat(profile.balance || "0");
@@ -6801,7 +6833,8 @@ export async function registerRoutes(
         return res.status(500).json({ message: "NFC card service not configured" });
       }
 
-      const breakdown = calcNfcCardCreationCost(NFC_CARD_LOAD_AMOUNT_USD);
+      const nfcPricing = getCardPricing().nfc;
+      const breakdown = calcNfcCardCreationCost(nfcPricing.loadAmount, nfcPricing.price);
       const COST_USD = breakdown.total;       // flat $19
       const LOAD_USD = breakdown.loadAmount;  // $5 to card
 
@@ -7279,11 +7312,12 @@ export async function registerRoutes(
       if (card.status !== "active") return res.status(400).json({ message: "Card is not active" });
 
       const fundAmount = parseFloat(req.body?.amount);
-      if (isNaN(fundAmount) || fundAmount < NFC_TOPUP_MIN_USD) {
-        return res.status(400).json({ message: `Minimum top-up is $${NFC_TOPUP_MIN_USD.toFixed(2)} USD` });
+      const nfcPricing = getCardPricing().nfc;
+      if (isNaN(fundAmount) || fundAmount < nfcPricing.topupMin) {
+        return res.status(400).json({ message: `Minimum top-up is $${nfcPricing.topupMin.toFixed(2)} USD` });
       }
 
-      const breakdown = calcNfcCardTopUpCost(fundAmount);
+      const breakdown = calcNfcCardTopUpCost(fundAmount, nfcPricing.topupFixedFee, nfcPricing.topupVarPct);
       const totalCharge = breakdown.total;
 
       const balanceUsdt = parseFloat(profile.balance || "0");
@@ -7415,8 +7449,9 @@ export async function registerRoutes(
       if (card.status !== "active") return res.status(400).json({ message: "Card is not active" });
 
       const amount = parseFloat(req.body?.amount);
-      if (isNaN(amount) || amount < NFC_WITHDRAW_MIN_USD) {
-        return res.status(400).json({ message: `Minimum withdrawal is $${NFC_WITHDRAW_MIN_USD.toFixed(2)} USD` });
+      const nfcPricing = getCardPricing().nfc;
+      if (isNaN(amount) || amount < nfcPricing.withdrawMin) {
+        return res.status(400).json({ message: `Minimum withdrawal is $${nfcPricing.withdrawMin.toFixed(2)} USD` });
       }
       const cardBal = parseFloat(card.balance || "0");
       if (amount > cardBal) {
@@ -7428,7 +7463,7 @@ export async function registerRoutes(
         return res.status(400).json({ message: `Insufficient card balance. Available: $${cardBal.toFixed(2)}` });
       }
 
-      const breakdown = calcNfcCardWithdrawCost(amount);
+      const breakdown = calcNfcCardWithdrawCost(amount, nfcPricing.withdrawFee);
       if (breakdown.netToWallet <= 0) {
         return res.status(400).json({ message: `Amount too small after $${breakdown.fee.toFixed(2)} service fee` });
       }

@@ -4232,6 +4232,154 @@ function ActivityTab() {
   );
 }
 
+// ── Visa Card Pricing (admin-editable) ─────────────────────────────
+function CardPricingSection() {
+  const qc = useQueryClient();
+  const { toast } = useToast();
+
+  const { data: pricing } = useQuery<any>({ queryKey: ["/api/settings/card-pricing"] });
+
+  // Local editable state, initialized once from server values
+  const [vals, setVals] = useState<Record<string, string>>({});
+  const [initialized, setInitialized] = useState(false);
+  useEffect(() => {
+    if (!initialized && pricing) {
+      setVals({
+        vPrice: String(pricing.virtual.price),
+        vLoad: String(pricing.virtual.loadAmount),
+        vTopupFee: String(pricing.virtual.topupFixedFee),
+        vTopupPct: String(+(pricing.virtual.topupVarPct * 100).toFixed(2)),
+        vTopupMin: String(pricing.virtual.topupMin),
+        nPrice: String(pricing.nfc.price),
+        nLoad: String(pricing.nfc.loadAmount),
+        nTopupFee: String(pricing.nfc.topupFixedFee),
+        nTopupPct: String(+(pricing.nfc.topupVarPct * 100).toFixed(2)),
+        nTopupMin: String(pricing.nfc.topupMin),
+        nWithdrawFee: String(pricing.nfc.withdrawFee),
+        nWithdrawMin: String(pricing.nfc.withdrawMin),
+      });
+      setInitialized(true);
+    }
+  }, [pricing, initialized]);
+
+  const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement>) =>
+    setVals(v => ({ ...v, [k]: e.target.value }));
+
+  const savePricing = useMutation({
+    mutationFn: async () => {
+      const body = {
+        virtual: {
+          price: parseFloat(vals.vPrice),
+          loadAmount: parseFloat(vals.vLoad),
+          topupFixedFee: parseFloat(vals.vTopupFee),
+          topupVarPct: parseFloat(vals.vTopupPct) / 100,
+          topupMin: parseFloat(vals.vTopupMin),
+        },
+        nfc: {
+          price: parseFloat(vals.nPrice),
+          loadAmount: parseFloat(vals.nLoad),
+          topupFixedFee: parseFloat(vals.nTopupFee),
+          topupVarPct: parseFloat(vals.nTopupPct) / 100,
+          topupMin: parseFloat(vals.nTopupMin),
+          withdrawFee: parseFloat(vals.nWithdrawFee),
+          withdrawMin: parseFloat(vals.nWithdrawMin),
+        },
+      };
+      const res = await fetch("/api/admin/settings/card-pricing", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.message || "Failed to update card pricing");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["/api/settings/card-pricing"] });
+      setInitialized(false); // re-sync inputs from saved values
+      toast({ title: "Card pricing updated", description: "New prices and fees are live for all users immediately." });
+    },
+    onError: (err: Error) => {
+      toast({ variant: "destructive", title: "Error", description: err.message });
+    },
+  });
+
+  const allFilled = Object.values(vals).length > 0 && Object.values(vals).every(v => v !== "" && !isNaN(parseFloat(v)));
+
+  const field = (label: string, key: string, testId: string, suffix = "USD") => (
+    <div className="space-y-1">
+      <label className="text-xs font-medium text-muted-foreground">{label}</label>
+      <div className="flex gap-2 items-center">
+        <Input type="number" step="0.01" min="0" value={vals[key] ?? ""} onChange={set(key)} className="font-mono h-9" data-testid={testId} />
+        <span className="text-xs text-muted-foreground whitespace-nowrap">{suffix}</span>
+      </div>
+    </div>
+  );
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <CreditCard className="w-5 h-5 text-primary" />
+          Visa Card Pricing & Fees
+        </CardTitle>
+        <p className="text-sm text-muted-foreground">
+          Set the price and fees for both Visa cards. Changes take effect immediately for all users.
+        </p>
+      </CardHeader>
+      <CardContent className="space-y-6">
+        {!pricing ? (
+          <Skeleton className="h-40 w-full rounded-md" />
+        ) : (
+          <>
+            <div className="space-y-3">
+              <p className="text-sm font-semibold flex items-center gap-1.5"><CreditCard className="w-4 h-4 text-indigo-500" /> Virtual Card</p>
+              <div className="grid grid-cols-2 gap-3">
+                {field("Card price (user pays)", "vPrice", "input-vcard-price")}
+                {field("Loaded onto card", "vLoad", "input-vcard-load")}
+                {field("Top-up fixed fee", "vTopupFee", "input-vcard-topup-fee")}
+                {field("Top-up variable fee", "vTopupPct", "input-vcard-topup-pct", "%")}
+                {field("Minimum top-up", "vTopupMin", "input-vcard-topup-min")}
+              </div>
+            </div>
+
+            <div className="space-y-3 border-t pt-4">
+              <p className="text-sm font-semibold flex items-center gap-1.5"><CreditCard className="w-4 h-4 text-fuchsia-500" /> NFC Card</p>
+              <div className="grid grid-cols-2 gap-3">
+                {field("Card price (user pays)", "nPrice", "input-nfc-price")}
+                {field("Loaded onto card", "nLoad", "input-nfc-load")}
+                {field("Top-up fixed fee", "nTopupFee", "input-nfc-topup-fee")}
+                {field("Top-up variable fee", "nTopupPct", "input-nfc-topup-pct", "%")}
+                {field("Minimum top-up", "nTopupMin", "input-nfc-topup-min")}
+                {field("Withdraw fee", "nWithdrawFee", "input-nfc-withdraw-fee")}
+                {field("Minimum withdrawal", "nWithdrawMin", "input-nfc-withdraw-min")}
+              </div>
+            </div>
+
+            <div className="p-3 rounded-md bg-muted/50 border text-xs text-muted-foreground space-y-1">
+              <p className="font-medium text-foreground text-sm">Safety rules</p>
+              <p>• "Loaded onto card" must be at least $5 (card provider minimum) and LESS than the card price.</p>
+              <p>• Profit per card = price − loaded amount − provider fees.</p>
+            </div>
+
+            <Button
+              onClick={() => savePricing.mutate()}
+              disabled={savePricing.isPending || !allFilled}
+              className="w-full"
+              data-testid="button-save-card-pricing"
+            >
+              {savePricing.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Save className="w-4 h-4 mr-2" />}
+              Save Card Pricing
+            </Button>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 function SettingsTab() {
   const { depositRate, withdrawalRate } = useRates();
   const qc = useQueryClient();
@@ -4488,6 +4636,8 @@ function SettingsTab() {
           </Button>
         </CardContent>
       </Card>
+
+      <CardPricingSection />
 
       <Card>
         <CardHeader>

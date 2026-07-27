@@ -4,14 +4,10 @@ import { apiRequest } from "@/lib/queryClient";
 import { useUser } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
 import {
-  NFC_CARD_TOTAL_PRICE_USD,
-  NFC_CARD_LOAD_AMOUNT_USD,
-  NFC_TOPUP_MIN_USD,
-  NFC_WITHDRAW_MIN_USD,
-  NFC_WITHDRAW_FEE_USD,
   calcNfcCardTopUpCost,
   calcNfcCardWithdrawCost,
 } from "@shared/constants";
+import { useCardPricing } from "@/hooks/use-card-pricing";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -53,6 +49,7 @@ export default function NfcCardsPage() {
   const { data: user } = useUser();
   const { toast } = useToast();
   const qc = useQueryClient();
+  const pricing = useCardPricing();
   const kycVerified = user?.kycStatus === "verified";
 
   // Pre-flight: check that profile + KYC fields needed by Strowallet are present
@@ -224,8 +221,8 @@ export default function NfcCardsPage() {
     toast({ title: `${label} copied` });
   };
 
-  const fundBreakdown = fundAmt && !isNaN(parseFloat(fundAmt)) ? calcNfcCardTopUpCost(parseFloat(fundAmt)) : null;
-  const withdrawBreakdown = withdrawAmt && !isNaN(parseFloat(withdrawAmt)) ? calcNfcCardWithdrawCost(parseFloat(withdrawAmt)) : null;
+  const fundBreakdown = fundAmt && !isNaN(parseFloat(fundAmt)) ? calcNfcCardTopUpCost(parseFloat(fundAmt), pricing.nfc.topupFixedFee, pricing.nfc.topupVarPct) : null;
+  const withdrawBreakdown = withdrawAmt && !isNaN(parseFloat(withdrawAmt)) ? calcNfcCardWithdrawCost(parseFloat(withdrawAmt), pricing.nfc.withdrawFee) : null;
 
   return (
     <div className="container mx-auto p-4 md:p-6 max-w-5xl space-y-6" data-testid="page-nfc-cards">
@@ -310,7 +307,7 @@ export default function NfcCardsPage() {
             <div>
               <h3 className="text-xl font-semibold" data-testid="text-no-nfc-cards">No NFC card yet</h3>
               <p className="text-muted-foreground text-sm mt-1">
-                Get a contactless Visa for ${NFC_CARD_TOTAL_PRICE_USD.toFixed(2)} — ${NFC_CARD_LOAD_AMOUNT_USD.toFixed(2)} loaded instantly.
+                Get a contactless Visa for ${pricing.nfc.price.toFixed(2)} — ${pricing.nfc.loadAmount.toFixed(2)} loaded instantly.
               </p>
             </div>
             <Button
@@ -386,7 +383,7 @@ export default function NfcCardsPage() {
                   <Button
                     variant="outline"
                     size="sm"
-                    disabled={card.status !== "active" || parseFloat(card.balance) < NFC_WITHDRAW_MIN_USD}
+                    disabled={card.status !== "active" || parseFloat(card.balance) < pricing.nfc.withdrawMin}
                     onClick={() => { setWithdrawOpen(card); setWithdrawAmt(""); }}
                     data-testid={`button-nfc-withdraw-${card.id}`}
                   >
@@ -443,19 +440,19 @@ export default function NfcCardsPage() {
           <DialogHeader>
             <DialogTitle>Issue your NFC Visa card</DialogTitle>
             <DialogDescription>
-              A flat ${NFC_CARD_TOTAL_PRICE_USD.toFixed(2)} USDT will be charged from your wallet.
+              A flat ${pricing.nfc.price.toFixed(2)} USDT will be charged from your wallet.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-2 text-sm">
-            <div className="flex justify-between"><span className="text-muted-foreground">Loaded to card</span><span>${NFC_CARD_LOAD_AMOUNT_USD.toFixed(2)}</span></div>
-            <div className="flex justify-between"><span className="text-muted-foreground">Issuance & processing</span><span>${(NFC_CARD_TOTAL_PRICE_USD - NFC_CARD_LOAD_AMOUNT_USD).toFixed(2)}</span></div>
+            <div className="flex justify-between"><span className="text-muted-foreground">Loaded to card</span><span>${pricing.nfc.loadAmount.toFixed(2)}</span></div>
+            <div className="flex justify-between"><span className="text-muted-foreground">Issuance & processing</span><span>${(pricing.nfc.price - pricing.nfc.loadAmount).toFixed(2)}</span></div>
             <Separator />
-            <div className="flex justify-between font-semibold"><span>Total</span><span>${NFC_CARD_TOTAL_PRICE_USD.toFixed(2)} USDT</span></div>
+            <div className="flex justify-between font-semibold"><span>Total</span><span>${pricing.nfc.price.toFixed(2)} USDT</span></div>
           </div>
           <DialogFooter>
             <Button variant="outline" disabled={createMut.isPending} onClick={() => setConfirmCreate(false)} data-testid="button-cancel-create-nfc">Cancel</Button>
             <Button onClick={() => createMut.mutate()} disabled={createMut.isPending} data-testid="button-confirm-create-nfc" className="bg-gradient-to-r from-indigo-600 to-purple-600 text-white">
-              {createMut.isPending ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Issuing…</> : <>Pay ${NFC_CARD_TOTAL_PRICE_USD.toFixed(2)}</>}
+              {createMut.isPending ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Issuing…</> : <>Pay ${pricing.nfc.price.toFixed(2)}</>}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -529,11 +526,11 @@ export default function NfcCardsPage() {
               <Input
                 id="fund-amt"
                 type="number"
-                min={NFC_TOPUP_MIN_USD}
+                min={pricing.nfc.topupMin}
                 step="0.01"
                 value={fundAmt}
                 onChange={(e) => setFundAmt(e.target.value)}
-                placeholder={`Min $${NFC_TOPUP_MIN_USD}`}
+                placeholder={`Min $${pricing.nfc.topupMin}`}
                 data-testid="input-nfc-fund-amount"
               />
             </div>
@@ -541,7 +538,7 @@ export default function NfcCardsPage() {
               <div className="rounded-lg bg-muted p-3 text-sm space-y-1">
                 <div className="flex justify-between"><span className="text-muted-foreground">To card</span><span>${fundBreakdown.loadAmount.toFixed(2)}</span></div>
                 <div className="flex justify-between"><span className="text-muted-foreground">Fixed fee</span><span>${fundBreakdown.fixedFee.toFixed(2)}</span></div>
-                <div className="flex justify-between"><span className="text-muted-foreground">Variable fee (1.9%)</span><span>${fundBreakdown.variableFee.toFixed(2)}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Variable fee ({(pricing.nfc.topupVarPct * 100).toFixed(1)}%)</span><span>${fundBreakdown.variableFee.toFixed(2)}</span></div>
                 <Separator className="my-1" />
                 <div className="flex justify-between font-semibold"><span>Total charged</span><span data-testid="text-nfc-fund-total">${fundBreakdown.total.toFixed(2)} USDT</span></div>
               </div>
@@ -550,7 +547,7 @@ export default function NfcCardsPage() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setFundOpen(null)} disabled={fundMut.isPending} data-testid="button-cancel-nfc-fund">Cancel</Button>
             <Button
-              disabled={!fundOpen || !fundBreakdown || fundBreakdown.loadAmount < NFC_TOPUP_MIN_USD || fundMut.isPending}
+              disabled={!fundOpen || !fundBreakdown || fundBreakdown.loadAmount < pricing.nfc.topupMin || fundMut.isPending}
               onClick={() => fundOpen && fundBreakdown && fundMut.mutate({ id: fundOpen.id, amount: fundBreakdown.loadAmount })}
               data-testid="button-confirm-nfc-fund"
               className="bg-gradient-to-r from-indigo-600 to-purple-600 text-white"
@@ -574,11 +571,11 @@ export default function NfcCardsPage() {
               <Input
                 id="wd-amt"
                 type="number"
-                min={NFC_WITHDRAW_MIN_USD}
+                min={pricing.nfc.withdrawMin}
                 step="0.01"
                 value={withdrawAmt}
                 onChange={(e) => setWithdrawAmt(e.target.value)}
-                placeholder={`Min $${NFC_WITHDRAW_MIN_USD}`}
+                placeholder={`Min $${pricing.nfc.withdrawMin}`}
                 data-testid="input-nfc-withdraw-amount"
               />
               {withdrawOpen && (
@@ -600,7 +597,7 @@ export default function NfcCardsPage() {
               disabled={
                 !withdrawOpen ||
                 !withdrawBreakdown ||
-                withdrawBreakdown.amount < NFC_WITHDRAW_MIN_USD ||
+                withdrawBreakdown.amount < pricing.nfc.withdrawMin ||
                 withdrawBreakdown.amount > parseFloat(withdrawOpen.balance) ||
                 withdrawBreakdown.netToWallet <= 0 ||
                 withdrawMut.isPending
