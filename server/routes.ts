@@ -8081,22 +8081,16 @@ export async function registerRoutes(
         await storage.generateReferralCode(profileId);
       }
       const updated = await storage.getProfile(profileId);
-      // Send WhatsApp notification
-      if (profile.phone) {
-        if (newValue) {
-          const code = updated?.referralCode ?? "";
-          sendWhatsAppNotification(
-            profile.phone,
-            `*Izichanj*\n\n🎉 Félicitations! Your *Referral Link* is now *ACTIVE*!\n\nYour unique referral code: *${code}*\n\n📍 Find it in your *Profile page* → scroll to the *Referral Program* section.\n\n💸 *Commission structure:*\n• $0.05 – When a friend verifies their email\n• $0.25 – When a friend's KYC is approved\n• $2.00 – When a friend makes their first deposit of $50+\n\nShare your code and start earning today! 🚀\n\nhttps://izichanj.com`,
-            profile.fullName
-          );
-        } else {
-          sendWhatsAppNotification(
-            profile.phone,
-            `*Izichanj*\n\nℹ️ *Referral Program Update*\n\nYour referral link access has been *deactivated*. You will no longer earn referral commissions.\n\nIf you believe this is a mistake, please contact our support team.\n\nhttps://izichanj.com`,
-            profile.fullName
-          );
-        }
+      // Send WhatsApp + email notifications
+      const code = updated?.referralCode ?? "";
+      if (newValue) {
+        const enableMsg = `*Izichanj*\n\n🎉 Félicitations! Your *Referral Link* is now *ACTIVE*!\n\nYour unique referral code: *${code}*\n\n📍 Find it in your *Profile page* → scroll to the *Referral Program* section.\n\n💸 *Commission structure:*\n• $0.05 – When a friend verifies their email\n• $0.25 – When a friend's KYC is approved\n• $2.00 – When a friend makes their first deposit of $50+\n\nShare your code and start earning today! 🚀\n\nhttps://izichanj.com`;
+        if (profile.phone) sendWhatsAppNotification(profile.phone, enableMsg, profile.fullName);
+        if (profile.email) sendNotificationEmail(profile.email, enableMsg, profile.fullName).catch(() => {});
+      } else {
+        const disableMsg = `*Izichanj*\n\nℹ️ *Referral Program Update*\n\nYour referral link access has been *deactivated*. You will no longer earn referral commissions.\n\nIf you believe this is a mistake, please contact our support team.\n\nhttps://izichanj.com`;
+        if (profile.phone) sendWhatsAppNotification(profile.phone, disableMsg, profile.fullName);
+        if (profile.email) sendNotificationEmail(profile.email, disableMsg, profile.fullName).catch(() => {});
       }
       res.json({ affiliateEnabled: updated?.affiliateEnabled, referralCode: updated?.referralCode });
     } catch (e: any) {
