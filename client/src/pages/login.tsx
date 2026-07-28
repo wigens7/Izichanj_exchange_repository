@@ -881,7 +881,7 @@ export default function LoginPage() {
             </Card>
           ) : (
             <Card className="border shadow-sm">
-              <Tabs defaultValue="signin" className="w-full">
+              <Tabs defaultValue={window.location.pathname === "/register" || new URLSearchParams(window.location.search).get("ref") ? "signup" : "signin"} className="w-full">
                 <CardHeader className="pb-3">
                   <TabsList className="grid w-full grid-cols-2" data-testid="tabs-auth">
                     <TabsTrigger value="signin" data-testid="tab-signin">{t.login.signIn}</TabsTrigger>
