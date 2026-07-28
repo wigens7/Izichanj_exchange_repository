@@ -551,9 +551,12 @@ function SignUpForm() {
   const [, setLocation] = useLocation();
   const { t } = useLanguage();
 
+  // Pre-fill referral code from URL: /register?ref=CODE
+  const refFromUrl = new URLSearchParams(window.location.search).get("ref") ?? "";
+
   const form = useForm<RegisterInput>({
     resolver: zodResolver(registerSchema),
-    defaultValues: { fullName: "", email: "", phone: "", password: "", confirmPassword: "", referralCode: "" },
+    defaultValues: { fullName: "", email: "", phone: "", password: "", confirmPassword: "", referralCode: refFromUrl },
   });
 
   const onSubmit = (data: RegisterInput) => {

@@ -8084,7 +8084,8 @@ export async function registerRoutes(
       // Send WhatsApp + email notifications
       const code = updated?.referralCode ?? "";
       if (newValue) {
-        const enableMsg = `*Izichanj*\n\n🎉 Félicitations! Your *Referral Link* is now *ACTIVE*!\n\nYour unique referral code: *${code}*\n\n📍 Find it in your *Profile page* → scroll to the *Referral Program* section.\n\n💸 *Commission structure:*\n• $0.05 – When a friend verifies their email\n• $0.25 – When a friend's KYC is approved\n• $2.00 – When a friend makes their first deposit of $50+\n\nShare your code and start earning today! 🚀\n\nhttps://izichanj.com`;
+        const refLink = `https://izichanj.com/register?ref=${code}`;
+        const enableMsg = `*Izichanj*\n\n🎉 Félicitations! Your *Referral Link* is now *ACTIVE*!\n\n🔗 Your referral link:\n${refLink}\n\nAnyone who clicks this link will have your code pre-filled at registration.\n\n💸 *Commission structure:*\n• $0.05 – When a friend verifies their email\n• $0.25 – When a friend's KYC is approved\n• $2.00 – When a friend makes their first deposit of $50+\n\nShare your link and start earning today! 🚀\n\nhttps://izichanj.com`;
         if (profile.phone) sendWhatsAppNotification(profile.phone, enableMsg, profile.fullName);
         if (profile.email) sendNotificationEmail(profile.email, enableMsg, profile.fullName).catch(() => {});
       } else {

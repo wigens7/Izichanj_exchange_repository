@@ -443,30 +443,44 @@ export default function ProfilePage() {
               <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin text-muted-foreground" /></div>
             ) : (
               <div className="space-y-5">
-                {/* Referral code */}
-                <div className="rounded-lg border border-border bg-muted/30 p-4">
-                  <p className="text-xs uppercase tracking-wider text-muted-foreground mb-2">Your Referral Code</p>
-                  <div className="flex items-center gap-2">
-                    <code className="flex-1 font-mono text-lg font-bold tracking-widest" data-testid="text-referral-code">
-                      {referralStats?.referralCode || "—"}
-                    </code>
-                    <Button
-                      variant="ghost" size="icon"
-                      onClick={() => {
-                        if (referralStats?.referralCode) {
-                          navigator.clipboard.writeText(referralStats.referralCode);
-                          setCodeCopied(true);
-                          toast({ title: "Copied!", description: "Referral code copied to clipboard." });
-                          setTimeout(() => setCodeCopied(false), 2000);
-                        }
-                      }}
-                      data-testid="button-copy-referral-code"
-                    >
-                      {codeCopied ? <Check className="w-4 h-4 text-emerald-500" /> : <Copy className="w-4 h-4" />}
-                    </Button>
-                  </div>
-                  <p className="text-[11px] text-muted-foreground mt-1">Share this code with friends. They enter it during registration.</p>
-                </div>
+                {/* Referral link */}
+                {(() => {
+                  const refCode = referralStats?.referralCode;
+                  const refLink = refCode ? `https://izichanj.com/register?ref=${refCode}` : null;
+                  return (
+                    <div className="rounded-lg border border-border bg-muted/30 p-4 space-y-3">
+                      {/* Full link row */}
+                      <div>
+                        <p className="text-xs uppercase tracking-wider text-muted-foreground mb-2">Your Referral Link</p>
+                        <div className="flex items-center gap-2">
+                          <code className="flex-1 font-mono text-xs break-all text-primary" data-testid="text-referral-link">
+                            {refLink || "—"}
+                          </code>
+                          <Button
+                            variant="ghost" size="icon"
+                            onClick={() => {
+                              if (refLink) {
+                                navigator.clipboard.writeText(refLink);
+                                setCodeCopied(true);
+                                toast({ title: "Link copied!", description: "Share this link — friends who click it will have your code pre-filled." });
+                                setTimeout(() => setCodeCopied(false), 2000);
+                              }
+                            }}
+                            data-testid="button-copy-referral-link"
+                          >
+                            {codeCopied ? <Check className="w-4 h-4 text-emerald-500" /> : <Copy className="w-4 h-4" />}
+                          </Button>
+                        </div>
+                        <p className="text-[11px] text-muted-foreground mt-1">Anyone who clicks this link will have your referral code pre-filled at registration.</p>
+                      </div>
+                      {/* Code row (secondary) */}
+                      <div className="flex items-center gap-2 pt-2 border-t border-border/40">
+                        <span className="text-xs text-muted-foreground">Code:</span>
+                        <code className="font-mono text-sm font-bold tracking-widest" data-testid="text-referral-code">{refCode || "—"}</code>
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 {/* Stats row */}
                 <div className="grid grid-cols-3 gap-3">
