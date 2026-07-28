@@ -428,7 +428,7 @@ export default function ProfilePage() {
         </div>
       </div>
 
-      {/* ── Referral / Affiliate Panel ── */}
+      {/* ── Referral Link Panel ── */}
       {user.affiliateEnabled && (
         <Card>
           <CardHeader className="pb-3">

@@ -641,7 +641,7 @@ function UserRow({ user, onUpdateBalance, isPending, hasDownloaded }: { user: an
       return res.json();
     },
     onSuccess: (data: any) => {
-      toast({ title: data.affiliateEnabled ? "Affiliate Enabled" : "Affiliate Disabled", description: data.affiliateEnabled ? `${user.fullName} can now use the referral system.` : `Affiliate disabled for ${user.fullName}.` });
+      toast({ title: data.affiliateEnabled ? "Referral Enabled" : "Referral Disabled", description: data.affiliateEnabled ? `${user.fullName} can now use the referral system.` : `Referral link disabled for ${user.fullName}.` });
       qc.invalidateQueries({ queryKey: ["/api/admin/users"] });
     },
     onError: (error: Error) => {
@@ -915,10 +915,10 @@ function UserRow({ user, onUpdateBalance, isPending, hasDownloaded }: { user: an
               onClick={() => toggleAffiliateMutation.mutate()}
               disabled={toggleAffiliateMutation.isPending}
               data-testid={`button-toggle-affiliate-${user.id}`}
-              title={user.affiliateEnabled ? "Disable affiliate program" : "Enable affiliate program"}
+              title={user.affiliateEnabled ? "Disable referral link" : "Enable referral link"}
             >
               {toggleAffiliateMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Users className="w-3 h-3 mr-1" />}
-              {user.affiliateEnabled ? "Affiliate ON" : "Affiliate OFF"}
+              {user.affiliateEnabled ? "Referral ON" : "Referral OFF"}
             </Button>
             {!confirmDelete ? (
               <Button variant="destructive" size="sm" onClick={() => setConfirmDelete(true)} disabled={user.role === "admin"} data-testid={`button-delete-user-${user.id}`}>
