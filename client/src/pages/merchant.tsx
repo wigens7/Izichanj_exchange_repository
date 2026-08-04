@@ -14,7 +14,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   Store, ShieldOff, Ban, Plus,
-  ShieldCheck, Loader2, RefreshCcw, Lock, MessageCircle, ShoppingCart
+  ShieldCheck, Loader2, RefreshCcw, Lock, MessageCircle, ShoppingCart, ShieldAlert, CheckCircle2, Clock
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 
@@ -68,7 +68,7 @@ export default function P2PMarketPage() {
           <CardContent className="pt-6 text-center space-y-4">
             <Ban className="w-12 h-12 text-red-500 mx-auto" />
             <div>
-              <h2 className="text-lg font-semibold">Temporarily Banned</h2>
+              <h2 className="text-lg font-semibold text-white">Temporarily Banned</h2>
               <p className="text-sm text-muted-foreground mt-1">{banData?.reason ?? "Account restricted."}</p>
             </div>
           </CardContent>
@@ -79,7 +79,6 @@ export default function P2PMarketPage() {
 
   return (
     <div className="p-4 space-y-4 max-w-2xl mx-auto">
-      {/* Header section matching UI */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Store className="w-6 h-6 text-amber-500" />
@@ -104,10 +103,10 @@ export default function P2PMarketPage() {
         </Card>
       )}
 
-      {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="w-full bg-[#1e232a] border border-border">
           <TabsTrigger value="marketplace" className="flex-1 data-[state=active]:bg-amber-500 data-[state=active]:text-black font-medium">Marketplace</TabsTrigger>
+          <TabsTrigger value="my-orders" className="flex-1 data-[state=active]:bg-amber-500 data-[state=active]:text-black font-medium">Escrow Orders</TabsTrigger>
           <TabsTrigger value="seller-settings" className="flex-1 data-[state=active]:bg-amber-500 data-[state=active]:text-black font-medium">Settings</TabsTrigger>
         </TabsList>
 
@@ -116,6 +115,10 @@ export default function P2PMarketPage() {
             onBuy={(ad) => isKycVerified ? setShowBuyDialog(ad) : requireKyc("buy USDT")}
             currentUserId={user?.id}
           />
+        </TabsContent>
+
+        <TabsContent value="my-orders">
+          <EscrowOrdersTab currentUserId={user?.id} />
         </TabsContent>
 
         <TabsContent value="seller-settings">
@@ -128,6 +131,7 @@ export default function P2PMarketPage() {
           open={!!showBuyDialog}
           ad={showBuyDialog}
           onClose={() => setShowBuyDialog(null)}
+          onOrderCreated={() => setActiveTab("my-orders")}
         />
       )}
     </div>
@@ -169,7 +173,6 @@ function AdCard({ ad, onBuy, isMine }: { ad: any; onBuy: (ad: any) => void; isMi
   return (
     <Card className="bg-[#181c23] border-[#2b313a] hover:border-amber-500/40 transition-all">
       <CardContent className="p-4 space-y-3">
-        {/* Top bar: Merchant Name + Status */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <span className="font-bold text-base text-white">{sellerName}</span>
@@ -181,7 +184,6 @@ function AdCard({ ad, onBuy, isMine }: { ad: any; onBuy: (ad: any) => void; isMi
           </span>
         </div>
 
-        {/* Rate Display */}
         <div>
           <div className="text-2xl font-black text-amber-400">
             {rate.toFixed(2)} <span className="text-sm font-medium text-amber-400/80">HTG/USDT</span>
@@ -192,7 +194,6 @@ function AdCard({ ad, onBuy, isMine }: { ad: any; onBuy: (ad: any) => void; isMi
           </div>
         </div>
 
-        {/* Payment Methods & Buy Button */}
         <div className="flex items-center justify-between pt-2 border-t border-[#2b313a]">
           <div className="flex flex-wrap gap-1.5">
             {methods.map((m: string) => (
@@ -217,7 +218,7 @@ function AdCard({ ad, onBuy, isMine }: { ad: any; onBuy: (ad: any) => void; isMi
   );
 }
 
-function PlaceOrderDialog({ open, ad, onClose }: { open: boolean; ad: any; onClose: () => void }) {
+function PlaceOrderDialog({ open, ad, onClose, onOrderCreated }: { open: boolean; ad: any; onClose: () => void; onOrderCreated: () => void }) {
   const { toast } = useToast();
   const qc = useQueryClient();
   const [amountUsdt, setAmountUsdt] = useState("");
@@ -238,9 +239,11 @@ function PlaceOrderDialog({ open, ad, onClose }: { open: boolean; ad: any; onClo
       amountUsdt: parsedUsdt,
     }),
     onSuccess: () => {
-      toast({ title: "Order Placed!", description: "Check 'My Orders' to chat with the seller." });
+      toast({ title: "Escrow Order Created!", description: "USDT is now locked in Escrow. Complete payment." });
       qc.invalidateQueries({ queryKey: ["/api/p2p/ads"] });
+      qc.invalidateQueries({ queryKey: ["/api/p2p/orders"] });
       onClose();
+      onOrderCreated();
     },
     onError: (err: any) => toast({ title: "Error", description: err?.message || "Failed to place order", variant: "destructive" })
   });
@@ -249,44 +252,105 @@ function PlaceOrderDialog({ open, ad, onClose }: { open: boolean; ad: any; onClo
     <Dialog open={open} onOpenChange={onClose}>
       <DialogContent className="sm:max-w-md bg-[#181c23] border-[#2b313a] text-white">
         <DialogHeader>
-          <DialogTitle className="text-white">Buy USDT from {ad?.merchant_name || ad?.seller_name || "Merchant"}</DialogTitle>
+          <DialogTitle className="text-white">Escrow Order: {ad?.merchant_name || ad?.seller_name || "Merchant"}</DialogTitle>
           <DialogDescription className="text-gray-400">
-            Rate: <strong className="text-amber-400">{rate.toFixed(2)} HTG</strong> per USDT
+            Funds will be held safely in <strong className="text-amber-400">Escrow</strong> until payment is confirmed.
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4 py-2">
           <div className="space-y-2">
-            <Label className="text-gray-300">Amount in USDT</Label>
+            <Label className="text-gray-300">Amount (USDT)</Label>
             <Input
               type="number"
               placeholder={`Min ${minUsdt} - Max ${maxUsdt}`}
               value={amountUsdt}
               onChange={(e) => setAmountUsdt(e.target.value)}
-              className="bg-[#252b36] border-[#353d4c] text-white placeholder:text-gray-500"
+              className="bg-[#252b36] border-[#353d4c] text-white"
             />
           </div>
 
           <div className="p-3 bg-[#252b36] rounded-lg space-y-1 text-sm border border-[#353d4c]">
             <div className="flex justify-between text-gray-400">
-              <span>Total to pay (HTG):</span>
+              <span>Total Pay (HTG):</span>
               <span className="font-bold text-amber-400 text-base">{totalHtg.toLocaleString(undefined, { minimumFractionDigits: 2 })} HTG</span>
             </div>
           </div>
         </div>
 
         <DialogFooter className="gap-2 sm:gap-0">
-          <Button variant="outline" onClick={onClose} className="border-[#353d4c] text-gray-300 hover:bg-[#252b36]">Cancel</Button>
+          <Button variant="outline" onClick={onClose} className="border-[#353d4c] text-gray-300">Cancel</Button>
           <Button
             onClick={() => orderMut.mutate()}
             disabled={parsedUsdt < minUsdt || parsedUsdt > maxUsdt || orderMut.isPending}
             className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold"
           >
-            {orderMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "Confirm Buy"}
+            {orderMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "Lock & Buy"}
           </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function EscrowOrdersTab({ currentUserId }: { currentUserId?: number }) {
+  const { data: orders, isLoading, refetch } = useQuery<any[]>({ queryKey: ["/api/p2p/orders"] });
+  const { toast } = useToast();
+  const qc = useQueryClient();
+
+  const markPaidMut = useMutation({
+    mutationFn: (orderId: number) => apiRequest("POST", `/api/p2p/orders/${orderId}/mark-paid`),
+    onSuccess: () => {
+      toast({ title: "Payment Marked", description: "Seller notified to release crypto." });
+      qc.invalidateQueries({ queryKey: ["/api/p2p/orders"] });
+    }
+  });
+
+  const releaseMut = useMutation({
+    mutationFn: (orderId: number) => apiRequest("POST", `/api/p2p/orders/${orderId}/release`),
+    onSuccess: () => {
+      toast({ title: "Crypto Released!", description: "Escrow funds deposited to buyer." });
+      qc.invalidateQueries({ queryKey: ["/api/p2p/orders"] });
+    }
+  });
+
+  if (isLoading) return <div className="flex justify-center py-10"><Loader2 className="w-6 h-6 animate-spin text-amber-500" /></div>;
+
+  return (
+    <div className="space-y-3 mt-3">
+      {orders?.length === 0 && <p className="text-center text-sm text-gray-400 py-8">No active P2P Escrow orders.</p>}
+      {orders?.map((order) => {
+        const isBuyer = order.buyer_id === currentUserId;
+        return (
+          <Card key={order.id} className="bg-[#181c23] border-[#2b313a] text-white">
+            <CardContent className="p-4 space-y-3">
+              <div className="flex justify-between items-center">
+                <span className="text-xs text-amber-400 font-bold">Order #{order.id}</span>
+                <Badge variant="outline" className="border-amber-500 text-amber-400">{order.status}</Badge>
+              </div>
+
+              <div className="text-lg font-bold">
+                {order.amount_usdt} USDT <span className="text-sm font-normal text-gray-400">({order.amount_htg} HTG)</span>
+              </div>
+
+              <div className="flex gap-2 pt-2">
+                {isBuyer && order.status === "pending" && (
+                  <Button size="sm" onClick={() => markPaidMut.mutate(order.id)} disabled={markPaidMut.isPending} className="bg-amber-500 text-black font-bold">
+                    I Have Paid
+                  </Button>
+                )}
+
+                {!isBuyer && order.status === "paid" && (
+                  <Button size="sm" onClick={() => releaseMut.mutate(order.id)} disabled={releaseMut.isPending} className="bg-emerald-600 text-white font-bold">
+                    Release Crypto (Escrow)
+                  </Button>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        );
+      })}
+    </div>
   );
 }
 
