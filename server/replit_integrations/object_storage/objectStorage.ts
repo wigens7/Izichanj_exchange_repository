@@ -23,47 +23,35 @@ export class ObjectStorageService {
     return objectPath;
   }
 
-  // Forces browser to directly load or redirect to the real image URL
-  async downloadObject(
-    filePath: string,
-    res: Response,
-    cacheTtlSec: number = 3600
-  ) {
+  async downloadObject(filePath: string, res: Response) {
     try {
       if (!filePath) {
         return res.status(404).json({ error: "Object not found" });
       }
 
-      // If it's already an HTTP/HTTPS URL (ImgBB), redirect directly
-      if (filePath.startsWith("http://") || filePath.startsWith("https://")) {
-        return res.redirect(301, filePath);
-      }
+      // Netwaye chemen an si gen /objects/ devan l
+      let cleanUrl = filePath.replace(/^\/objects\//, "");
 
-      // If front-end prepended /objects/ to an ImgBB link, strip it and redirect
-      const cleanUrl = filePath.replace(/^\/objects\//, "");
+      // Si se deja yon URL ImgBB (https://i.ibb.co/...)
       if (cleanUrl.startsWith("http://") || cleanUrl.startsWith("https://")) {
         return res.redirect(301, cleanUrl);
       }
 
-      return res.status(404).json({ error: "Object not found" });
+      return res.status(404).json({ error: "Image file format invalid or not found" });
     } catch (error) {
-      console.error("Error redirecting/downloading image:", error);
+      console.error("Error serving object:", error);
       if (!res.headersSent) {
-        res.status(500).json({ error: "Error retrieving file" });
+        res.status(500).json({ error: "Failed to process image" });
       }
     }
   }
 
   normalizeObjectEntityPath(rawPath: string): string {
-    if (!rawPath) return rawPath;
-    return rawPath;
+    return rawPath || "";
   }
 
-  async trySetObjectEntityAclPolicy(
-    rawPath: string,
-    aclPolicy: any
-  ): Promise<string> {
-    return this.normalizeObjectEntityPath(rawPath);
+  async trySetObjectEntityAclPolicy(rawPath: string): Promise<string> {
+    return rawPath;
   }
 
   async canAccessObjectEntity(): Promise<boolean> {
