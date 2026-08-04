@@ -2,38 +2,13 @@ import type { Express } from "express";
 import { ObjectStorageService, ObjectNotFoundError } from "./objectStorage";
 
 /**
- * Register object storage routes for file uploads.
- *
- * This provides example routes for the presigned URL upload flow:
- * 1. POST /api/uploads/request-url - Get a presigned URL for uploading
- * 2. The client then uploads directly to the presigned URL
- *
- * IMPORTANT: These are example routes. Customize based on your use case:
- * - Add authentication middleware for protected uploads
- * - Add file metadata storage (save to database after upload)
- * - Add ACL policies for access control
+ * Register object storage routes for file uploads via ImgBB Integration.
  */
 export function registerObjectStorageRoutes(app: Express): void {
   const objectStorageService = new ObjectStorageService();
 
   /**
-   * Request a presigned URL for file upload.
-   *
-   * Request body (JSON):
-   * {
-   *   "name": "filename.jpg",
-   *   "size": 12345,
-   *   "contentType": "image/jpeg"
-   * }
-   *
-   * Response:
-   * {
-   *   "uploadURL": "https://storage.googleapis.com/...",
-   *   "objectPath": "/objects/uploads/uuid"
-   * }
-   *
-   * IMPORTANT: The client should NOT send the file to this endpoint.
-   * Send JSON metadata only, then upload the file directly to uploadURL.
+   * Request an upload URL or handle metadata request.
    */
   app.post("/api/uploads/request-url", async (req, res) => {
     try {
@@ -46,14 +21,11 @@ export function registerObjectStorageRoutes(app: Express): void {
       }
 
       const uploadURL = await objectStorageService.getObjectEntityUploadURL();
-
-      // Extract object path from the presigned URL for later reference
       const objectPath = objectStorageService.normalizeObjectEntityPath(uploadURL);
 
       res.json({
         uploadURL,
         objectPath,
-        // Echo back the metadata for client convenience
         metadata: { name, size, contentType },
       });
     } catch (error) {
@@ -63,24 +35,50 @@ export function registerObjectStorageRoutes(app: Express): void {
   });
 
   /**
-   * Serve uploaded objects.
-   *
-   * GET /objects/:objectPath(*)
-   *
-   * This serves files from object storage. For public files, no auth needed.
-   * For protected files, add authentication middleware and ACL checks.
+   * Direct Backend Image Proxy Upload Route for ImgBB.
+   * Eliminates "Failed to fetch" CORS errors on frontend P2P and KYC uploads.
+   */
+  app.post("/api/upload-image", async (req, res) => {
+    try {
+      const apiKey = process.env.IMGBB_API_KEY || "78d7e064b5ed8b0d0c2b52cea93405b7";
+      
+      const imagePayload = req.body.image || req.body.file || req.body.base64;
+      if (!imagePayload) {
+        return res.status(400).json({ error: "No image file provided" });
+      }
+
+      const formData = new URLSearchParams();
+      formData.append("image", imagePayload.replace(/^data:image\/\w+;base64,/, ""));
+
+      const response = await fetch(`https://api.imgbb.com/1/upload?key=${apiKey}`, {
+        method: "POST",
+        body: formData,
+      });
+
+      const data = await response.json();
+      if (data.success) {
+        return res.json({ 
+          url: data.data.url, 
+          path: data.data.url,
+          uploadURL: data.data.url 
+        });
+      } else {
+        return res.status(500).json({ error: "Failed to upload image to ImgBB storage" });
+      }
+    } catch (err) {
+      console.error("Image Proxy Upload Error:", err);
+      return res.status(500).json({ error: "Internal upload server error" });
+    }
+  });
+
+  /**
+   * Serve uploaded objects or redirect to stored image URL.
    */
   app.get(/^\/objects\/(.+)$/, async (req, res) => {
     try {
       const objectPath = req.params[0];
-      // Prepend /objects/ to match the expected format if needed, 
-      // but getObjectEntityFile likely expects full path or relative?
-      // normalizeObjectEntityPath returns /objects/uuid.
-      // req.params[0] will be 'uploads/uuid'.
-      // So let's reconstruct it.
       const fullPath = "/objects/" + objectPath;
-      const objectFile = await objectStorageService.getObjectEntityFile(fullPath);
-      await objectStorageService.downloadObject(objectFile, res);
+      await objectStorageService.downloadObject(fullPath, res);
     } catch (error) {
       console.error("Error serving object:", error);
       if (error instanceof ObjectNotFoundError) {
@@ -90,4 +88,3 @@ export function registerObjectStorageRoutes(app: Express): void {
     }
   });
 }
-
