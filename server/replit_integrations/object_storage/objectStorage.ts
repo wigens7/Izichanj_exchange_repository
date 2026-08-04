@@ -1,7 +1,5 @@
 import { Response } from "express";
 
-const IMGBB_API_KEY = process.env.IMGBB_API_KEY || "78d7e064b5ed8b0d0c2b52cea93405b7";
-
 export class ObjectNotFoundError extends Error {
   constructor() {
     super("Object not found");
@@ -25,6 +23,7 @@ export class ObjectStorageService {
     return objectPath;
   }
 
+  // Forces browser to directly load or redirect to the real image URL
   async downloadObject(
     filePath: string,
     res: Response,
@@ -35,13 +34,15 @@ export class ObjectStorageService {
         return res.status(404).json({ error: "Object not found" });
       }
 
+      // If it's already an HTTP/HTTPS URL (ImgBB), redirect directly
       if (filePath.startsWith("http://") || filePath.startsWith("https://")) {
-        return res.redirect(filePath);
+        return res.redirect(301, filePath);
       }
 
+      // If front-end prepended /objects/ to an ImgBB link, strip it and redirect
       const cleanUrl = filePath.replace(/^\/objects\//, "");
-      if (cleanUrl.startsWith("http")) {
-        return res.redirect(cleanUrl);
+      if (cleanUrl.startsWith("http://") || cleanUrl.startsWith("https://")) {
+        return res.redirect(301, cleanUrl);
       }
 
       return res.status(404).json({ error: "Object not found" });
