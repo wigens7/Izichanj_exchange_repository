@@ -48,7 +48,12 @@ export function registerObjectStorageRoutes(app: Express): void {
       }
 
       const formData = new URLSearchParams();
-      formData.append("image", imagePayload.replace(/^data:image\/\w+;base64,/, ""));
+      // Ensuing base64 cleaning for both PNG and JPEG formats
+      const cleanBase64 = typeof imagePayload === "string" 
+        ? imagePayload.replace(/^data:image\/\w+;base64,/, "")
+        : imagePayload;
+
+      formData.append("image", cleanBase64);
 
       const response = await fetch(`https://api.imgbb.com/1/upload?key=${apiKey}`, {
         method: "POST",
@@ -56,11 +61,14 @@ export function registerObjectStorageRoutes(app: Express): void {
       });
 
       const data = await response.json();
-      if (data.success) {
+      if (data.success && data.data) {
+        // Direct image link ensures both Buyer and Seller render PNG/JPEG properly
+        const directImageUrl = data.data.display_url || data.data.url;
+
         return res.json({ 
-          url: data.data.url, 
-          path: data.data.url,
-          uploadURL: data.data.url 
+          url: directImageUrl, 
+          path: directImageUrl,
+          uploadURL: directImageUrl 
         });
       } else {
         return res.status(500).json({ error: "Failed to upload image to ImgBB storage" });
