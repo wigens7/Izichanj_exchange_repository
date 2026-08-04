@@ -1,10 +1,52 @@
+import type { Express } from "express";
+import https from "https";
+import { ObjectStorageService, ObjectNotFoundError } from "./objectStorage";
+
+/**
+ * Register object storage routes for file uploads via ImgBB Integration.
+ */
+export function registerObjectStorageRoutes(app: Express): void {
+  const objectStorageService = new ObjectStorageService();
+
   /**
-   * Direct Upload Route forcing JPEG format return for Chat & KYC
+   * Request an upload URL or handle metadata request.
    */
-  app.post("/api/upload-image", async (req, res) => {
+  app.post("/api/uploads/request-url", async (req, res) => {
+    try {
+      const { name, size, contentType } = req.body;
+
+      if (!name) {
+        return res.status(400).json({
+          error: "Missing required field: name",
+        });
+      }
+
+      const uploadURL = await objectStorageService.getObjectEntityUploadURL();
+      const objectPath = objectStorageService.normalizeObjectEntityPath(uploadURL);
+
+      res.json({
+        uploadURL,
+        objectPath,
+        metadata: { name, size, contentType },
+      });
+    } catch (error) {
+      console.error("Error generating upload URL:", error);
+      res.status(500).json({ error: "Failed to generate upload URL" });
+    }
+  });
+
+  /**
+   * Direct Backend Image Proxy Upload Route for ImgBB using native HTTPS.
+   * Prevents TypeScript build crash and CORS errors.
+   */
+  app.post("/api/upload-image", (req, res) => {
     try {
       const apiKey = process.env.IMGBB_API_KEY || "78d7e064b5ed8b0d0c2b52cea93405b7";
       
+      if (!req.body) {
+        return res.status(400).json({ error: "Empty request body" });
+      }
+
       let imagePayload = req.body.image || req.body.file || req.body.base64;
       if (!imagePayload) {
         return res.status(400).json({ error: "No image file provided" });
@@ -14,41 +56,79 @@
         imagePayload = imagePayload.url;
       }
 
-      let cleanBase64 = typeof imagePayload === "string" 
+      const cleanBase64 = typeof imagePayload === "string" 
         ? imagePayload.replace(/^data:image\/\w+;base64,/, "")
         : String(imagePayload);
 
-      const formData = new URLSearchParams();
-      formData.append("image", cleanBase64);
+      const postData = new URLSearchParams({ image: cleanBase64 }).toString();
 
-      const response = await fetch(`https://api.imgbb.com/1/upload?key=${apiKey}`, {
+      const options = {
+        hostname: "api.imgbb.com",
+        path: `/1/upload?key=${apiKey}`,
         method: "POST",
         headers: {
           "Content-Type": "application/x-www-form-urlencoded",
+          "Content-Length": Buffer.byteLength(postData),
         },
-        body: formData.toString(),
+      };
+
+      const request = https.request(options, (response) => {
+        let body = "";
+        response.on("data", (chunk) => (body += chunk));
+        response.on("end", () => {
+          try {
+            const data = JSON.parse(body);
+            if (data && data.success && data.data) {
+              const directImageUrl = data.data.display_url || data.data.url;
+              return res.json({ 
+                url: directImageUrl, 
+                path: directImageUrl,
+                uploadURL: directImageUrl,
+                imageUrl: directImageUrl,
+                fileUrl: directImageUrl
+              });
+            } else {
+              console.error("ImgBB API Response Error:", data);
+              return res.status(400).json({ error: "ImgBB upload failed" });
+            }
+          } catch (e) {
+            console.error("JSON parse error:", e);
+            return res.status(500).json({ error: "Invalid response from ImgBB" });
+          }
+        });
       });
 
-      const data = await response.json();
+      request.on("error", (err) => {
+        console.error("HTTPS Request Error:", err);
+        if (!res.headersSent) {
+          res.status(500).json({ error: "Upload request failed" });
+        }
+      });
 
-      if (data && data.success && data.data) {
-        // Force the direct display URL (which ends with pure image extension like .jpg/.png)
-        const directJpegUrl = data.data.display_url || data.data.url;
-
-        return res.json({ 
-          url: directJpegUrl, 
-          path: directJpegUrl,
-          uploadURL: directJpegUrl,
-          // Extra fields in case frontend looks for different property names
-          imageUrl: directJpegUrl,
-          fileUrl: directJpegUrl
-        });
-      } else {
-        console.error("ImgBB Upload Failure:", data);
-        return res.status(400).json({ error: "Failed to process image format" });
-      }
+      request.write(postData);
+      request.end();
     } catch (err) {
       console.error("Image Proxy Upload Error:", err);
-      return res.status(500).json({ error: "Internal upload server error" });
+      if (!res.headersSent) {
+        res.status(500).json({ error: "Internal upload server error" });
+      }
     }
   });
+
+  /**
+   * Serve uploaded objects or redirect to stored image URL.
+   */
+  app.get(/^\/objects\/(.+)$/, async (req, res) => {
+    try {
+      const objectPath = req.params[0];
+      const fullPath = "/objects/" + objectPath;
+      await objectStorageService.downloadObject(fullPath, res);
+    } catch (error) {
+      console.error("Error serving object:", error);
+      if (error instanceof ObjectNotFoundError) {
+        return res.status(404).json({ error: "Object not found" });
+      }
+      return res.status(500).json({ error: "Failed to serve object" });
+    }
+  });
+}
