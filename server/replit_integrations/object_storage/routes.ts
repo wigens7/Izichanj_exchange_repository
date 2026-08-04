@@ -1,38 +1,46 @@
+  /**
+   * Safe ImgBB Upload Route with Error Handling
+   */
   app.post("/api/upload-image", async (req, res) => {
     try {
       const apiKey = process.env.IMGBB_API_KEY || "78d7e064b5ed8b0d0c2b52cea93405b7";
       
-      // Check for image data in body
+      // Safe check for request body
+      if (!req.body) {
+        return res.status(400).json({ error: "Empty request body" });
+      }
+
       let imagePayload = req.body.image || req.body.file || req.body.base64;
       
       if (!imagePayload) {
-        return res.status(400).json({ error: "No image file provided" });
+        return res.status(400).json({ error: "No image payload provided" });
       }
 
-      // If it's already an object with url, extract it
       if (typeof imagePayload === "object" && imagePayload.url) {
         imagePayload = imagePayload.url;
       }
 
-      const formData = new URLSearchParams();
-      
-      // Clean base64 string if present
+      let cleanBase64 = "";
       if (typeof imagePayload === "string") {
-        const cleanBase64 = imagePayload.replace(/^data:image\/\w+;base64,/, "");
-        formData.append("image", cleanBase64);
+        cleanBase64 = imagePayload.replace(/^data:image\/\w+;base64,/, "");
       } else {
-        formData.append("image", imagePayload);
+        cleanBase64 = String(imagePayload);
       }
+
+      const formData = new URLSearchParams();
+      formData.append("image", cleanBase64);
 
       const response = await fetch(`https://api.imgbb.com/1/upload?key=${apiKey}`, {
         method: "POST",
-        body: formData,
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body: formData.toString(),
       });
 
       const data = await response.json();
       
-      if (data.success && data.data) {
-        // Return direct display URL so both buyer and merchant can view it directly
+      if (data && data.success && data.data) {
         const imageUrl = data.data.url || data.data.display_url;
         return res.json({ 
           url: imageUrl, 
@@ -40,11 +48,12 @@
           uploadURL: imageUrl 
         });
       } else {
-        console.error("ImgBB Upload Failure:", data);
-        return res.status(500).json({ error: "Failed to upload image to storage" });
+        console.error("ImgBB API Response Error:", data);
+        return res.status(400).json({ error: "ImgBB rejected the image format" });
       }
     } catch (err) {
-      console.error("Image Proxy Upload Error:", err);
-      return res.status(500).json({ error: "Internal upload server error" });
+      console.error("Internal Upload Error:", err);
+      // Catching error prevents Railway from crashing
+      return res.status(500).json({ error: "Internal server error during upload" });
     }
   });
