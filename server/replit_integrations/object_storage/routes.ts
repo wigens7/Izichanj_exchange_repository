@@ -2,23 +2,15 @@ import type { Express } from "express";
 import https from "https";
 import { ObjectStorageService, ObjectNotFoundError } from "./objectStorage";
 
-/**
- * Register object storage routes for file uploads via ImgBB Integration.
- */
 export function registerObjectStorageRoutes(app: Express): void {
   const objectStorageService = new ObjectStorageService();
 
-  /**
-   * Request an upload URL or handle metadata request.
-   */
   app.post("/api/uploads/request-url", async (req, res) => {
     try {
-      const { name, size, contentType } = req.body;
+      const { name, size, contentType } = req.body || {};
 
       if (!name) {
-        return res.status(400).json({
-          error: "Missing required field: name",
-        });
+        return res.status(400).json({ error: "Missing required field: name" });
       }
 
       const uploadURL = await objectStorageService.getObjectEntityUploadURL();
@@ -35,10 +27,6 @@ export function registerObjectStorageRoutes(app: Express): void {
     }
   });
 
-  /**
-   * Direct Backend Image Proxy Upload Route for ImgBB using native HTTPS.
-   * Prevents TypeScript build crash and CORS errors.
-   */
   app.post("/api/upload-image", (req, res) => {
     try {
       const apiKey = process.env.IMGBB_API_KEY || "78d7e064b5ed8b0d0c2b52cea93405b7";
@@ -115,9 +103,6 @@ export function registerObjectStorageRoutes(app: Express): void {
     }
   });
 
-  /**
-   * Serve uploaded objects or redirect to stored image URL.
-   */
   app.get(/^\/objects\/(.+)$/, async (req, res) => {
     try {
       const objectPath = req.params[0];
@@ -125,10 +110,9 @@ export function registerObjectStorageRoutes(app: Express): void {
       await objectStorageService.downloadObject(fullPath, res);
     } catch (error) {
       console.error("Error serving object:", error);
-      if (error instanceof ObjectNotFoundError) {
-        return res.status(404).json({ error: "Object not found" });
+      if (!res.headersSent) {
+        return res.status(500).json({ error: "Failed to serve object" });
       }
-      return res.status(500).json({ error: "Failed to serve object" });
     }
   });
 }
