@@ -1,4 +1,4 @@
-import { Response, Request } from "express";
+import { Response } from "express";
 
 const IMGBB_API_KEY = process.env.IMGBB_API_KEY || "78d7e064b5ed8b0d0c2b52cea93405b7";
 
@@ -17,9 +17,12 @@ export class ObjectStorageService {
     return process.env.PRIVATE_OBJECT_DIR || "kyc-document";
   }
 
-  // Points upload direct endpoint to Izichanj backend proxy
   async getObjectEntityUploadURL(): Promise<string> {
     return `/api/upload-image`;
+  }
+
+  async getObjectEntityFile(objectPath: string): Promise<string> {
+    return objectPath;
   }
 
   async downloadObject(
