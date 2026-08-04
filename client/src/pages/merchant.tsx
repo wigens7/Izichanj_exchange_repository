@@ -14,46 +14,30 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   Store, ShieldOff, Ban, Plus,
-  ShieldCheck, Loader2, RefreshCcw, Lock, Save, Settings, MessageCircle, ShoppingCart
+  ShieldCheck, Loader2, RefreshCcw, Lock, MessageCircle, ShoppingCart
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 
 const ONLINE_WINDOW_MS = 2 * 60 * 1000;
 
-function PresenceIndicator({ lastActivity, compact = false }: { lastActivity?: string | Date | null; compact?: boolean }) {
-  if (!lastActivity) return compact ? null : <span className="text-[10px] text-muted-foreground">Offline</span>;
+function PresenceIndicator({ lastActivity }: { lastActivity?: string | Date | null }) {
+  if (!lastActivity) return <span className="text-[11px] text-muted-foreground">Offline</span>;
   const last = new Date(lastActivity);
-  if (isNaN(last.getTime())) return compact ? null : <span className="text-[10px] text-muted-foreground">Offline</span>;
+  if (isNaN(last.getTime())) return <span className="text-[11px] text-muted-foreground">Offline</span>;
   const isOnline = Date.now() - last.getTime() < ONLINE_WINDOW_MS;
   
   if (isOnline) {
     return (
-      <span className="inline-flex items-center gap-1">
-        <span className="w-2 h-2 rounded-full bg-emerald-500 ring-2 ring-emerald-500/20 animate-pulse" />
-        {!compact && <span className="text-[10px] text-emerald-500 font-medium">Online</span>}
+      <span className="inline-flex items-center gap-1 text-[11px] text-emerald-400 font-medium">
+        <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+        Online
       </span>
     );
   }
   return (
-    <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground">
+    <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
       <span className="w-2 h-2 rounded-full bg-muted-foreground/40" />
-      {!compact && <>Last seen {formatDistanceToNow(last, { addSuffix: true })}</>}
-    </span>
-  );
-}
-
-const STATUS_COLORS: Record<string, string> = {
-  active: "text-emerald-400 bg-emerald-400/10 border-emerald-400/30",
-  paused: "text-yellow-400 bg-yellow-400/10 border-yellow-400/30",
-  cancelled: "text-red-400 bg-red-400/10 border-red-400/30",
-  completed: "text-blue-400 bg-blue-400/10 border-blue-400/30",
-  pending: "text-yellow-400 bg-yellow-400/10 border-yellow-400/30",
-};
-
-function StatusBadge({ status }: { status: string }) {
-  return (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border ${STATUS_COLORS[status] ?? "text-muted-foreground bg-muted border-border"}`}>
-      {status}
+      Last seen {formatDistanceToNow(last, { addSuffix: true })}
     </span>
   );
 }
@@ -94,35 +78,37 @@ export default function P2PMarketPage() {
   }
 
   return (
-    <div className="p-4 space-y-4">
+    <div className="p-4 space-y-4 max-w-2xl mx-auto">
+      {/* Header section matching UI */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <Store className="w-5 h-5 text-primary" />
-          <h1 className="text-xl font-bold">P2P Market</h1>
+          <Store className="w-6 h-6 text-amber-500" />
+          <h1 className="text-2xl font-bold text-white">P2P Market</h1>
         </div>
-        <Button size="sm" className="gap-2">
+        <Button size="sm" className="bg-amber-500 hover:bg-amber-600 text-black font-semibold gap-1">
           <Plus className="w-4 h-4" /> Post Ad
         </Button>
       </div>
 
       {!isKycVerified && (
-        <Card className="border-yellow-500/30 bg-yellow-500/5">
+        <Card className="border-amber-500/30 bg-amber-500/10">
           <CardContent className="py-3 px-4 flex items-center gap-3">
-            <ShieldOff className="w-5 h-5 text-yellow-500 shrink-0" />
+            <ShieldOff className="w-5 h-5 text-amber-500 shrink-0" />
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium">Identity verification required</p>
+              <p className="text-sm font-medium text-amber-200">Identity verification required</p>
             </div>
-            <Button size="sm" variant="outline" onClick={() => window.location.href = "/profile"} className="gap-1 shrink-0">
+            <Button size="sm" variant="outline" onClick={() => window.location.href = "/profile"} className="gap-1 shrink-0 border-amber-500 text-amber-400">
               <ShieldCheck className="w-4 h-4" /> Verify
             </Button>
           </CardContent>
         </Card>
       )}
 
+      {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="w-full">
-          <TabsTrigger value="marketplace" className="flex-1">Marketplace</TabsTrigger>
-          <TabsTrigger value="seller-settings" className="flex-1">Settings</TabsTrigger>
+        <TabsList className="w-full bg-[#1e232a] border border-border">
+          <TabsTrigger value="marketplace" className="flex-1 data-[state=active]:bg-amber-500 data-[state=active]:text-black font-medium">Marketplace</TabsTrigger>
+          <TabsTrigger value="seller-settings" className="flex-1 data-[state=active]:bg-amber-500 data-[state=active]:text-black font-medium">Settings</TabsTrigger>
         </TabsList>
 
         <TabsContent value="marketplace">
@@ -151,13 +137,13 @@ export default function P2PMarketPage() {
 function MarketplaceTab({ onBuy, currentUserId }: { onBuy: (ad: any) => void; currentUserId?: number }) {
   const { data: ads, isLoading, refetch } = useQuery<any[]>({ queryKey: ["/api/p2p/ads"] });
 
-  if (isLoading) return <div className="flex justify-center py-10"><Loader2 className="w-6 h-6 animate-spin text-primary" /></div>;
+  if (isLoading) return <div className="flex justify-center py-10"><Loader2 className="w-6 h-6 animate-spin text-amber-500" /></div>;
 
   return (
-    <div className="space-y-3 mt-2">
+    <div className="space-y-3 mt-3">
       <div className="flex justify-end">
-        <Button variant="ghost" size="sm" onClick={() => refetch()} className="gap-1 text-xs text-muted-foreground">
-          <RefreshCcw className="w-3 h-3" /> Refresh
+        <Button variant="ghost" size="sm" onClick={() => refetch()} className="gap-1 text-xs text-muted-foreground hover:text-white">
+          <RefreshCcw className="w-3.5 h-3.5" /> Refresh
         </Button>
       </div>
       {ads?.map((ad) => (
@@ -177,37 +163,54 @@ function AdCard({ ad, onBuy, isMine }: { ad: any; onBuy: (ad: any) => void; isMi
   const avail = parseFloat(ad.available_usdt ?? ad.availableUsdt ?? 0);
   const minOrd = parseFloat(ad.min_order_usdt ?? ad.minOrderUsdt ?? 0);
   const maxOrd = parseFloat(ad.max_order_usdt ?? ad.maxOrderUsdt ?? 0);
-  const methods: string[] = ad.payment_methods ?? ad.paymentMethods ?? [];
+  const methods: string[] = ad.payment_methods ?? ad.paymentMethods ?? ["MonCash"];
+  const sellerName = ad.merchant_name || ad.seller_name || ad.sellerName || "Merchant";
 
   return (
-    <Card className="border-border hover:border-primary/40 transition-colors">
-      <CardContent className="p-4">
-        <div className="flex items-start justify-between gap-3">
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 mb-1 flex-wrap">
-              <span className="font-semibold text-sm truncate">{ad.seller_name ?? "Seller"}</span>
-              <PresenceIndicator lastActivity={ad.seller_last_activity} />
-              {isMine && <Badge variant="outline" className="text-[10px] py-0">You</Badge>}
-            </div>
-            <div className="text-2xl font-bold text-primary">{rate.toFixed(2)} HTG/USDT</div>
-            <div className="text-xs text-muted-foreground mt-1">
-              Available: <span className="font-medium text-foreground">{avail.toFixed(2)} USDT</span>
-              {" · "}Limit: {minOrd.toFixed(0)} - {maxOrd.toFixed(0)} USDT
-            </div>
-            <div className="flex flex-wrap gap-1 mt-2">
-              {methods.map((m: string) => (
-                <span key={m} className="px-1.5 py-0.5 rounded text-[10px] border border-border text-muted-foreground">{m}</span>
-              ))}
-            </div>
+    <Card className="bg-[#181c23] border-[#2b313a] hover:border-amber-500/40 transition-all">
+      <CardContent className="p-4 space-y-3">
+        {/* Top bar: Merchant Name + Status */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span className="font-bold text-base text-white">{sellerName}</span>
+            <PresenceIndicator lastActivity={ad.seller_last_activity} />
+            {isMine && <Badge variant="outline" className="text-[10px] py-0 border-amber-500 text-amber-400">You</Badge>}
           </div>
-          <div className="flex flex-col items-end gap-2 shrink-0">
-            <StatusBadge status={ad.status} />
-            {!isMine && ad.status === "active" && avail > 0 && (
-              <Button size="sm" onClick={() => onBuy(ad)} className="gap-1 bg-emerald-600 hover:bg-emerald-700 text-white">
-                <ShoppingCart className="w-3.5 h-3.5" /> Buy USDT
-              </Button>
-            )}
+          <span className="text-xs font-semibold px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+            {ad.status || "active"}
+          </span>
+        </div>
+
+        {/* Rate Display */}
+        <div>
+          <div className="text-2xl font-black text-amber-400">
+            {rate.toFixed(2)} <span className="text-sm font-medium text-amber-400/80">HTG/USDT</span>
           </div>
+          <div className="text-xs text-gray-400 mt-1">
+            Available: <span className="text-gray-200 font-medium">{avail.toFixed(2)} USDT</span>
+            {minOrd > 0 && <span> · Limit: {minOrd.toFixed(0)} - {maxOrd.toFixed(0)} USDT</span>}
+          </div>
+        </div>
+
+        {/* Payment Methods & Buy Button */}
+        <div className="flex items-center justify-between pt-2 border-t border-[#2b313a]">
+          <div className="flex flex-wrap gap-1.5">
+            {methods.map((m: string) => (
+              <span key={m} className="px-2 py-0.5 rounded text-[11px] font-medium bg-[#252b36] border border-[#353d4c] text-gray-300">
+                {m}
+              </span>
+            ))}
+          </div>
+
+          {!isMine && ad.status === "active" && avail > 0 && (
+            <Button
+              size="sm"
+              onClick={() => onBuy(ad)}
+              className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-4 gap-1.5 shadow-md"
+            >
+              <ShoppingCart className="w-4 h-4" /> Buy
+            </Button>
+          )}
         </div>
       </CardContent>
     </Card>
@@ -220,9 +223,9 @@ function PlaceOrderDialog({ open, ad, onClose }: { open: boolean; ad: any; onClo
   const [amountUsdt, setAmountUsdt] = useState("");
 
   const rate = parseFloat(ad?.rate_htg ?? ad?.rateHtg ?? 0);
-  const minUsdt = parseFloat(ad?.min_order_usdt ?? ad?.minOrderUsdt ?? 0);
+  const minUsdt = parseFloat(ad?.min_order_usdt ?? ad?.minOrderUsdt ?? 0) || 1;
   const maxUsdt = Math.min(
-    parseFloat(ad?.max_order_usdt ?? ad?.maxOrderUsdt ?? 0),
+    parseFloat(ad?.max_order_usdt ?? ad?.maxOrderUsdt ?? 0) || 9999,
     parseFloat(ad?.available_usdt ?? ad?.availableUsdt ?? 0)
   );
 
@@ -244,41 +247,42 @@ function PlaceOrderDialog({ open, ad, onClose }: { open: boolean; ad: any; onClo
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-md bg-[#181c23] border-[#2b313a] text-white">
         <DialogHeader>
-          <DialogTitle>Buy USDT from {ad?.seller_name ?? "Seller"}</DialogTitle>
-          <DialogDescription>
-            Price: <strong className="text-foreground">{rate.toFixed(2)} HTG</strong> / USDT
+          <DialogTitle className="text-white">Buy USDT from {ad?.merchant_name || ad?.seller_name || "Merchant"}</DialogTitle>
+          <DialogDescription className="text-gray-400">
+            Rate: <strong className="text-amber-400">{rate.toFixed(2)} HTG</strong> per USDT
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4 py-2">
           <div className="space-y-2">
-            <Label>Quantity (USDT)</Label>
+            <Label className="text-gray-300">Amount in USDT</Label>
             <Input
               type="number"
               placeholder={`Min ${minUsdt} - Max ${maxUsdt}`}
               value={amountUsdt}
               onChange={(e) => setAmountUsdt(e.target.value)}
+              className="bg-[#252b36] border-[#353d4c] text-white placeholder:text-gray-500"
             />
           </div>
 
-          <div className="p-3 bg-muted/40 rounded-lg space-y-1 text-sm">
-            <div className="flex justify-between text-muted-foreground">
-              <span>Total Pay (HTG):</span>
-              <span className="font-bold text-foreground text-base">{totalHtg.toLocaleString(undefined, { minimumFractionDigits: 2 })} HTG</span>
+          <div className="p-3 bg-[#252b36] rounded-lg space-y-1 text-sm border border-[#353d4c]">
+            <div className="flex justify-between text-gray-400">
+              <span>Total to pay (HTG):</span>
+              <span className="font-bold text-amber-400 text-base">{totalHtg.toLocaleString(undefined, { minimumFractionDigits: 2 })} HTG</span>
             </div>
           </div>
         </div>
 
         <DialogFooter className="gap-2 sm:gap-0">
-          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button variant="outline" onClick={onClose} className="border-[#353d4c] text-gray-300 hover:bg-[#252b36]">Cancel</Button>
           <Button
             onClick={() => orderMut.mutate()}
             disabled={parsedUsdt < minUsdt || parsedUsdt > maxUsdt || orderMut.isPending}
-            className="bg-emerald-600 hover:bg-emerald-700"
+            className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold"
           >
-            {orderMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "Confirm Order"}
+            {orderMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "Confirm Buy"}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -315,11 +319,11 @@ function SellerSettingsPanel() {
   });
 
   return (
-    <Card className="border-primary/20 bg-primary/5 mt-3">
+    <Card className="bg-[#181c23] border-[#2b313a] text-white mt-3">
       <CardContent className="p-4 space-y-4">
         <div className="space-y-2">
           <div className="flex items-center gap-2">
-            <Store className="w-4 h-4 text-primary" />
+            <Store className="w-4 h-4 text-amber-500" />
             <span className="text-sm font-medium">Merchant Display Name</span>
             {settings?.merchantName && (
               <Badge className="text-[10px] py-0 px-1.5 bg-emerald-500/20 text-emerald-400 border-emerald-500/30 ml-auto">
@@ -329,8 +333,8 @@ function SellerSettingsPanel() {
           </div>
 
           {settings?.merchantName ? (
-            <div className="flex items-center gap-2 bg-muted/30 border border-border rounded-lg px-3 py-2.5">
-              <span className="text-sm font-semibold text-foreground">{settings.merchantName}</span>
+            <div className="flex items-center gap-2 bg-[#252b36] border border-[#353d4c] rounded-lg px-3 py-2.5">
+              <span className="text-sm font-semibold text-white">{settings.merchantName}</span>
             </div>
           ) : showMerchantForm ? (
             <div className="space-y-2.5">
@@ -338,6 +342,7 @@ function SellerSettingsPanel() {
                 value={merchantInput}
                 onChange={e => setMerchantInput(e.target.value.slice(0, 60))}
                 placeholder="Merchant name..."
+                className="bg-[#252b36] border-[#353d4c] text-white"
               />
               <div className="flex items-start gap-2.5">
                 <Checkbox
@@ -345,27 +350,29 @@ function SellerSettingsPanel() {
                   checked={merchantAgreed}
                   onCheckedChange={(v) => setMerchantAgreed(!!v)}
                 />
-                <label htmlFor="merchant-agree" className="text-xs text-muted-foreground">
-                  I understand this is permanent.
+                <label htmlFor="merchant-agree" className="text-xs text-gray-400 cursor-pointer">
+                  I understand this is permanent and cannot be changed.
                 </label>
               </div>
               <div className="flex gap-2">
                 <Button variant="outline" size="sm" onClick={() => setShowMerchantForm(false)}>Cancel</Button>
-                <Button size="sm" onClick={() => merchantMut.mutate()} disabled={!merchantInput.trim() || !merchantAgreed}>
+                <Button size="sm" onClick={() => merchantMut.mutate()} disabled={!merchantInput.trim() || !merchantAgreed} className="bg-amber-500 text-black hover:bg-amber-600">
                   Save
                 </Button>
               </div>
             </div>
           ) : (
-            <Button variant="outline" size="sm" onClick={() => setShowMerchantForm(true)}>+ Add merchant name</Button>
+            <Button variant="outline" size="sm" onClick={() => setShowMerchantForm(true)} className="border-[#353d4c] text-gray-300">
+              + Add merchant name
+            </Button>
           )}
         </div>
 
-        <div className="border-t border-border" />
+        <div className="border-t border-[#2b313a]" />
 
         <div className="space-y-2">
           <div className="flex items-center gap-2">
-            <MessageCircle className="w-4 h-4 text-primary" />
+            <MessageCircle className="w-4 h-4 text-amber-500" />
             <span className="text-sm font-medium">Buyer Welcome Message</span>
           </div>
           <Textarea
@@ -373,10 +380,11 @@ function SellerSettingsPanel() {
             onChange={(e) => setMsg(e.target.value)}
             placeholder="e.g. Welcome! Transfer via MonCash..."
             rows={3}
+            className="bg-[#252b36] border-[#353d4c] text-white placeholder:text-gray-500"
           />
           <Button
             size="sm"
-            className="w-full mt-2"
+            className="w-full mt-2 bg-amber-500 hover:bg-amber-600 text-black font-semibold"
             onClick={() => saveMut.mutate()}
             disabled={saveMut.isPending}
           >
