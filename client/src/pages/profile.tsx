@@ -1,4 +1,3 @@
-
 import { useUser, useUpdateProfile, useLogout } from "@/hooks/use-auth";
 import { useKycStatus, useUploadKyc } from "@/hooks/use-kyc";
 import { useUpload } from "@/hooks/use-upload";
