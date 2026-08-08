@@ -29,8 +29,7 @@ export function registerObjectStorageRoutes(app: Express): void {
 
   app.post("/api/upload-image", (req, res) => {
     try {
-      const apiKey = process.env.IMGBB_API_KEY || "78d7e064b5ed8b0d0c2b52cea93405b7";
-      
+      const apiKey = process.env.IMGBB_API_KEY;
       if (!req.body) {
         return res.status(400).json({ error: "Empty request body" });
       }
