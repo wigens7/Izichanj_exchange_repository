@@ -610,4 +610,117 @@ export default function ProfilePage() {
                       <UploadZone
                         label={t.profile.idFront}
                         uploaded={!!idUrl}
+uploadedLabel={t.profile.uploaded}
+                        uploadLabel={t.profile.clickToUpload}
+                        inputId="id-upload"
+                        testId="input-id-front-upload"
+                        statusTestId="status-id-front-uploaded"
+                        isUploading={isUploading}
+                        onChange={(e) => handleFileUpload(e, 'id')}
+                      />
+                      <UploadZone
+                        label={t.profile.idBack}
+                        uploaded={!!idBackUrl}
+                        uploadedLabel={t.profile.uploaded}
+                        uploadLabel={t.profile.clickToUpload}
+                        inputId="id-back-upload"
+                        testId="input-id-back-upload"
+                        statusTestId="status-id-back-uploaded"
+                        isUploading={isUploading}
+                        onChange={(e) => handleFileUpload(e, 'id-back')}
+                      />
+                      <UploadZone
+                        label={t.profile.selfie}
+                        uploaded={!!selfieUrl}
+                        uploadedLabel={t.profile.uploaded}
+                        uploadLabel={t.profile.clickToUpload}
+                        inputId="selfie-upload"
+                        testId="input-selfie-upload"
+                        statusTestId="status-selfie-uploaded"
+                        isUploading={isUploading}
+                        onChange={(e) => handleFileUpload(e, 'selfie')}
+                      />
+                    </div>
+{isUploading && (
+                      <p className="text-center text-sm text-muted-foreground animate-pulse">
+                        {t.profile.uploading}
+                      </p>
+                    )}
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                      <div className="space-y-1.5">
+                        <Label className="text-sm">ID Type</Label>
+                        <Select value={idType} onValueChange={setIdType}>
+                          <SelectTrigger data-testid="select-kyc-id-type">
+                            <SelectValue placeholder="Select ID type" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="passport">Passport</SelectItem>
+                            <SelectItem value="national_id">National ID Card</SelectItem>
+                            <SelectItem value="driver_license">Driver's License</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-sm">ID Number</Label>
+                        <div className="relative">
+                          <FileText className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                          <Input
+                            placeholder="e.g. A12345678"
+                            value={idNumber}
+                            onChange={(e) => setIdNumber(e.target.value)}
+                            className="pl-9"
+                            data-testid="input-kyc-id-number"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label className="text-sm">Address Line 1</Label>
+                      <div className="relative">
+                        <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                        <Input
+                          placeholder="e.g. 123 Main Street, Port-au-Prince"
+                          value={addressLine1}
+                          onChange={(e) => setAddressLine1(e.target.value)}
+                          className="pl-9"
+                          data-testid="input-kyc-address"
+                        />
+                      </div>
+                    </div>
+<Button
+                      className="w-full primary-gradient"
+                      disabled={
+                        !idUrl ||
+                        !idBackUrl ||
+                        !selfieUrl ||
+                        !idType ||
+                        !idNumber ||
+                        !addressLine1 ||
+                        isSubmitting ||
+                        isUploading ||
+                        !isProfileComplete
+                      }
+                      onClick={handleSubmitKyc}
+                      data-testid="button-submit-kyc"
+                    >
+                      {isSubmitting ? (
+                        <Loader2 className="animate-spin mr-2 w-4 h-4" />
+                      ) : (
+                        <UploadCloud className="w-4 h-4 mr-2" />
+                      )}
+                      {t.profile.saveProfile}
+                    </Button>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
   
