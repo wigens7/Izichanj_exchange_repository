@@ -1,4 +1,4 @@
-# Izichanj — https://izichanj.com
+# Izichanj — https://www.izichanj.com
 User-agent: *
 Allow: /
 
@@ -8,4 +8,4 @@ Disallow: /api/
 Disallow: /verify-receipt
 Disallow: /checkout
 
-Sitemap: https://izichanj.com/sitemap.xml
+Sitemap: https://www.izichanj.com/sitemap.xml

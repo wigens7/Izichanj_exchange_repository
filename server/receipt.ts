@@ -1,4 +1,5 @@
 import PDFDocument from "pdfkit";
+import { PUBLIC_APP_URL } from "./public-url";
 import QRCode from "qrcode";
 import path from "path";
 import { PassThrough } from "stream";
@@ -131,7 +132,7 @@ export async function generateAdjustmentReceiptPDF(data: AdjustmentReceiptData):
 
     const tableBottom = rowStartY + detailRows.length * rowH + 16;
 
-    const verifyUrl = "https://izichanj.com";
+  const verifyUrl = PUBLIC_APP_URL;
     const qrBuffer = await QRCode.toBuffer(verifyUrl, { type: "png", width: 100, margin: 1, color: { dark: BRAND_DARK, light: "#FFFFFF" } });
     const qrX = W - 36 - 110;
     const qrY = tableBottom + 8;
