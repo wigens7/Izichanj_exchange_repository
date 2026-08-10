@@ -55,6 +55,7 @@ import {
 import type { AuthenticatorTransportFuture } from "@simplewebauthn/types";
 import sgMail from "@sendgrid/mail";
 import { sendVerificationEmail, sendPasswordResetEmail, sendNotificationEmail, sendMediaNotificationEmail, sendNewsletterEmail } from "./email";
+import { PUBLIC_APP_URL } from "./public-url";
 
 if (process.env.SENDGRID_API_KEY) {
   sgMail.setApiKey(process.env.SENDGRID_API_KEY);
@@ -370,6 +371,7 @@ function absolutePublicUrl(req: any, objectPath: string): string | null {
 
   const envBase =
     process.env.PUBLIC_BASE_URL?.replace(/\/+$/, "") ||
+    PUBLIC_APP_URL ||
     (process.env.REPLIT_DOMAINS?.split(",")[0]
       ? `https://${process.env.REPLIT_DOMAINS.split(",")[0]}`
       : "");

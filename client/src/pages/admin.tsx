@@ -117,6 +117,7 @@ import { z } from "zod";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Textarea } from "@/components/ui/textarea";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { KycImage } from "@/components/kyc-image";
 import { api } from "@shared/routes";
 import { useToast } from "@/hooks/use-toast";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -2523,29 +2524,29 @@ function KycTab() {
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                     <div className="space-y-2">
                       <p className="text-sm font-medium">ID Card (Front)</p>
-                      <img
+                      <KycImage
                         src={docs.idDocumentUrl}
                         alt="ID Front"
                         className="w-full rounded-md border border-border object-contain max-h-64"
-                        data-testid="img-kyc-id-front"
+                        testId="img-kyc-id-front"
                       />
                     </div>
                     <div className="space-y-2">
                       <p className="text-sm font-medium">ID Card (Back)</p>
-                      <img
+                      <KycImage
                         src={docs.idDocumentBackUrl}
                         alt="ID Back"
                         className="w-full rounded-md border border-border object-contain max-h-64"
-                        data-testid="img-kyc-id-back"
+                        testId="img-kyc-id-back"
                       />
                     </div>
                     <div className="space-y-2">
                       <p className="text-sm font-medium">Selfie / User Photo</p>
-                      <img
+                      <KycImage
                         src={docs.selfieUrl}
                         alt="Selfie"
                         className="w-full rounded-md border border-border object-contain max-h-64"
-                        data-testid="img-kyc-selfie"
+                        testId="img-kyc-selfie"
                       />
                     </div>
                   </div>
@@ -6877,11 +6878,11 @@ function BlacklistTab() {
                     <p className="text-sm font-medium">{doc.label}</p>
                     {doc.url ? (
                       <a href={doc.url} target="_blank" rel="noopener noreferrer">
-                        <img
+                        <KycImage
                           src={doc.url}
                           alt={doc.label}
                           className="w-full rounded-md border border-border object-contain max-h-64 hover:opacity-90 transition-opacity"
-                          data-testid={doc.testid}
+                          testId={doc.testid}
                         />
                       </a>
                     ) : (

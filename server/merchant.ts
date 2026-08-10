@@ -7,11 +7,12 @@ import { isAuthenticated } from "./auth";
 import { getDepositRate } from "./rates";
 import { checkoutApiSchema, updateMerchantSchema, payoutRequestSchema, PAYOUT_METHOD_META } from "@shared/schema";
 import { MERCHANT_API_FEE_PCT } from "@shared/constants";
+import { PUBLIC_APP_URL } from "./public-url";
 import crypto from "crypto";
 
 const FEE_PCT = MERCHANT_API_FEE_PCT; // 0% — Izichanj Pay is FREE for merchants
 const CHECKOUT_TTL_MS = 30 * 60 * 1000; // 30 minutes
-const PUBLIC_BASE_URL = (process.env.PUBLIC_APP_URL || "https://izichanj.com").replace(/\/$/, "");
+const PUBLIC_BASE_URL = PUBLIC_APP_URL;
 
 /** Send a HTML-formatted message to the admin Telegram channel. Fire-and-forget. */
 async function sendAdminTelegram(text: string): Promise<void> {
