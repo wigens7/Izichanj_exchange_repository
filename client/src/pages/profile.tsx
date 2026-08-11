@@ -1,19 +1,15 @@
 import { useUser, useUpdateProfile, useLogout } from "@/hooks/use-auth";
-import { useKycStatus, useUploadKyc } from "@/hooks/use-kyc";
-import { useUpload } from "@/hooks/use-upload";
-import { compressImage } from "@/lib/image-compress";
+import { useKycStatus } from "@/hooks/use-kyc";
 import { formatDate } from "@/lib/dateUtils";
 import { useLanguage, languageNames, type Language } from "@/lib/i18n";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { StatusBadge } from "@/components/status-badge";
 import {
-  Loader2,
   UploadCloud,
-  CheckCircle2,
+  Loader2,
   Globe,
   Clock,
   User,
@@ -22,22 +18,7 @@ import {
   Check,
   FileText,
   MapPin,
-  LogOut,
-  Users,
-  DollarSign,
-  Share2,
-  HelpCircle,
-  Smartphone,
-  Download,
-  Mail
 } from "lucide-react";
-import { InstallPwaButton } from "@/components/install-pwa-button";
-import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger
-} from "@/components/ui/accordion";
 import { useToast } from "@/hooks/use-toast";
 import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
@@ -54,19 +35,18 @@ import {
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 
+const KYC_HUB_URL = "https://izichanj-kyc-hub.onrender.com";
+
 export default function ProfilePage() {
   const { data: user } = useUser();
   const { data: kycStatus } = useKycStatus();
-  const { mutate: submitKyc, isPending: isSubmitting } = useUploadKyc();
   const { mutate: updateProfile, isPending: isUpdatingProfile } = useUpdateProfile();
   const { mutate: logout } = useLogout();
   const { language, setLanguage, t } = useLanguage();
 
   const { toast } = useToast();
-  const { uploadFile, isUploading } = useUpload();
 
   const [refCopied, setRefCopied] = useState(false);
-  const [codeCopied, setCodeCopied] = useState(false);
 
   const qc = useQueryClient();
 
@@ -97,13 +77,6 @@ export default function ProfilePage() {
         variant: "destructive"
       }),
   });
-
-  const [idUrl, setIdUrl] = useState<string>("");
-  const [idBackUrl, setIdBackUrl] = useState<string>("");
-  const [selfieUrl, setSelfieUrl] = useState<string>("");
-  const [idType, setIdType] = useState<string>("");
-  const [idNumber, setIdNumber] = useState<string>("");
-  const [addressLine1, setAddressLine1] = useState<string>("");
 
   const form = useForm<ProfileInfoInput>({
     resolver: zodResolver(profileInfoSchema),
@@ -141,75 +114,6 @@ export default function ProfilePage() {
     user.phone;
 
   const canEdit = !!user.canEditProfile;
-
-  const handleFileUpload = async (
-    e: React.ChangeEvent<HTMLInputElement>,
-    type: "id" | "id-back" | "selfie"
-  ) => {
-    const raw = e.target.files?.[0];
-
-    if (!raw) return;
-
-    // Compress ID photos to stay under 1.5 MB
-    // Strowallet rejects larger images
-    let file = raw;
-
-    const MAX_BYTES = 1.5 * 1024 * 1024;
-
-    if (raw.size > MAX_BYTES && raw.type.startsWith("image/")) {
-      try {
-        toast({
-          title:
-            t.profile?.compressingImage ||
-            "Optimising image…",
-          description:
-            t.profile?.compressingDesc ||
-            "Reducing file size for compatibility."
-        });
-
-        file = await compressImage(raw, MAX_BYTES);
-      } catch {
-        toast({
-          title: "Compression failed",
-          description:
-            "Using original file. Upload may be slower.",
-          variant: "destructive"
-        });
-      }
-    }
-
-    const res = await uploadFile(file);
-
-    if (res) {
-      if (type === "id") {
-        setIdUrl(res.url);
-      } else if (type === "id-back") {
-        setIdBackUrl(res.url);
-      } else {
-        setSelfieUrl(res.url);
-      }
-    }
-  };
-
-  const handleSubmitKyc = () => {
-    if (
-      idUrl &&
-      idBackUrl &&
-      selfieUrl &&
-      idType &&
-      idNumber &&
-      addressLine1
-    ) {
-      submitKyc({
-        idDocumentUrl: idUrl,
-        idDocumentBackUrl: idBackUrl,
-        selfieUrl: selfieUrl,
-        idType,
-        idNumber,
-        addressLine1
-      });
-    }
-  };
 
   const onProfileSubmit = (data: ProfileInfoInput) => {
     updateProfile(data);
@@ -605,112 +509,23 @@ export default function ProfilePage() {
                     </p>
                   </div>
                 ) : (
-                  <div className="space-y-5">
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                      <UploadZone
-                        label={t.profile.idFront}
-                        uploaded={!!idUrl}
-uploadedLabel={t.profile.uploaded}
-                        uploadLabel={t.profile.clickToUpload}
-                        inputId="id-upload"
-                        testId="input-id-front-upload"
-                        statusTestId="status-id-front-uploaded"
-                        isUploading={isUploading}
-                        onChange={(e) => handleFileUpload(e, 'id')}
-                      />
-                      <UploadZone
-                        label={t.profile.idBack}
-                        uploaded={!!idBackUrl}
-                        uploadedLabel={t.profile.uploaded}
-                        uploadLabel={t.profile.clickToUpload}
-                        inputId="id-back-upload"
-                        testId="input-id-back-upload"
-                        statusTestId="status-id-back-uploaded"
-                        isUploading={isUploading}
-                        onChange={(e) => handleFileUpload(e, 'id-back')}
-                      />
-                      <UploadZone
-                        label={t.profile.selfie}
-                        uploaded={!!selfieUrl}
-                        uploadedLabel={t.profile.uploaded}
-                        uploadLabel={t.profile.clickToUpload}
-                        inputId="selfie-upload"
-                        testId="input-selfie-upload"
-                        statusTestId="status-selfie-uploaded"
-                        isUploading={isUploading}
-                        onChange={(e) => handleFileUpload(e, 'selfie')}
-                      />
-                    </div>
-{isUploading && (
-                      <p className="text-center text-sm text-muted-foreground animate-pulse">
-                        {t.profile.uploading}
-                      </p>
-                    )}
+                  <div className="text-center py-8">
+                    <FileText className="w-10 h-10 text-primary mx-auto mb-3" />
 
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-                      <div className="space-y-1.5">
-                        <Label className="text-sm">ID Type</Label>
-                        <Select value={idType} onValueChange={setIdType}>
-                          <SelectTrigger data-testid="select-kyc-id-type">
-                            <SelectValue placeholder="Select ID type" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="passport">Passport</SelectItem>
-                            <SelectItem value="national_id">National ID Card</SelectItem>
-                            <SelectItem value="driver_license">Driver's License</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div className="space-y-1.5">
-                        <Label className="text-sm">ID Number</Label>
-                        <div className="relative">
-                          <FileText className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                          <Input
-                            placeholder="e.g. A12345678"
-                            value={idNumber}
-                            onChange={(e) => setIdNumber(e.target.value)}
-                            className="pl-9"
-                            data-testid="input-kyc-id-number"
-                          />
-                        </div>
-                      </div>
-                    </div>
+                    <p className="text-sm text-muted-foreground mb-4 max-w-sm mx-auto">
+                      Complete your identity verification on our secure KYC portal.
+                    </p>
 
-                    <div className="space-y-1.5">
-                      <Label className="text-sm">Address Line 1</Label>
-                      <div className="relative">
-                        <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                        <Input
-                          placeholder="e.g. 123 Main Street, Port-au-Prince"
-                          value={addressLine1}
-                          onChange={(e) => setAddressLine1(e.target.value)}
-                          className="pl-9"
-                          data-testid="input-kyc-address"
-                        />
-                      </div>
-                    </div>
-<Button
+                    <Button
                       className="w-full primary-gradient"
-                      disabled={
-                        !idUrl ||
-                        !idBackUrl ||
-                        !selfieUrl ||
-                        !idType ||
-                        !idNumber ||
-                        !addressLine1 ||
-                        isSubmitting ||
-                        isUploading ||
-                        !isProfileComplete
+                      disabled={!isProfileComplete}
+                      onClick={() =>
+                        (window.location.href = KYC_HUB_URL)
                       }
-                      onClick={handleSubmitKyc}
-                      data-testid="button-submit-kyc"
+                      data-testid="button-go-kyc"
                     >
-                      {isSubmitting ? (
-                        <Loader2 className="animate-spin mr-2 w-4 h-4" />
-                      ) : (
-                        <UploadCloud className="w-4 h-4 mr-2" />
-                      )}
-                      {t.profile.saveProfile}
+                      <UploadCloud className="w-4 h-4 mr-2" />
+                      {t.profile.kycTitle}
                     </Button>
                   </div>
                 )}
@@ -722,5 +537,3 @@ uploadedLabel={t.profile.uploaded}
     </div>
   );
 }
-
-  
