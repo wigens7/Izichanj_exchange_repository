@@ -9,9 +9,54 @@ interface UseUploadOptions {
   onError?: (error: Error) => void;
 }
 
+const MAX_DIMENSION = 1600;
+const JPEG_QUALITY = 0.85;
+
 /**
- * React hook pou televèse fichye dirèkteman bay /api/upload-image
- * (backend la konvèti l an base64 epi voye l bay ImgBB).
+ * Compress the image before sending it, to avoid 413 (payload too large) errors.
+ */
+async function fileToCompressedDataUrl(file: File): Promise<string> {
+  const readAsDataUrl = () =>
+    new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+
+  const dataUrl = await readAsDataUrl();
+  if (!file.type.startsWith("image/") || typeof document === "undefined") {
+    return dataUrl;
+  }
+
+  try {
+    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = reject;
+      img.src = dataUrl;
+    });
+
+    const scale = Math.min(1, MAX_DIMENSION / Math.max(image.width, image.height));
+    if (scale === 1 && dataUrl.length < 1_500_000) {
+      return dataUrl;
+    }
+
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(image.width * scale);
+    canvas.height = Math.round(image.height * scale);
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return dataUrl;
+    ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL("image/jpeg", JPEG_QUALITY);
+  } catch {
+    return dataUrl;
+  }
+}
+
+/**
+ * React hook to upload a file directly to /api/upload-image
+ * (the backend converts it to base64 and sends it to ImgBB).
  */
 export function useUpload(options: UseUploadOptions = {}) {
   const [isUploading, setIsUploading] = useState(false);
@@ -26,12 +71,7 @@ export function useUpload(options: UseUploadOptions = {}) {
 
       try {
         setProgress(20);
-        const base64 = await new Promise<string>((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = () => resolve(reader.result as string);
-          reader.onerror = reject;
-          reader.readAsDataURL(file);
-        });
+        const base64 = await fileToCompressedDataUrl(file);
 
         setProgress(50);
         const response = await fetch("/api/upload-image", {
