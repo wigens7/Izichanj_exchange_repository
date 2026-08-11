@@ -82,6 +82,21 @@ async function fetchImgBbImage(rawUrl: string): Promise<{ body: Buffer; contentT
   return { body: imageBody, contentType: imageType.split(";")[0] };
 }
 
+// ImgBB returns several URLs; only some point at the raw image file. Prefer
+// the direct i.ibb.co file links over the viewer page URL, which 404s in <img>.
+function pickDirectImageUrl(data: any): string | null {
+  const candidates = [
+    data?.image?.url,
+    data?.display_url,
+    data?.url,
+    data?.medium?.url,
+    data?.thumb?.url,
+  ].filter((value): value is string => typeof value === "string" && value.length > 0);
+
+  const direct = candidates.find((value) => /^https:\/\/i\.ibb\.co\//i.test(value));
+  return direct || candidates[0] || null;
+}
+
 export function registerObjectStorageRoutes(app: Express): void {
   const objectStorageService = new ObjectStorageService();
 
@@ -126,9 +141,10 @@ export function registerObjectStorageRoutes(app: Express): void {
         imagePayload = imagePayload.url;
       }
 
-      const cleanBase64 = typeof imagePayload === "string" 
-        ? imagePayload.replace(/^data:image\/\w+;base64,/, "")
-        : String(imagePayload);
+      const cleanBase64 = (typeof imagePayload === "string"
+        ? imagePayload.replace(/^data:[^;,]*;base64,/i, "")
+        : String(imagePayload)
+      ).trim();
 
       const postData = new URLSearchParams({ image: cleanBase64 }).toString();
 
@@ -149,9 +165,13 @@ export function registerObjectStorageRoutes(app: Express): void {
           try {
             const data = JSON.parse(body);
             if (data && data.success && data.data) {
-              const directImageUrl = data.data.display_url || data.data.url;
-              return res.json({ 
-                url: directImageUrl, 
+              const directImageUrl = pickDirectImageUrl(data.data);
+              if (!directImageUrl) {
+                console.error("ImgBB response had no usable image URL:", data);
+                return res.status(502).json({ error: "ImgBB returned no image URL" });
+              }
+              return res.json({
+                url: directImageUrl,
                 path: directImageUrl,
                 uploadURL: directImageUrl,
                 imageUrl: directImageUrl,
