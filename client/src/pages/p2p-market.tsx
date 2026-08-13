@@ -16,6 +16,7 @@ import {
 import {
   Store, ShieldOff, Ban, Plus, ShoppingCart, AlertTriangle, Send,
   ShieldCheck, Loader2, RefreshCcw, Lock, Settings, MessageCircle, Trash2, Pause, Play,
+  ImagePlus,
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 
@@ -170,6 +171,7 @@ function MarketplaceTab({ currentUserId, isKycVerified }: { currentUserId?: numb
     </div>
   );
 }
+
 function AdCard({ ad, isMine, isKycVerified }: { ad: any; isMine: boolean; isKycVerified: boolean }) {
   const [buyOpen, setBuyOpen] = useState(false);
   const rate = num(ad.rate_htg ?? ad.rateHtg);
@@ -459,7 +461,6 @@ function PostAdButton({ isKycVerified }: { isKycVerified: boolean }) {
     </>
   );
 }
-
 /* ---------------------------------- My Ads ---------------------------------- */
 
 function MyAdsTab() {
@@ -515,6 +516,7 @@ function MyAdsTab() {
     </div>
   );
 }
+
 /* ---------------------------------- My Orders ---------------------------------- */
 
 function MyOrdersTab({ currentUserId }: { currentUserId?: number }) {
@@ -560,6 +562,148 @@ function MyOrdersTab({ currentUserId }: { currentUserId?: number }) {
   );
 }
 
+export const CANCEL_REASONS = [
+  "Mwen pa vle achte / vann ankò (I no longer want to trade)",
+  "Mwen pa rive fè peman an (I could not complete the payment)",
+  "Lòt pati a pa reponn (The other party is not responding)",
+  "Mwen pa dakò ak metòd peman an (Payment method not acceptable)",
+  "Enfòmasyon kont peman an pa kòrèk (Wrong payment account details)",
+  "Mwen sispèk yon fwod (I suspect a scam)",
+];
+
+/** Compress any picked image to a JPEG data URL (max 1280px, quality 0.8). */
+async function fileToCompressedJpeg(file: File): Promise<string> {
+  const dataUrl = await new Promise<string>((resolve, reject) => {
+    const fr = new FileReader();
+    fr.onload = () => resolve(String(fr.result));
+    fr.onerror = () => reject(new Error("Could not read the image"));
+    fr.readAsDataURL(file);
+  });
+  const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const i = new Image();
+    i.onload = () => resolve(i);
+    i.onerror = () => reject(new Error("Invalid image"));
+    i.src = dataUrl;
+  });
+  const max = 1280;
+  const scale = Math.min(1, max / Math.max(img.width, img.height));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.round(img.width * scale);
+  canvas.height = Math.round(img.height * scale);
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return dataUrl;
+  ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+  return canvas.toDataURL("image/jpeg", 0.8);
+}
+
+/** Reads an image out of a chat row whatever field name the API used. */
+function messageImage(m: any): string | null {
+  const raw = m.image_url ?? m.imageUrl ?? m.image ?? m.attachment_url ?? m.attachmentUrl ?? null;
+  if (typeof raw === "string" && raw.length > 10) return raw;
+  if (typeof m.message === "string" && m.message.startsWith("data:image/")) return m.message;
+  return null;
+}
+
+function CancelTradeDialog({ open, onOpenChange, onConfirm, pending }: {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  onConfirm: (reason: string) => void;
+  pending: boolean;
+}) {
+  const [selected, setSelected] = useState<string>("");
+  const [other, setOther] = useState("");
+  const [notSent, setNotSent] = useState(false);
+
+  const reason = selected === "__other" ? other.trim() : selected;
+  const canSubmit = !!reason && notSent && !pending;
+
+  useEffect(() => {
+    if (!open) { setSelected(""); setOther(""); setNotSent(false); }
+  }, [open]);
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="text-base">Cancel this order</DialogTitle>
+        </DialogHeader>
+
+        <p className="text-xs text-muted-foreground">
+          Chwazi rezon ki fè w ap anile lòd la. Si ou deja voye lajan an, <b>pa anile</b> — louvri yon dispit pito.
+        </p>
+
+        <div className="space-y-2">
+          {CANCEL_REASONS.map((r) => (
+            <label
+              key={r}
+              className={`flex cursor-pointer items-start gap-2 rounded-lg border p-2.5 text-xs transition-colors ${
+                selected === r ? "border-primary bg-primary/5" : "border-border hover:bg-muted/40"
+              }`}
+            >
+              <input
+                type="radio"
+                name="cancel-reason"
+                className="mt-0.5 accent-current"
+                checked={selected === r}
+                onChange={() => setSelected(r)}
+              />
+              <span>{r}</span>
+            </label>
+          ))}
+          <label
+            className={`flex cursor-pointer items-start gap-2 rounded-lg border p-2.5 text-xs transition-colors ${
+              selected === "__other" ? "border-primary bg-primary/5" : "border-border hover:bg-muted/40"
+            }`}
+          >
+            <input
+              type="radio"
+              name="cancel-reason"
+              className="mt-0.5 accent-current"
+              checked={selected === "__other"}
+              onChange={() => setSelected("__other")}
+            />
+            <span>Lòt rezon (other)</span>
+          </label>
+          {selected === "__other" && (
+            <Textarea
+              rows={2}
+              value={other}
+              onChange={(e) => setOther(e.target.value)}
+              placeholder="Eksplike rezon an..."
+              data-testid="input-cancel-other-reason"
+            />
+          )}
+        </div>
+
+        <div className="flex items-start gap-2 rounded-lg border border-orange-400/30 bg-orange-400/10 p-3">
+          <Checkbox
+            id="confirm-not-sent"
+            checked={notSent}
+            onCheckedChange={(v) => setNotSent(!!v)}
+            data-testid="checkbox-not-paid"
+          />
+          <label htmlFor="confirm-not-sent" className="text-xs leading-snug">
+            Mwen konfime ke <b>mwen pa voye lajan an</b> bay vandè a. (I confirm I have not sent the payment.)
+          </label>
+        </div>
+
+        <DialogFooter className="gap-2">
+          <Button variant="outline" size="sm" onClick={() => onOpenChange(false)}>Keep order</Button>
+          <Button
+            size="sm"
+            variant="destructive"
+            disabled={!canSubmit}
+            onClick={() => onConfirm(reason)}
+            data-testid="button-confirm-cancel"
+          >
+            {pending ? "Cancelling..." : "Cancel order"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function OrderDialog({ order, isBuyer, currentUserId, onClose }: {
   order: any; isBuyer: boolean; currentUserId?: number; onClose: () => void;
 }) {
@@ -569,6 +713,10 @@ function OrderDialog({ order, isBuyer, currentUserId, onClose }: {
   const [confirmed, setConfirmed] = useState(false);
   const [reason, setReason] = useState("");
   const [chatText, setChatText] = useState("");
+  const [pendingImage, setPendingImage] = useState<string | null>(null);
+  const [cancelOpen, setCancelOpen] = useState(false);
+  const [preview, setPreview] = useState<string | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
 
   const { data: live } = useQuery<any[]>({ queryKey: ["/api/p2p/orders"], refetchInterval: 10000 });
@@ -579,7 +727,7 @@ function OrderDialog({ order, isBuyer, currentUserId, onClose }: {
     refetchInterval: 5000,
   });
 
-  useEffect(() => { endRef.current?.scrollIntoView({ block: "end" }); }, [messages?.length]);
+  useEffect(() => { endRef.current?.scrollIntoView({ block: "end" }); }, [messages?.length, pendingImage]);
 
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ["/api/p2p/orders"] });
@@ -603,8 +751,13 @@ function OrderDialog({ order, isBuyer, currentUserId, onClose }: {
   });
 
   const cancelMut = useMutation({
-    mutationFn: () => apiRequest("PATCH", `/api/p2p/orders/${order.id}/cancel`, { reason: reason || "Cancelled by user" }),
-    onSuccess: () => { toast({ title: "Trade cancelled" }); invalidate(); onClose(); },
+    mutationFn: (payload: { reason: string }) =>
+      apiRequest("PATCH", `/api/p2p/orders/${order.id}/cancel`, {
+        reason: payload.reason,
+        paymentNotSent: true,
+        confirmedNotPaid: true,
+      }),
+    onSuccess: () => { toast({ title: "Order cancelled" }); setCancelOpen(false); invalidate(); onClose(); },
     onError: fail,
   });
 
@@ -615,105 +768,217 @@ function OrderDialog({ order, isBuyer, currentUserId, onClose }: {
   });
 
   const chatMut = useMutation({
-    mutationFn: () => apiRequest("POST", `/api/p2p/orders/${order.id}/chat`, { message: chatText }),
-    onSuccess: () => { setChatText(""); qc.invalidateQueries({ queryKey: [`/api/p2p/orders/${order.id}/chat`] }); },
+    mutationFn: (payload: { message: string; image: string | null }) =>
+      apiRequest("POST", `/api/p2p/orders/${order.id}/chat`, {
+        message: payload.message || (payload.image ? "[image]" : ""),
+        // sent under several names so the API stores it whichever column it uses
+        image: payload.image ?? undefined,
+        imageUrl: payload.image ?? undefined,
+        image_url: payload.image ?? undefined,
+        attachmentType: payload.image ? "image/jpeg" : undefined,
+      }),
+    onSuccess: () => {
+      setChatText("");
+      setPendingImage(null);
+      qc.invalidateQueries({ queryKey: [`/api/p2p/orders/${order.id}/chat`] });
+    },
     onError: fail,
   });
 
+  const onPickImage = async (file?: File | null) => {
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      toast({ title: "Image only", description: "Choose a JPEG or PNG picture.", variant: "destructive" });
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      toast({ title: "Image too large", description: "Maximum 10 MB.", variant: "destructive" });
+      return;
+    }
+    try {
+      setPendingImage(await fileToCompressedJpeg(file));
+    } catch (e: any) {
+      toast({ title: "Could not attach image", description: e?.message, variant: "destructive" });
+    }
+    if (fileRef.current) fileRef.current.value = "";
+  };
+
   const status = current.status;
   const closed = ["released", "cancelled", "completed"].includes(status);
+  const counterparty = isBuyer ? current.seller_name : current.buyer_name;
+  const totalLocal = num(current.amount_local ?? current.total_htg);
+  const currency = current.currency || "HTG";
+
+  const steps = [
+    { key: "pending", label: isBuyer ? "Make the payment" : "Waiting for buyer payment" },
+    { key: "paid", label: isBuyer ? "Waiting for the seller to release" : "Confirm payment & release USDT" },
+    { key: "released", label: "USDT released" },
+  ];
+  const stepIndex = status === "pending" ? 0 : status === "paid" ? 1 : 2;
 
   return (
     <Dialog open onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2 text-base">
-            Trade #{current.order_id} <StatusBadge status={status} />
+      <DialogContent
+        className="flex h-[95vh] w-[98vw] max-w-6xl flex-col gap-0 overflow-hidden p-0 sm:h-[92vh]"
+        data-testid="dialog-order"
+      >
+        {/* Header */}
+        <DialogHeader className="shrink-0 border-b border-border px-4 py-3 sm:px-6">
+          <DialogTitle className="flex flex-wrap items-center gap-2 text-base">
+            <span>{isBuyer ? "Buy" : "Sell"} USDT</span>
+            <span className="text-muted-foreground font-normal text-xs">Order #{current.order_id}</span>
+            <StatusBadge status={status} />
           </DialogTitle>
+          <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+            <span>{isBuyer ? "Seller" : "Buyer"}: <span className="text-foreground font-medium">{counterparty ?? "—"}</span></span>
+            <PresenceIndicator lastActivity={isBuyer ? current.seller_last_activity : current.buyer_last_activity} />
+            {current.created_at && <span>Created {formatDistanceToNow(new Date(current.created_at), { addSuffix: true })}</span>}
+          </div>
         </DialogHeader>
 
-        <div className="space-y-3">
-          <div className="rounded-lg border border-border bg-muted/30 p-3 text-xs space-y-1">
-            <div className="flex justify-between"><span className="text-muted-foreground">Amount</span><span className="font-semibold">{num(current.amount_usdt).toFixed(2)} USDT</span></div>
-            <div className="flex justify-between"><span className="text-muted-foreground">Total to pay</span><span className="font-semibold">{num(current.amount_local ?? current.total_htg).toFixed(2)} {current.currency || "HTG"}</span></div>
-            <div className="flex justify-between"><span className="text-muted-foreground">Rate</span><span>{num(current.rate ?? current.rate_htg).toFixed(2)}</span></div>
-            <div className="flex justify-between"><span className="text-muted-foreground">Payment</span><span>{current.payment_method}</span></div>
-            <div className="flex justify-between"><span className="text-muted-foreground">{isBuyer ? "Seller" : "Buyer"}</span><span>{isBuyer ? current.seller_name : current.buyer_name}</span></div>
-          </div>
+        {/* Body: details | chat */}
+        <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
+          {/* Left: order info + actions */}
+          <div className="min-h-0 overflow-y-auto border-b border-border p-4 sm:p-6 lg:border-b-0 lg:border-r">
+            {/* Steps */}
+            <ol className="mb-5 space-y-2">
+              {steps.map((s, i) => (
+                <li key={s.key} className="flex items-start gap-2 text-xs">
+                  <span className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border text-[10px] font-bold ${
+                    i < stepIndex ? "border-emerald-400/40 bg-emerald-400/15 text-emerald-500"
+                      : i === stepIndex ? "border-primary bg-primary/15 text-primary"
+                      : "border-border text-muted-foreground"
+                  }`}>{i + 1}</span>
+                  <span className={i === stepIndex ? "font-medium" : "text-muted-foreground"}>{s.label}</span>
+                </li>
+              ))}
+            </ol>
 
-          {/* Escrow chat */}
-          <div className="space-y-2">
-            <div className="flex items-center gap-2 text-xs font-medium"><MessageCircle className="w-3.5 h-3.5 text-primary" /> Escrow chat</div>
-            <div className="max-h-52 overflow-y-auto space-y-2 rounded-lg border border-border p-2">
-              {messages?.length ? messages.map((m) => (
-                <div key={m.id} className={`text-xs ${m.sender_id === currentUserId ? "text-right" : "text-left"}`}>
-                  <div className={`inline-block rounded-lg px-2.5 py-1.5 ${m.sender_id === currentUserId ? "bg-primary/15" : "bg-muted"}`}>
-                    {m.message}
-                  </div>
-                </div>
-              )) : <p className="text-xs text-muted-foreground text-center py-4">No messages yet.</p>}
-              <div ref={endRef} />
+            <div className="space-y-2 rounded-xl border border-border bg-muted/30 p-4 text-sm">
+              <div className="flex items-baseline justify-between">
+                <span className="text-xs text-muted-foreground">Amount</span>
+                <span className="text-lg font-bold">{num(current.amount_usdt).toFixed(2)} USDT</span>
+              </div>
+              <div className="flex justify-between text-xs"><span className="text-muted-foreground">Total to pay</span><span className="font-semibold">{totalLocal.toFixed(2)} {currency}</span></div>
+              <div className="flex justify-between text-xs"><span className="text-muted-foreground">Rate</span><span>{num(current.rate ?? current.rate_htg).toFixed(2)} {currency}/USDT</span></div>
+              <div className="flex justify-between text-xs"><span className="text-muted-foreground">Payment method</span><span>{current.payment_method}</span></div>
+              {current.payment_details && (
+                <div className="flex justify-between gap-3 text-xs"><span className="text-muted-foreground">Pay to</span><span className="text-right break-all">{current.payment_details}</span></div>
+              )}
+              <div className="flex items-center gap-1.5 pt-1 text-[11px] text-emerald-500">
+                <ShieldCheck className="h-3.5 w-3.5" /> {num(current.amount_usdt).toFixed(2)} USDT locked in escrow
+              </div>
             </div>
+
             {!closed && (
-              <div className="flex gap-2">
-                <Input value={chatText} onChange={(e) => setChatText(e.target.value)} placeholder="Write a message..." />
-                <Button size="sm" onClick={() => chatMut.mutate()} disabled={!chatText.trim() || chatMut.isPending}>
-                  <Send className="w-4 h-4" />
-                </Button>
+              <div className="mt-5 space-y-3">
+                {isBuyer && status === "pending" && (
+                  <Button className="w-full" onClick={() => payMut.mutate()} disabled={payMut.isPending} data-testid="button-mark-paid">
+                    {payMut.isPending ? "Saving..." : "I have paid"}
+                  </Button>
+                )}
+
+                {!isBuyer && status === "paid" && (
+                  <div className="space-y-2 rounded-xl border border-primary/20 bg-primary/5 p-3">
+                    <div className="flex items-start gap-2">
+                      <Checkbox id="confirm-receipt" checked={confirmed} onCheckedChange={(v) => setConfirmed(!!v)} />
+                      <label htmlFor="confirm-receipt" className="text-xs text-muted-foreground">
+                        I confirm I received {totalLocal.toFixed(2)} {currency}.
+                      </label>
+                    </div>
+                    <Input
+                      type="password"
+                      inputMode="numeric"
+                      value={pin}
+                      onChange={(e) => setPin(e.target.value)}
+                      placeholder="Withdrawal PIN (if set)"
+                    />
+                    <Button className="w-full gap-1" onClick={() => releaseMut.mutate()} disabled={!confirmed || releaseMut.isPending}>
+                      <Lock className="h-4 w-4" /> {releaseMut.isPending ? "Releasing..." : "Release USDT"}
+ {!closed && (
+              <div className="shrink-0 space-y-2 border-t border-border p-3">
+                {pendingImage && (
+                  <div className="relative inline-block">
+                    <img src={pendingImage} alt="Attachment preview" className="h-20 rounded-lg border border-border object-cover" />
+                    <button
+                      type="button"
+                      onClick={() => setPendingImage(null)}
+                      className="absolute -right-2 -top-2 rounded-full bg-destructive p-1 text-destructive-foreground"
+                      aria-label="Remove image"
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </button>
+                  </div>
+                )}
+                <div className="flex items-end gap-2">
+                  <input
+                    ref={fileRef}
+                    type="file"
+                    accept="image/jpeg,image/jpg,image/png"
+                    className="hidden"
+                    onChange={(e) => onPickImage(e.target.files?.[0])}
+                    data-testid="input-chat-image"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    onClick={() => fileRef.current?.click()}
+                    aria-label="Attach image"
+                    data-testid="button-attach-image"
+                  >
+                    <ImagePlus className="h-4 w-4" />
+                  </Button>
+                  <Textarea
+                    rows={1}
+                    value={chatText}
+                    onChange={(e) => setChatText(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && !e.shiftKey) {
+                        e.preventDefault();
+                        if (chatText.trim() || pendingImage) chatMut.mutate({ message: chatText.trim(), image: pendingImage });
+                      }
+                    }}
+                    placeholder="Write a message... (Enter to send)"
+                    className="max-h-32 min-h-10 resize-none"
+                    data-testid="input-chat-message"
+                  />
+                  <Button
+                    size="icon"
+                    onClick={() => chatMut.mutate({ message: chatText.trim(), image: pendingImage })}
+                    disabled={(!chatText.trim() && !pendingImage) || chatMut.isPending}
+                    data-testid="button-send-message"
+                  >
+                    {chatMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                  </Button>
+                </div>
+                <p className="text-[10px] text-muted-foreground">
+                  JPEG/PNG accepted (auto-compressed to JPEG). Never share your PIN or password.
+                </p>
               </div>
             )}
           </div>
-
-          {/* Actions */}
-          {!closed && (
-            <div className="space-y-2 border-t border-border pt-3">
-              {isBuyer && status === "pending" && (
-                <Button className="w-full" onClick={() => payMut.mutate()} disabled={payMut.isPending} data-testid="button-mark-paid">
-                  {payMut.isPending ? "Saving..." : "I have paid"}
-                </Button>
-              )}
-
-              {!isBuyer && status === "paid" && (
-                <div className="space-y-2 rounded-lg border border-primary/20 bg-primary/5 p-3">
-                  <div className="flex items-start gap-2">
-                    <Checkbox id="confirm-receipt" checked={confirmed} onCheckedChange={(v) => setConfirmed(!!v)} />
-                    <label htmlFor="confirm-receipt" className="text-xs text-muted-foreground">
-                      I confirm I received {num(current.amount_local ?? current.total_htg).toFixed(2)} {current.currency || "HTG"}.
-                    </label>
-                  </div>
-                  <Input
-                    type="password"
-                    inputMode="numeric"
-                    value={pin}
-                    onChange={(e) => setPin(e.target.value)}
-                    placeholder="Withdrawal PIN (if set)"
-                  />
-                  <Button className="w-full gap-1" onClick={() => releaseMut.mutate()} disabled={!confirmed || releaseMut.isPending}>
-                    <Lock className="w-4 h-4" /> {releaseMut.isPending ? "Releasing..." : "Release USDT"}
-                  </Button>
-                </div>
-              )}
-
-              <Textarea rows={2} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Reason (for cancel or dispute)" />
-              <div className="flex gap-2">
-                {status === "pending" && (
-                  <Button variant="outline" size="sm" className="flex-1" onClick={() => cancelMut.mutate()} disabled={cancelMut.isPending}>
-                    Cancel trade
-                  </Button>
-                )}
-                {status !== "disputed" && (
-                  <Button variant="outline" size="sm" className="flex-1 gap-1 text-orange-500" onClick={() => disputeMut.mutate()} disabled={disputeMut.isPending}>
-                    <AlertTriangle className="w-3 h-3" /> Dispute
-                  </Button>
-                )}
-              </div>
-            </div>
-          )}
         </div>
       </DialogContent>
+
+      <CancelTradeDialog
+        open={cancelOpen}
+        onOpenChange={setCancelOpen}
+        pending={cancelMut.isPending}
+        onConfirm={(r) => cancelMut.mutate({ reason: r })}
+      />
+
+      {preview && (
+        <Dialog open onOpenChange={(v) => !v && setPreview(null)}>
+          <DialogContent className="max-w-3xl p-2">
+            <img src={preview} alt="Attachment" className="max-h-[80vh] w-full rounded-lg object-contain" />
+          </DialogContent>
+        </Dialog>
+      )}
     </Dialog>
   );
 }
+
 /* ---------------------------------- Seller settings ---------------------------------- */
 
 function SellerSettingsPanel() {
