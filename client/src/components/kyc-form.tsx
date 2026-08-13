@@ -10,10 +10,10 @@ import { useUploadKyc } from "@/hooks/use-kyc";
 
 type Slot = "front" | "back" | "selfie";
 
-const SLOTS: { key: Slot; label: string; hint: string; capture?: "user" | "environment" }[] = [
-  { key: "front", label: "ID Document (Front)", hint: "Photo of the front of your ID", capture: "environment" },
-  { key: "back", label: "ID Document (Back)", hint: "Photo of the back of your ID", capture: "environment" },
-  { key: "selfie", label: "Selfie with ID", hint: "Photo of you holding your ID", capture: "user" },
+const SLOTS: { key: Slot; label: string; hint: string }[] = [
+  { key: "front", label: "ID Document (Front)", hint: "Photo of the front of your ID" },
+  { key: "back", label: "ID Document (Back)", hint: "Photo of the back of your ID" },
+  { key: "selfie", label: "Selfie with ID", hint: "Photo of you holding your ID" },
 ];
 
 /**
@@ -135,7 +135,6 @@ export function KycForm({ disabled }: { disabled?: boolean }) {
               }}
               type="file"
               accept="image/*"
-              capture={slot.capture}
               className="hidden"
               onChange={(e) => {
                 void handleFile(slot.key, e.target.files?.[0]);
