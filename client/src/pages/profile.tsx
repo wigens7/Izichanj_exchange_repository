@@ -8,7 +8,6 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { StatusBadge } from "@/components/status-badge";
 import {
-  UploadCloud,
   Loader2,
   Globe,
   Clock,
@@ -34,8 +33,7 @@ import {
 } from "@/components/ui/form";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
-
-const KYC_HUB_URL = "https://izichanj-kyc-hub.onrender.com";
+import { KycForm } from "@/components/kyc-form";
 
 export default function ProfilePage() {
   const { data: user } = useUser();
@@ -267,8 +265,7 @@ export default function ProfilePage() {
             </CardContent>
           </Card>
         </div>
-
-        <div className="lg:col-span-2 space-y-6">
+<div className="lg:col-span-2 space-y-6">
           <Card>
             <CardHeader className="pb-3">
               <div className="flex items-center gap-2">
@@ -472,8 +469,7 @@ export default function ProfilePage() {
               </Form>
             </CardContent>
           </Card>
-
-          {user.kycStatus === "verified" ? null : (
+{user.kycStatus === "verified" ? null : (
             <Card
               className={
                 !isProfileComplete
@@ -509,25 +505,7 @@ export default function ProfilePage() {
                     </p>
                   </div>
                 ) : (
-                  <div className="text-center py-8">
-                    <FileText className="w-10 h-10 text-primary mx-auto mb-3" />
-
-                    <p className="text-sm text-muted-foreground mb-4 max-w-sm mx-auto">
-                      Complete your identity verification on our secure KYC portal.
-                    </p>
-
-                    <Button
-                      className="w-full primary-gradient"
-                      disabled={!isProfileComplete}
-                      onClick={() =>
-                        (window.location.href = KYC_HUB_URL)
-                      }
-                      data-testid="button-go-kyc"
-                    >
-                      <UploadCloud className="w-4 h-4 mr-2" />
-                      {t.profile.kycTitle}
-                    </Button>
-                  </div>
+                  <KycForm disabled={!isProfileComplete} />
                 )}
               </CardContent>
             </Card>
