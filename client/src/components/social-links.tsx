@@ -23,7 +23,7 @@ const SOCIALS = [
   },
   {
     label: "Follow us on TikTok",
-    href: "https://www.tiktok.com/@izichanj",
+    href: "https://www.tiktok.com/@izichanjexchange",
     bg: "bg-[#010101] hover:bg-[#2a2a2a]",
     textColor: "text-white",
     icon: (
