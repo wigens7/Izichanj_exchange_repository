@@ -1476,6 +1476,7 @@ function DepositsTab() {
   const [fraudModalDepositId, setFraudModalDepositId] = useState<number | null>(null);
   const [rejectReason, setRejectReason] = useState("");
   const [proofViewUrl, setProofViewUrl] = useState<string | null>(null);
+    const [rawProofUrl, setRawProofUrl] = useState<string | null>(null);
   const [txHashInputs, setTxHashInputs] = useState<Record<number, string>>({});
   const [savingTxHashId, setSavingTxHashId] = useState<number | null>(null);
   const [copiedTxId, setCopiedTxId] = useState<number | null>(null);
@@ -1646,7 +1647,7 @@ function DepositsTab() {
       {proofViewUrl && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
-          onClick={() => setProofViewUrl(null)}
+          onClick={() => { setProofViewUrl(null); setRawProofUrl(null); }}
           data-testid="modal-proof-viewer"
         >
           <div className="relative max-w-2xl w-full max-h-[80vh]" onClick={(e) => e.stopPropagation()}>
@@ -1654,13 +1655,13 @@ function DepositsTab() {
               variant="secondary"
               size="icon"
               className="absolute -top-10 right-0"
-              onClick={() => setProofViewUrl(null)}
+              onClick={() => { setProofViewUrl(null); setRawProofUrl(null); }}
             >
               <X className="w-4 h-4" />
             </Button>
             <img src={proofViewUrl} alt="Deposit proof" className="w-full rounded-lg object-contain max-h-[75vh]" />
             <a
-              href={proofViewUrl}
+              href={rawProofUrl || proofViewUrl || ""}
               target="_blank"
               rel="noopener noreferrer"
               className="absolute bottom-2 right-2 text-xs bg-background/90 rounded px-2 py-1 flex items-center gap-1"
@@ -1747,7 +1748,15 @@ function DepositsTab() {
                             {deposit.proofImageUrl && (
                               <button
                                 type="button"
-                                onClick={() => setProofViewUrl(deposit.proofImageUrl)}
+                                onClick={() => {
+                                    const raw = deposit.proofImageUrl;
+                                    setRawProofUrl(raw);
+                                    setProofViewUrl(
+                                      raw?.startsWith("https://")
+                                        ? `/api/admin/kyc-image?url=${encodeURIComponent(raw)}`
+                                        : raw
+                                    );
+                                  }}
                                 className="flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-800 underline"
                                 data-testid={`button-view-proof-${deposit.id}`}
                               >
