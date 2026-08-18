@@ -5978,10 +5978,19 @@ export async function registerRoutes(
 
       res.status(201).json(card);
     } catch (e: any) {
-      console.error("Create card error:", e);
-      res.status(500).json({ message: e.message || "Internal Error" });
-    }
-  });
+        console.error("Create card error:", e);
+        // Network / proxy failure — Strowallet was unreachable after all retries.
+        // isProxyOrNetworkFailure() already exists in this scope for exactly this case.
+        // The user's balance is NOT affected: deduction only happens AFTER a successful
+        // Strowallet response (further above), so no refund is needed.
+        if (isProxyOrNetworkFailure(e)) {
+          return res.status(503).json({
+            message: "We’re having trouble reaching our card provider right now. Please try again in a few minutes — no charge has been made to your account.",
+          });
+        }
+        res.status(500).json({ message: "Internal Error" });
+      }
+    });
 
   // POST /api/cards/:id/cancel — user cancels a pending card and gets an instant refund
   app.post("/api/cards/:id/cancel", isAuthenticated, async (req: any, res) => {
