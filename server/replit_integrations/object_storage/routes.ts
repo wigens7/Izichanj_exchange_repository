@@ -1,5 +1,4 @@
 import type { Express } from "express";
-import https from "https";
 import { ObjectStorageService, ObjectNotFoundError } from "./objectStorage";
 import { URL } from "url";
 
@@ -122,7 +121,7 @@ export function registerObjectStorageRoutes(app: Express): void {
     }
   });
 
-  app.post("/api/upload-image", (req, res) => {
+  app.post("/api/upload-image", async (req, res) => {
     try {
       const apiKey = process.env.IMGBB_API_KEY;
       if (!apiKey) {
@@ -146,37 +145,49 @@ export function registerObjectStorageRoutes(app: Express): void {
         : String(imagePayload)
       ).trim();
 
-      const postData = new URLSearchParams({ image: cleanBase64 }).toString();
-
-      const options = {
-        hostname: "api.imgbb.com",
-        path: `/1/upload?key=${apiKey}`,
+      // Use fetch (undici) — avoids manual Content-Length calculation that
+      // breaks with large base64 payloads on raw https.request
+      const formBody = new URLSearchParams({ image: cleanBase64 }).toString();
+      const imgbbRes = await fetch(`https://api.imgbb.com/1/upload?key=${apiKey}`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
-          "Content-Length": Buffer.byteLength(postData),
-        },
-      };
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: formBody,
+      });
 
-      const request = https.request(options, (response) => {
-        let body = "";
-        response.on("data", (chunk) => (body += chunk));
-        response.on("end", () => {
-          try {
-            const data = JSON.parse(body);
-            if (data && data.success && data.data) {
-              const directImageUrl = pickDirectImageUrl(data.data);
-              if (!directImageUrl) {
-                console.error("ImgBB response had no usable image URL:", data);
-                return res.status(502).json({ error: "ImgBB returned no image URL" });
-              }
-              return res.json({
-                url: directImageUrl,
-                path: directImageUrl,
-                uploadURL: directImageUrl,
-                imageUrl: directImageUrl,
-                fileUrl: directImageUrl
-              });
+      const responseText = await imgbbRes.text();
+      let data: any;
+      try {
+        data = JSON.parse(responseText);
+      } catch {
+        console.error("[ImgBB] Non-JSON response (HTTP", imgbbRes.status, "):", responseText.slice(0, 300));
+        return res.status(502).json({ error: "ImgBB returned an unexpected response — check IMGBB_API_KEY" });
+      }
+
+      if (data && data.success && data.data) {
+        const directImageUrl = pickDirectImageUrl(data.data);
+        if (!directImageUrl) {
+          console.error("[ImgBB] No usable image URL in response:", data);
+          return res.status(502).json({ error: "ImgBB returned no image URL" });
+        }
+        return res.json({
+          url: directImageUrl,
+          path: directImageUrl,
+          uploadURL: directImageUrl,
+          imageUrl: directImageUrl,
+          fileUrl: directImageUrl,
+        });
+      } else {
+        const errMsg = data?.error?.message || data?.status_txt || "ImgBB upload failed";
+        console.error("[ImgBB] Upload rejected:", JSON.stringify(data));
+        return res.status(400).json({ error: errMsg });
+      }
+    } catch (err) {
+      console.error("[ImgBB] Image upload error:", err);
+      if (!res.headersSent) {
+        res.status(500).json({ error: "Internal upload server error" });
+      }
+    }
+  });
             } else {
               console.error("ImgBB API Response Error:", data);
               return res.status(400).json({ error: "ImgBB upload failed" });
