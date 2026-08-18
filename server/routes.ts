@@ -34,7 +34,7 @@ function createProxyDispatcher() {
   cleanUrl.password = "";
   return new ProxyAgent({
     uri: cleanUrl.toString(),
-    auth,
+    token: auth, // undici v7: proxy auth header uses `token`, not `auth`
   });
 }
 
