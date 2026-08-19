@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, type ReactNode } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useUser } from "@/hooks/use-auth";
@@ -16,7 +16,7 @@ import {
 import {
   Store, ShieldOff, Ban, Plus, ShoppingCart, AlertTriangle, Send,
   ShieldCheck, Loader2, RefreshCcw, Lock, Settings, MessageCircle, Trash2, Pause, Play,
-  ImagePlus, ChevronDown, MoreVertical, X,
+  ImagePlus, ChevronDown, MoreVertical, X, Wallet, LayoutDashboard, ListChecks,
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 
@@ -69,10 +69,15 @@ export default function P2PMarketPage() {
   const { data: user } = useUser();
 
   const { data: banData } = useQuery<any>({ queryKey: ["/api/p2p/ban"] });
-  const [activeTab, setActiveTab] = useState("marketplace");
+  const [mode, setMode] = useState<"buy" | "sell">("sell");
+  const [activeTab, setActiveTab] = useState("overview");
 
   const isKycVerified = user?.kycStatus === "verified";
   const isBanned = banData?.banned;
+  const switchMode = (nextMode: "buy" | "sell") => {
+    setMode(nextMode);
+    setActiveTab(nextMode === "sell" ? "overview" : "marketplace");
+  };
 
   if (isBanned) {
     return (
@@ -92,12 +97,51 @@ export default function P2PMarketPage() {
 
   return (
     <div className="p-4 space-y-4">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Store className="w-5 h-5 text-primary" />
-          <h1 className="text-xl font-bold">P2P Market</h1>
+      <div className="space-y-3">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-start gap-2 min-w-0">
+            {mode === "sell" ? <Store className="w-5 h-5 text-primary mt-1 shrink-0" /> : <ShoppingCart className="w-5 h-5 text-primary mt-1 shrink-0" />}
+            <div className="min-w-0">
+              <p className="text-[11px] uppercase tracking-wider text-muted-foreground font-medium">
+                {mode === "sell" ? "Seller workspace" : "Buyer marketplace"}
+              </p>
+              <h1 className="text-xl font-bold">{mode === "sell" ? "Sell USDT" : "Buy USDT"}</h1>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                {mode === "sell"
+                  ? "Manage your ads, escrow, and buyer trades."
+                  : "Find a trusted seller and buy USDT securely."}
+              </p>
+            </div>
+          </div>
+          {mode === "sell" && <PostAdButton isKycVerified={isKycVerified} label="Create sell ad" />}
         </div>
-        <PostAdButton isKycVerified={isKycVerified} />
+
+        <div className="grid grid-cols-2 gap-1 rounded-lg border border-border bg-muted/40 p-1" role="tablist" aria-label="P2P mode">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={mode === "sell"}
+            data-testid="tab-sell-usdt"
+            onClick={() => switchMode("sell")}
+            className={`flex items-center justify-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
+              mode === "sell" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            <Store className="w-4 h-4" aria-hidden="true" /> Sell USDT
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={mode === "buy"}
+            data-testid="tab-buy-usdt"
+            onClick={() => switchMode("buy")}
+            className={`flex items-center justify-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
+              mode === "buy" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            <ShoppingCart className="w-4 h-4" aria-hidden="true" /> Buy USDT
+          </button>
+        </div>
       </div>
 
       {!isKycVerified && (
@@ -105,8 +149,14 @@ export default function P2PMarketPage() {
           <CardContent className="py-3 px-4 flex items-center gap-3">
             <ShieldOff className="w-5 h-5 text-yellow-500 shrink-0" />
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium">Identity verification required</p>
-              <p className="text-xs text-muted-foreground">You can browse ads, but you must verify to buy or sell.</p>
+              <p className="text-sm font-medium">
+                {mode === "sell" ? "Verify your identity before selling" : "Identity verification required"}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {mode === "sell"
+                  ? "Selling is unavailable until identity verification is complete."
+                  : "You can browse ads, but you must verify to buy or sell."}
+              </p>
             </div>
             <Button size="sm" variant="outline" onClick={() => window.location.href = "/profile"} className="gap-1 shrink-0">
               <ShieldCheck className="w-4 h-4" /> Verify
@@ -115,31 +165,160 @@ export default function P2PMarketPage() {
         </Card>
       )}
 
-      <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="w-full">
-          <TabsTrigger value="marketplace" className="flex-1 text-xs">Marketplace</TabsTrigger>
-          <TabsTrigger value="orders" className="flex-1 text-xs">My Trades</TabsTrigger>
-          <TabsTrigger value="my-ads" className="flex-1 text-xs">My Ads</TabsTrigger>
-          <TabsTrigger value="seller-settings" className="flex-1 text-xs">Settings</TabsTrigger>
-        </TabsList>
+      {mode === "sell" ? (
+        <Tabs value={activeTab} onValueChange={setActiveTab}>
+          <TabsList className="w-full">
+            <TabsTrigger value="overview" className="flex-1 text-xs gap-1" data-testid="tab-seller-overview"><LayoutDashboard className="w-3.5 h-3.5" /> Overview</TabsTrigger>
+            <TabsTrigger value="seller-orders" className="flex-1 text-xs gap-1" data-testid="tab-seller-trades"><ListChecks className="w-3.5 h-3.5" /> Seller trades</TabsTrigger>
+            <TabsTrigger value="my-ads" className="flex-1 text-xs" data-testid="tab-seller-ads">My Ads</TabsTrigger>
+            <TabsTrigger value="seller-settings" className="flex-1 text-xs" data-testid="tab-seller-settings">Settings</TabsTrigger>
+          </TabsList>
 
-        <TabsContent value="marketplace">
-          <MarketplaceTab currentUserId={user?.id} isKycVerified={isKycVerified} />
-        </TabsContent>
-
-        <TabsContent value="orders">
-          <MyOrdersTab currentUserId={user?.id} />
-        </TabsContent>
-
-        <TabsContent value="my-ads">
-          <MyAdsTab />
-        </TabsContent>
-
-        <TabsContent value="seller-settings">
-          <SellerSettingsPanel />
-        </TabsContent>
-      </Tabs>
+          <TabsContent value="overview">
+            <SellerOverview
+              currentUserId={user?.id}
+              walletBalance={user?.balance}
+              isKycVerified={isKycVerified}
+              onOpenAds={() => setActiveTab("my-ads")}
+              onOpenOrders={() => setActiveTab("seller-orders")}
+            />
+          </TabsContent>
+          <TabsContent value="seller-orders">
+            <MyOrdersTab currentUserId={user?.id} role="seller" />
+          </TabsContent>
+          <TabsContent value="my-ads">
+            <MyAdsTab />
+          </TabsContent>
+          <TabsContent value="seller-settings">
+            <SellerSettingsPanel />
+          </TabsContent>
+        </Tabs>
+      ) : (
+        <Tabs value={activeTab} onValueChange={setActiveTab}>
+          <TabsList className="w-full">
+            <TabsTrigger value="marketplace" className="flex-1 text-xs" data-testid="tab-buyer-marketplace">Marketplace</TabsTrigger>
+            <TabsTrigger value="orders" className="flex-1 text-xs" data-testid="tab-buyer-trades">My Trades</TabsTrigger>
+          </TabsList>
+          <TabsContent value="marketplace">
+            <MarketplaceTab currentUserId={user?.id} isKycVerified={isKycVerified} />
+          </TabsContent>
+          <TabsContent value="orders">
+            <MyOrdersTab currentUserId={user?.id} />
+          </TabsContent>
+        </Tabs>
+      )}
     </div>
+  );
+}
+
+/* ---------------------------------- Seller workspace ---------------------------------- */
+
+function SellerOverview({
+  currentUserId,
+  walletBalance,
+  isKycVerified,
+  onOpenAds,
+  onOpenOrders,
+}: {
+  currentUserId?: number;
+  walletBalance?: string | number | null;
+  isKycVerified: boolean;
+  onOpenAds: () => void;
+  onOpenOrders: () => void;
+}) {
+  const { data: ads, isLoading: adsLoading } = useQuery<any[]>({
+    queryKey: ["/api/p2p/ads/my"],
+    refetchInterval: 20000,
+  });
+  const { data: orders, isLoading: ordersLoading } = useQuery<any[]>({
+    queryKey: ["/api/p2p/orders"],
+    refetchInterval: 15000,
+  });
+
+  const sellerOrders = (orders ?? []).filter((order) => Number(order.seller_id) === Number(currentUserId));
+  const activeAds = (ads ?? []).filter((ad) => ["active", "paused"].includes(ad.status));
+  const activeOrders = sellerOrders.filter((order) => !["cancelled", "completed", "released"].includes(order.status));
+  const reservedUsdt = activeAds.reduce((sum, ad) => sum + num(ad.available_usdt), 0);
+  const activeTradeUsdt = activeOrders.reduce((sum, order) => sum + num(order.amount_usdt), 0);
+  const isLoading = adsLoading || ordersLoading;
+
+  return (
+    <div className="space-y-3 mt-3">
+      <Card className="border-primary/20 bg-primary/5">
+        <CardContent className="p-4">
+          <div className="flex items-start gap-3">
+            <div className="rounded-lg bg-primary/15 p-2 text-primary"><Wallet className="w-5 h-5" aria-hidden="true" /></div>
+            <div className="min-w-0">
+              <p className="font-medium">Your selling activity</p>
+              <p className="text-xs text-muted-foreground mt-1">
+                Posting an ad reserves the listed USDT in escrow until it is sold or the ad is cancelled.
+              </p>
+            </div>
+          </div>
+          {!isKycVerified && (
+            <p className="text-xs text-yellow-500 mt-3">Complete identity verification to create a sell ad.</p>
+          )}
+        </CardContent>
+      </Card>
+
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <SellerMetric label="Wallet balance" value={`${num(walletBalance).toFixed(2)} USDT`} icon={<Wallet className="w-4 h-4" />} loading={isLoading} testId="seller-metric-wallet" />
+        <SellerMetric label="Reserved in ads" value={`${reservedUsdt.toFixed(2)} USDT`} icon={<Lock className="w-4 h-4" />} loading={isLoading} testId="seller-metric-reserved" />
+        <SellerMetric label="Active trades" value={String(activeOrders.length)} detail={`${activeTradeUsdt.toFixed(2)} USDT`} icon={<ListChecks className="w-4 h-4" />} loading={isLoading} testId="seller-metric-trades" />
+        <SellerMetric label="Live ads" value={String(activeAds.filter((ad) => ad.status === "active").length)} detail={`${activeAds.length} active or paused`} icon={<Store className="w-4 h-4" />} loading={isLoading} testId="seller-metric-ads" />
+      </div>
+
+      <Card>
+        <CardContent className="p-4">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="font-medium">Manage your seller workflow</p>
+              <p className="text-xs text-muted-foreground mt-1">Review buyer trades and keep your sell ads available.</p>
+            </div>
+            <Store className="w-5 h-5 text-muted-foreground shrink-0" aria-hidden="true" />
+          </div>
+          <div className="grid grid-cols-2 gap-2 mt-4">
+            <Button variant="outline" size="sm" onClick={onOpenAds} data-testid="button-manage-seller-ads">Manage ads</Button>
+            <Button variant="outline" size="sm" onClick={onOpenOrders} data-testid="button-view-seller-trades">View seller trades</Button>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function SellerMetric({
+  label,
+  value,
+  detail,
+  icon,
+  loading,
+  testId,
+}: {
+  label: string;
+  value: string;
+  detail?: string;
+  icon: ReactNode;
+  loading: boolean;
+  testId: string;
+}) {
+  return (
+    <Card data-testid={testId}>
+      <CardContent className="p-3">
+        <div className="flex items-center gap-1.5 text-muted-foreground">
+          {icon}
+          <span className="text-[11px] leading-tight">{label}</span>
+        </div>
+        {loading ? (
+          <div className="h-6 w-20 rounded bg-muted animate-pulse mt-2" aria-label={`Loading ${label}`} />
+        ) : (
+          <>
+            <p className="text-base font-semibold mt-2">{value}</p>
+            {detail && <p className="text-[10px] text-muted-foreground mt-0.5">{detail}</p>}
+          </>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -354,7 +533,7 @@ function BuyDialog({ ad, open, onOpenChange, isKycVerified }: {
 
 /* ---------------------------------- Post Ad ---------------------------------- */
 
-function PostAdButton({ isKycVerified }: { isKycVerified: boolean }) {
+function PostAdButton({ isKycVerified, label = "Post Ad" }: { isKycVerified: boolean; label?: string }) {
   const [open, setOpen] = useState(false);
   const { toast } = useToast();
   const qc = useQueryClient();
@@ -395,8 +574,8 @@ function PostAdButton({ isKycVerified }: { isKycVerified: boolean }) {
 
   return (
     <>
-      <Button size="sm" className="gap-2" onClick={() => setOpen(true)} data-testid="button-post-ad">
-        <Plus className="w-4 h-4" /> Post Ad
+      <Button size="sm" className="gap-2" onClick={() => setOpen(true)} data-testid="button-post-ad" aria-label="Create a new USDT sell ad">
+        <Plus className="w-4 h-4" /> {label}
       </Button>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-w-md">
@@ -487,27 +666,48 @@ function MyAdsTab() {
   });
 
   if (isLoading) return <div className="flex justify-center py-10"><Loader2 className="w-6 h-6 animate-spin text-primary" /></div>;
-  if (!ads?.length) return <Card className="mt-3"><CardContent className="py-10 text-center text-sm text-muted-foreground">You have no ads yet.</CardContent></Card>;
+  if (!ads?.length) return (
+    <Card className="mt-3" data-testid="seller-ads-empty">
+      <CardContent className="py-10 text-center text-sm text-muted-foreground">
+        <p>You have no sell ads yet.</p>
+        <p className="text-xs mt-1">Create an ad to make your USDT available to buyers.</p>
+      </CardContent>
+    </Card>
+  );
 
   return (
     <div className="space-y-3 mt-3">
+      <div className="flex items-end justify-between gap-3">
+        <div>
+          <h2 className="font-semibold">Your sell ads</h2>
+          <p className="text-xs text-muted-foreground mt-0.5">Pause or cancel a listing when you need to manage reserved USDT.</p>
+        </div>
+        <span className="text-xs text-muted-foreground shrink-0">{ads.filter((ad) => ["active", "paused"].includes(ad.status)).length} open</span>
+      </div>
       {ads.map((ad) => (
-        <Card key={ad.id}>
+        <Card key={ad.id} data-testid={`seller-ad-card-${ad.id}`}>
           <CardContent className="p-4 space-y-2">
             <div className="flex items-start justify-between gap-2">
-              <div>
+              <div className="min-w-0">
                 <div className="text-lg font-bold text-primary">{num(ad.rate_htg).toFixed(2)} {ad.currency || "HTG"}/USDT</div>
-                <div className="text-xs text-muted-foreground">Available: {num(ad.available_usdt).toFixed(2)} USDT</div>
+                <div className="text-xs text-muted-foreground">Available in escrow: {num(ad.available_usdt).toFixed(2)} USDT</div>
+                <div className="text-xs text-muted-foreground mt-1">
+                  Limits: {num(ad.min_order_usdt).toFixed(2)} – {num(ad.max_order_usdt) ? num(ad.max_order_usdt).toFixed(2) : "No maximum"} USDT
+                </div>
+                {!!ad.payment_methods?.length && (
+                  <div className="text-xs text-muted-foreground mt-1">Accepts: {Array.isArray(ad.payment_methods) ? ad.payment_methods.join(", ") : ad.payment_methods}</div>
+                )}
+                {ad.terms_note && <p className="text-xs text-muted-foreground mt-1 italic break-words">{ad.terms_note}</p>}
               </div>
               <StatusBadge status={ad.status} />
             </div>
             {ad.status !== "cancelled" && (
               <div className="flex gap-2">
-                <Button size="sm" variant="outline" className="gap-1" onClick={() => pauseMut.mutate(ad.id)}>
+                <Button size="sm" variant="outline" className="gap-1" onClick={() => pauseMut.mutate(ad.id)} data-testid={`seller-action-pause-${ad.id}`} aria-label={`${ad.status === "active" ? "Pause" : "Resume"} sell ad ${ad.id}`}>
                   {ad.status === "active" ? <><Pause className="w-3 h-3" /> Pause</> : <><Play className="w-3 h-3" /> Resume</>}
                 </Button>
-                <Button size="sm" variant="outline" className="gap-1 text-red-500" onClick={() => cancelMut.mutate(ad.id)}>
-                  <Trash2 className="w-3 h-3" /> Cancel
+                <Button size="sm" variant="outline" className="gap-1 text-red-500" onClick={() => cancelMut.mutate(ad.id)} data-testid={`seller-action-cancel-${ad.id}`} aria-label={`Cancel sell ad ${ad.id} and refund available USDT`}>
+                  <Trash2 className="w-3 h-3" /> Cancel & refund
                 </Button>
               </div>
             )}
@@ -520,19 +720,51 @@ function MyAdsTab() {
 
 /* ---------------------------------- My Orders ---------------------------------- */
 
-function MyOrdersTab({ currentUserId }: { currentUserId?: number }) {
+function MyOrdersTab({ currentUserId, role = "all" }: { currentUserId?: number; role?: "all" | "seller" }) {
   const { data: orders, isLoading } = useQuery<any[]>({ queryKey: ["/api/p2p/orders"], refetchInterval: 15000 });
   const [openOrder, setOpenOrder] = useState<any | null>(null);
+  const visibleOrders = (orders ?? [])
+    .filter((order) => role !== "seller" || Number(order.seller_id) === Number(currentUserId))
+    .sort((a, b) => {
+      const priority = (status: string) => status === "paid" ? 0 : status === "disputed" ? 1 : status === "pending" ? 2 : 3;
+      return priority(a.status) - priority(b.status) || new Date(b.created_at ?? 0).getTime() - new Date(a.created_at ?? 0).getTime();
+    });
 
   if (isLoading) return <div className="flex justify-center py-10"><Loader2 className="w-6 h-6 animate-spin text-primary" /></div>;
-  if (!orders?.length) return <Card className="mt-3"><CardContent className="py-10 text-center text-sm text-muted-foreground">No trades yet. Buy USDT from the marketplace.</CardContent></Card>;
+  if (!visibleOrders.length) return (
+    <Card className="mt-3" data-testid={role === "seller" ? "seller-trades-empty" : "trades-empty"}>
+      <CardContent className="py-10 text-center text-sm text-muted-foreground">
+        {role === "seller" ? "No buyer trades yet." : "No trades yet. Buy USDT from the marketplace."}
+      </CardContent>
+    </Card>
+  );
 
   return (
     <div className="space-y-3 mt-3">
-      {orders.map((o) => {
-        const isBuyer = o.buyer_id === currentUserId;
+      <div>
+        <h2 className="font-semibold">{role === "seller" ? "Buyer trades needing attention" : "My trades"}</h2>
+        <p className="text-xs text-muted-foreground mt-0.5">
+          {role === "seller" ? "Orders marked paid, disputed, and pending are shown first." : "Open a trade to view its status, payment steps, and chat."}
+        </p>
+      </div>
+      {visibleOrders.map((o) => {
+        const isBuyer = Number(o.buyer_id) === Number(currentUserId);
         return (
-          <Card key={o.id} className="cursor-pointer hover:border-primary/40" onClick={() => setOpenOrder(o)}>
+          <Card
+            key={o.id}
+            className="cursor-pointer hover:border-primary/40"
+            onClick={() => setOpenOrder(o)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                setOpenOrder(o);
+              }
+            }}
+            role="button"
+            tabIndex={0}
+            aria-label={`Open ${isBuyer ? "buying" : "selling"} trade ${o.order_id}`}
+            data-testid={`${role === "seller" ? "seller-" : ""}trade-card-${o.id}`}
+          >
             <CardContent className="p-4">
               <div className="flex items-start justify-between gap-2">
                 <div>
