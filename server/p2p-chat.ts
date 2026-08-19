@@ -1,6 +1,6 @@
 import type { Express, Request, Response } from "express";
-import { db } from "../db";
-import { p2pChatMessages, p2pOrders } from "../../shared/schema";
+import { db } from "./db";
+import { p2pChatMessages, p2pOrders } from "@shared/schema";
 import { eq } from "drizzle-orm";
 
 async function postOrderChatMessage(req: Request, res: Response) {

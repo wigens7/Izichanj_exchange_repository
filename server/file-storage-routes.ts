@@ -55,7 +55,7 @@ import type { Express } from "express";
         if (!rawImage) return res.status(400).json({ error: "No image provided" });
 
         // Detect MIME type from data-URL prefix; fall back to JPEG
-        const mimeMatch = rawImage.match(/^data:(image/[a-zA-Z+]+);base64,/i);
+        const mimeMatch = rawImage.match(/^data:(image\/[a-zA-Z+]+);base64,/i);
         const mimeType = mimeMatch
           ? mimeMatch[1].toLowerCase()
           : "image/jpeg";
