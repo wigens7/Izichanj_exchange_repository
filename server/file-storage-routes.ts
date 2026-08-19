@@ -27,6 +27,16 @@ import type { Express } from "express";
       await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_app_files_profile ON app_files(profile_id)`);
       await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_app_files_purpose ON app_files(purpose)`);
       console.log("[file-storage] app_files table ready");
+
+      // One-time cleanup: null out broken proof URLs that stored the API endpoint
+      // path instead of an actual image URL (from the ImgBB failure period).
+      const cleaned = await db.execute(sql`
+        UPDATE deposits
+        SET proof_image_url = NULL
+        WHERE proof_image_url = '/api/upload-image'
+      `);
+      const cleanedCount = (cleaned as any)?.rowCount ?? 0;
+      if (cleanedCount > 0) console.log(`[file-storage] cleared ${cleanedCount} broken deposit proof URLs`);
     } catch (e) {
       console.warn("[file-storage] migration:", (e as Error).message);
     }
@@ -70,7 +80,8 @@ import type { Express } from "express";
             .json({ error: "Image too large (maximum 5 MB)" });
         }
 
-        // Persist to database
+        // Persist to database — use SQL decode() to pass base64 directly to PostgreSQL
+        // and avoid Buffer serialisation issues with the pg/neon driver.
         const rows = await db.execute(sql`
           INSERT INTO app_files (profile_id, purpose, mime_type, file_size, data)
           VALUES (
@@ -78,7 +89,7 @@ import type { Express } from "express";
             ${purpose},
             ${mimeType},
             ${buffer.length},
-            ${buffer}
+            decode(${base64}, 'base64')
           )
           RETURNING id
         `);
@@ -95,8 +106,8 @@ import type { Express } from "express";
           fileUrl: url,
         });
       } catch (e) {
-        console.error("[file-storage upload]", e);
-        return res.status(500).json({ error: "Upload failed" });
+        console.error("[file-storage upload] error:", (e as any)?.message || e);
+        return res.status(500).json({ error: "Upload failed", detail: (e as any)?.message || "unknown" });
       }
     });
 
