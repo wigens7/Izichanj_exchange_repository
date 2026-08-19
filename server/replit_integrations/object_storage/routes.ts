@@ -252,6 +252,7 @@ export function registerObjectStorageRoutes(app: Express): void {
     } catch (error) {
       console.error("[KYC image proxy] Failed to load image:", error);
       return res.status(404).json({ message: "Image is unavailable" });
+    }
   });
 
   app.get(/^\/objects\/(.+)$/, async (req, res) => {
