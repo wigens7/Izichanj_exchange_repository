@@ -16,7 +16,7 @@ import {
 import {
   Store, ShieldOff, Ban, Plus, ShoppingCart, AlertTriangle, Send,
   ShieldCheck, Loader2, RefreshCcw, Lock, Settings, MessageCircle, Trash2, Pause, Play,
-  ImagePlus,
+  ImagePlus, ChevronDown, MoreVertical, X,
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 
