@@ -18,6 +18,19 @@ import type { Express } from "express";
     "Cash",
     ];
 
+    /**
+     * Drizzle returns a plain array for some drivers and a node-postgres
+     * QueryResult ({ rows: [] }) for others. Keep the API contract stable
+     * for the P2P client regardless of the active database driver.
+     */
+    function resultRows<T = any>(result: unknown): T[] {
+    if (Array.isArray(result)) return result as T[];
+    if (result && typeof result === "object" && Array.isArray((result as { rows?: unknown }).rows)) {
+      return (result as { rows: T[] }).rows;
+    }
+    return [];
+    }
+
     function generateOrderId(): string {
     const ts = Date.now().toString(36).toUpperCase();
     const rand = Math.random().toString(36).slice(2, 6).toUpperCase();
@@ -151,7 +164,7 @@ import type { Express } from "express";
           WHERE profile_id = ${profileId} AND banned_until > NOW()
           LIMIT 1
         `);
-        const ban = (rows as any[])[0];
+        const ban = resultRows<any>(rows)[0];
         if (ban) return res.json({ banned: true, reason: ban.reason, bannedUntil: ban.banned_until });
         return res.json({ banned: false });
       } catch (e) {
@@ -182,7 +195,7 @@ import type { Express } from "express";
       if (!profileId) return res.status(401).json({ error: "Unauthorized" });
       try {
         const rows = await db.execute(sql`SELECT p2p_merchant_name, full_name FROM profiles WHERE id = ${profileId}`);
-        const row = (rows as any[])[0];
+        const row = resultRows<any>(rows)[0];
         if (!row) return res.status(404).json({ error: "Profile not found" });
         return res.json({ name: row.p2p_merchant_name || row.full_name });
       } catch (e) {
@@ -227,7 +240,7 @@ import type { Express } from "express";
             AND b.id IS NULL
           ORDER BY a.created_at DESC
         `);
-        return res.json(rows);
+        return res.json(resultRows(rows));
       } catch (e) {
         console.error("[p2p/ads GET]", e);
         return res.status(500).json({ error: "Internal error" });
@@ -257,7 +270,7 @@ import type { Express } from "express";
       }
       try {
         const profRows = await db.execute(sql`SELECT kyc_status, balance FROM profiles WHERE id = ${profileId}`);
-        const profile = (profRows as any[])[0];
+        const profile = resultRows<any>(profRows)[0];
         if (!profile || profile.kyc_status !== "verified") {
           return res.status(403).json({ error: "KYC verification required to sell on P2P" });
         }
@@ -269,7 +282,7 @@ import type { Express } from "express";
           SELECT COUNT(*) AS cnt FROM p2p_ads
           WHERE seller_id = ${profileId} AND status IN ('active', 'paused')
         `);
-        if (Number((countRows as any[])[0]?.cnt ?? 0) >= 5) {
+        if (Number(resultRows<any>(countRows)[0]?.cnt ?? 0) >= 5) {
           return res.status(400).json({ error: "Maximum 5 active ads allowed" });
         }
         // Lock USDT from seller balance into the ad's escrow pool
@@ -283,7 +296,7 @@ import type { Express } from "express";
              ${minOrder}, ${maxOrder}, ${termsNote ?? null}, 'active')
           RETURNING *
         `);
-        return res.status(201).json((adRows as any[])[0]);
+        return res.status(201).json(resultRows(adRows)[0]);
       } catch (e) {
         console.error("[p2p/ads POST]", e);
         return res.status(500).json({ error: "Internal error" });
@@ -298,7 +311,7 @@ import type { Express } from "express";
         const rows = await db.execute(sql`
           SELECT * FROM p2p_ads WHERE seller_id = ${profileId} ORDER BY created_at DESC
         `);
-        return res.json(rows);
+        return res.json(resultRows(rows));
       } catch (e) {
         console.error("[p2p/ads/my]", e);
         return res.status(500).json({ error: "Internal error" });
@@ -314,7 +327,7 @@ import type { Express } from "express";
         const adRows = await db.execute(sql`
           SELECT id, status FROM p2p_ads WHERE id = ${adId} AND seller_id = ${profileId}
         `);
-        const ad = (adRows as any[])[0];
+        const ad = resultRows<any>(adRows)[0];
         if (!ad) return res.status(404).json({ error: "Ad not found" });
         if (!["active", "paused"].includes(ad.status)) {
           return res.status(400).json({ error: "Cannot toggle this ad" });
@@ -324,7 +337,7 @@ import type { Express } from "express";
           UPDATE p2p_ads SET status = ${newStatus}, updated_at = NOW()
           WHERE id = ${adId} RETURNING *
         `);
-        return res.json((updated as any[])[0]);
+        return res.json(resultRows(updated)[0]);
       } catch (e) {
         console.error("[p2p/ads toggle-pause]", e);
         return res.status(500).json({ error: "Internal error" });
@@ -340,19 +353,19 @@ import type { Express } from "express";
         const adRows = await db.execute(sql`
           SELECT id, available_usdt FROM p2p_ads WHERE id = ${adId} AND seller_id = ${profileId}
         `);
-        const ad = (adRows as any[])[0];
+        const ad = resultRows<any>(adRows)[0];
         if (!ad) return res.status(404).json({ error: "Ad not found" });
         const activeOrders = await db.execute(sql`
           SELECT COUNT(*) AS cnt FROM p2p_orders
           WHERE ad_id = ${adId} AND status IN ('pending', 'paid', 'disputed')
         `);
-        if (Number((activeOrders as any[])[0]?.cnt ?? 0) > 0) {
+        if (Number(resultRows<any>(activeOrders)[0]?.cnt ?? 0) > 0) {
           return res.status(400).json({ error: "Cannot delete ad with active orders" });
         }
         const available = parseFloat(ad.available_usdt ?? "0");
         if (available > 0) {
           const profRows = await db.execute(sql`SELECT balance FROM profiles WHERE id = ${profileId}`);
-          const currentBalance = parseFloat((profRows as any[])[0]?.balance ?? "0");
+          const currentBalance = parseFloat(resultRows<any>(profRows)[0]?.balance ?? "0");
           await storage.updateProfileBalance(profileId, currentBalance + available);
         }
         await db.execute(sql`
@@ -387,7 +400,7 @@ import type { Express } from "express";
           WHERE o.buyer_id = ${profileId} OR o.seller_id = ${profileId}
           ORDER BY o.created_at DESC
         `);
-        return res.json(rows);
+        return res.json(resultRows(rows));
       } catch (e) {
         console.error("[p2p/orders GET]", e);
         return res.status(500).json({ error: "Internal error" });
@@ -404,18 +417,18 @@ import type { Express } from "express";
       if (!paymentMethod) return res.status(400).json({ error: "Payment method required" });
       try {
         const profRows = await db.execute(sql`SELECT kyc_status FROM profiles WHERE id = ${profileId}`);
-        const buyer = (profRows as any[])[0];
+        const buyer = resultRows<any>(profRows)[0];
         if (!buyer || buyer.kyc_status !== "verified") {
           return res.status(403).json({ error: "KYC verification required to buy on P2P" });
         }
         const banRows = await db.execute(sql`
           SELECT id FROM p2p_bans WHERE profile_id = ${profileId} AND banned_until > NOW() LIMIT 1
         `);
-        if ((banRows as any[]).length > 0) {
+        if (resultRows(banRows).length > 0) {
           return res.status(403).json({ error: "You are temporarily banned from P2P trading" });
         }
         const adRows = await db.execute(sql`SELECT * FROM p2p_ads WHERE id = ${adId} AND status = 'active'`);
-        const ad = (adRows as any[])[0];
+        const ad = resultRows<any>(adRows)[0];
         if (!ad) return res.status(404).json({ error: "Ad not found or not active" });
         if (ad.seller_id === profileId) return res.status(400).json({ error: "Cannot buy your own ad" });
         const available = parseFloat(ad.available_usdt);
@@ -441,7 +454,7 @@ import type { Express } from "express";
              ${amountLocal}, ${rate}, ${ad.currency || "HTG"}, ${paymentMethod}, 'pending')
           RETURNING *
         `);
-        const order = (orderRows as any[])[0];
+        const order = resultRows<any>(orderRows)[0];
         await db.execute(sql`
           INSERT INTO p2p_chat_messages (order_id, sender_id, message)
           VALUES (${order.id}, ${profileId},
@@ -461,7 +474,7 @@ import type { Express } from "express";
       const orderId = Number(req.params.id);
       try {
         const orderRows = await db.execute(sql`SELECT * FROM p2p_orders WHERE id = ${orderId}`);
-        const order = (orderRows as any[])[0];
+        const order = resultRows<any>(orderRows)[0];
         if (!order) return res.status(404).json({ error: "Order not found" });
         if (order.buyer_id !== profileId) return res.status(403).json({ error: "Only the buyer can mark as paid" });
         if (order.status !== "pending") {
@@ -489,14 +502,14 @@ import type { Express } from "express";
       if (!pin) return res.status(400).json({ error: "PIN required" });
       try {
         const orderRows = await db.execute(sql`SELECT * FROM p2p_orders WHERE id = ${orderId}`);
-        const order = (orderRows as any[])[0];
+        const order = resultRows<any>(orderRows)[0];
         if (!order) return res.status(404).json({ error: "Order not found" });
         if (order.seller_id !== profileId) return res.status(403).json({ error: "Only the seller can release funds" });
         if (order.status !== "paid") return res.status(400).json({ error: "Order must be in paid status" });
         const sellerRows = await db.execute(sql`
           SELECT withdrawal_pin_hash, pin_hash FROM profiles WHERE id = ${profileId}
         `);
-        const seller = (sellerRows as any[])[0];
+        const seller = resultRows<any>(sellerRows)[0];
         const pinHash = seller?.withdrawal_pin_hash || seller?.pin_hash;
         if (!pinHash) {
           return res.status(400).json({ error: "No PIN set. Please configure a PIN in security settings." });
@@ -517,13 +530,13 @@ import type { Express } from "express";
       const orderId = Number(req.params.id);
       try {
         const orderRows = await db.execute(sql`SELECT * FROM p2p_orders WHERE id = ${orderId}`);
-        const order = (orderRows as any[])[0];
+        const order = resultRows<any>(orderRows)[0];
         if (!order) return res.status(404).json({ error: "Order not found" });
         if (order.seller_id !== profileId) return res.status(403).json({ error: "Only the seller can release funds" });
         if (order.status !== "paid") return res.status(400).json({ error: "Order must be in paid status" });
         const amount = parseFloat(order.amount_usdt);
         const buyerRows = await db.execute(sql`SELECT balance FROM profiles WHERE id = ${order.buyer_id}`);
-        const buyerBalance = parseFloat((buyerRows as any[])[0]?.balance ?? "0");
+        const buyerBalance = parseFloat(resultRows<any>(buyerRows)[0]?.balance ?? "0");
         // Credit USDT to buyer's wallet
         await storage.updateProfileBalance(order.buyer_id, buyerBalance + amount);
         await db.execute(sql`
@@ -570,7 +583,7 @@ import type { Express } from "express";
       if (!reason) return res.status(400).json({ error: "Cancellation reason required" });
       try {
         const orderRows = await db.execute(sql`SELECT * FROM p2p_orders WHERE id = ${orderId}`);
-        const order = (orderRows as any[])[0];
+        const order = resultRows<any>(orderRows)[0];
         if (!order) return res.status(404).json({ error: "Order not found" });
         const isBuyer = order.buyer_id === profileId;
         const isSeller = order.seller_id === profileId;
@@ -611,7 +624,7 @@ import type { Express } from "express";
             WHERE profile_id = ${profileId} AND role = 'buyer'
               AND created_at > NOW() - INTERVAL '24 hours'
           `);
-          const cnt = Number((countRows as any[])[0]?.cnt ?? 0);
+          const cnt = Number(resultRows<any>(countRows)[0]?.cnt ?? 0);
           if (cnt >= P2P_CANCEL_LIMIT) {
             const bannedUntil = new Date(Date.now() + P2P_BAN_HOURS * 3600 * 1000).toISOString();
             await db.execute(sql`DELETE FROM p2p_bans WHERE profile_id = ${profileId}`);
@@ -637,7 +650,7 @@ import type { Express } from "express";
       if (!reason) return res.status(400).json({ error: "Dispute reason required" });
       try {
         const orderRows = await db.execute(sql`SELECT * FROM p2p_orders WHERE id = ${orderId}`);
-        const order = (orderRows as any[])[0];
+        const order = resultRows<any>(orderRows)[0];
         if (!order) return res.status(404).json({ error: "Order not found" });
         if (order.buyer_id !== profileId && order.seller_id !== profileId) {
           return res.status(403).json({ error: "Not a participant in this order" });
