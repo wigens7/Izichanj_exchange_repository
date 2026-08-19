@@ -122,7 +122,7 @@ export function registerObjectStorageRoutes(app: Express): void {
     }
   });
 
-  app.post("/api/upload-image", (req, res) => {
+  app.post("/api/upload-image", async (req, res) => {
     try {
       const apiKey = process.env.IMGBB_API_KEY;
       if (!apiKey) {
@@ -148,55 +148,51 @@ export function registerObjectStorageRoutes(app: Express): void {
 
       const postData = new URLSearchParams({ image: cleanBase64 }).toString();
 
-      const options = {
-        hostname: "api.imgbb.com",
-        path: `/1/upload?key=${apiKey}`,
-        method: "POST",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
-          "Content-Length": Buffer.byteLength(postData),
-        },
-      };
-
-      const request = https.request(options, (response) => {
-        let body = "";
-        response.on("data", (chunk) => (body += chunk));
-        response.on("end", () => {
-          try {
-            const data = JSON.parse(body);
-            if (data && data.success && data.data) {
-              const directImageUrl = pickDirectImageUrl(data.data);
-              if (!directImageUrl) {
-                console.error("ImgBB response had no usable image URL:", data);
-                return res.status(502).json({ error: "ImgBB returned no image URL" });
-              }
-              return res.json({
-                url: directImageUrl,
-                path: directImageUrl,
-                uploadURL: directImageUrl,
-                imageUrl: directImageUrl,
-                fileUrl: directImageUrl
-              });
-            } else {
-              console.error("ImgBB API Response Error:", data);
-              return res.status(400).json({ error: "ImgBB upload failed" });
-            }
-          } catch (e) {
-            console.error("JSON parse error:", e);
-            return res.status(500).json({ error: "Invalid response from ImgBB" });
-          }
+      try {
+        const response = await fetch("https://api.imgbb.com/1/upload", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded",
+          },
+          body: postData,
         });
-      });
 
-      request.on("error", (err) => {
-        console.error("HTTPS Request Error:", err);
-        if (!res.headersSent) {
-          res.status(500).json({ error: "Upload request failed" });
+        const body = await response.text();
+
+        if (!response.ok) {
+          console.error("ImgBB API returned error:", response.status, body);
+          return res.status(response.status).json({ error: `ImgBB returned ${response.status}`, details: body });
         }
-      });
 
-      request.write(postData);
-      request.end();
+        let data;
+        try {
+          data = JSON.parse(body);
+        } catch (e) {
+          console.error("ImgBB response is not valid JSON:", body);
+          return res.status(502).json({ error: "Invalid response from ImgBB", details: body });
+        }
+
+        if (data && data.success && data.data) {
+          const directImageUrl = pickDirectImageUrl(data.data);
+          if (!directImageUrl) {
+            console.error("ImgBB response had no usable image URL:", data);
+            return res.status(502).json({ error: "ImgBB returned no image URL" });
+          }
+          return res.json({
+            url: directImageUrl,
+            path: directImageUrl,
+            uploadURL: directImageUrl,
+            imageUrl: directImageUrl,
+            fileUrl: directImageUrl,
+          });
+        } else {
+          console.error("ImgBB API Response Error:", data);
+          return res.status(400).json({ error: "ImgBB upload failed", details: data });
+        }
+      } catch (fetchErr) {
+        console.error("Fetch error:", fetchErr);
+        return res.status(500).json({ error: "Upload request failed" });
+      }
     } catch (err) {
       console.error("Image Proxy Upload Error:", err);
       if (!res.headersSent) {
@@ -247,3 +243,4 @@ export function registerObjectStorageRoutes(app: Express): void {
     }
   });
 }
+
