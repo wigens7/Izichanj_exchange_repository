@@ -43,7 +43,7 @@ export function KycForm({ disabled }: { disabled?: boolean }) {
     try {
       const res = await uploadFile(file);
       const url = res?.url;
-      if (!url || !/^https?:\/\//i.test(url)) {
+      if (!url || (!/^https?:\/\//i.test(url) && !url.startsWith("/api/files/"))) {
         throw new Error("Image host did not return a valid URL");
       }
       setUrls((prev) => ({ ...prev, [slot]: url }));
