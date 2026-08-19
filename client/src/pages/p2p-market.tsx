@@ -599,7 +599,7 @@ async function fileToCompressedJpeg(file: File): Promise<string> {
 
 /** Reads an image out of a chat row whatever field name the API used. */
 function messageImage(m: any): string | null {
-  const raw = m.image_url ?? m.imageUrl ?? m.image ?? m.attachment_url ?? m.attachmentUrl ?? null;
+  const raw = m.file_url ?? m.fileUrl ?? m.image_url ?? m.imageUrl ?? m.image ?? m.attachment_url ?? m.attachmentUrl ?? null;
   if (typeof raw === "string" && raw.length > 10) return raw;
   if (typeof m.message === "string" && m.message.startsWith("data:image/")) return m.message;
   return null;
@@ -840,9 +840,10 @@ function OrderDialog({ order, isBuyer, currentUserId, onClose }: {
       <>
         <div className="min-h-0 flex-1 space-y-3 overflow-y-auto bg-muted/10 p-3" data-testid="list-chat-messages">
           {messages?.length ? messages.map((m) => {
-            const mine = m.sender_id === currentUserId;
+            const mine = (m.sender_id ?? m.senderId) === currentUserId;
             const img = messageImage(m);
             const text = m.message && m.message !== "[image]" && !String(m.message).startsWith("data:image/") ? m.message : "";
+            const createdAt = m.created_at ?? m.createdAt;
             return (
               <div key={m.id} className={`flex flex-col ${mine ? "items-end" : "items-start"}`}>
                 <div className={`max-w-[80%] space-y-1.5 rounded-2xl px-3 py-2 text-sm ${mine ? "bg-primary/15 rounded-br-sm" : "bg-card border border-border rounded-bl-sm"}`}>
@@ -853,9 +854,9 @@ function OrderDialog({ order, isBuyer, currentUserId, onClose }: {
                   )}
                   {text && <p className="whitespace-pre-wrap break-words leading-snug">{text}</p>}
                 </div>
-                {m.created_at && (
+                {createdAt && !isNaN(new Date(createdAt).getTime()) && (
                   <span className="mt-0.5 px-1 text-[10px] text-muted-foreground">
-                    {formatDistanceToNow(new Date(m.created_at), { addSuffix: true })}
+                    {formatDistanceToNow(new Date(createdAt), { addSuffix: true })}
                   </span>
                 )}
               </div>
