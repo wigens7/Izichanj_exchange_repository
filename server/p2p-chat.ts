@@ -2,10 +2,11 @@ import type { Express, Request, Response } from "express";
 import { db } from "./db";
 import { p2pChatMessages, p2pOrders } from "@shared/schema";
 import { eq } from "drizzle-orm";
+import { isAuthenticated } from "./auth";
 
 async function postOrderChatMessage(req: Request, res: Response) {
   const orderId = Number(req.params.orderId);
-  const senderId = req.user!.id;
+  const senderId = req.session.profileId;
 
   const fileUrl: string | null =
     req.body.file_url ?? req.body.fileUrl ?? req.body.image_url ?? req.body.imageUrl ?? req.body.image ?? null;
@@ -46,7 +47,7 @@ async function postOrderChatMessage(req: Request, res: Response) {
 
 async function getOrderChatMessages(req: Request, res: Response) {
   const orderId = Number(req.params.orderId);
-  const userId = req.user!.id;
+  const userId = req.session.profileId;
 
   const [order] = await db
     .select({ id: p2pOrders.id, buyerId: p2pOrders.buyerId, sellerId: p2pOrders.sellerId })
@@ -68,6 +69,6 @@ async function getOrderChatMessages(req: Request, res: Response) {
 }
 
 export function registerP2pChatRoutes(app: Express) {
-  app.post("/api/p2p/orders/:orderId/chat", postOrderChatMessage);
-  app.get("/api/p2p/orders/:orderId/chat", getOrderChatMessages);
+  app.post("/api/p2p/orders/:orderId/chat", isAuthenticated, postOrderChatMessage);
+  app.get("/api/p2p/orders/:orderId/chat", isAuthenticated, getOrderChatMessages);
 }
