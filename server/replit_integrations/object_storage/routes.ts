@@ -220,7 +220,28 @@ export function registerObjectStorageRoutes(app: Express): void {
       }
 
       const rawUrl = typeof req.query.url === "string" ? req.query.url.trim() : "";
-      if (!rawUrl || !isAllowedImageUrl(rawUrl)) {
+      if (!rawUrl) {
+        return res.status(400).json({ message: "Missing url parameter" });
+      }
+
+      // New DB-stored files (/api/files/:id) — redirect within the same session
+      if (/^\/api\/files\/\d+$/.test(rawUrl)) {
+        return res.redirect(307, rawUrl);
+      }
+
+      // Replit / Supabase object storage (/objects/uploads/...) — serve directly
+      if (rawUrl.startsWith("/objects/")) {
+        try {
+          await objectStorageService.downloadObject(rawUrl, res);
+          return;
+        } catch (objErr) {
+          console.error("[KYC image proxy] Object storage error:", objErr);
+          return res.status(404).json({ message: "KYC image not found in object storage" });
+        }
+      }
+
+      // External ImgBB URLs — proxy to avoid CORS / hotlink issues
+      if (!isAllowedImageUrl(rawUrl)) {
         return res.status(400).json({ message: "Invalid image URL" });
       }
 
@@ -229,9 +250,8 @@ export function registerObjectStorageRoutes(app: Express): void {
       res.setHeader("Content-Type", image.contentType);
       return res.send(image.body);
     } catch (error) {
-      console.error("[KYC image proxy] Failed to load ImgBB image:", error);
-      return res.status(404).json({ message: "KYC image is unavailable" });
-    }
+      console.error("[KYC image proxy] Failed to load image:", error);
+      return res.status(404).json({ message: "Image is unavailable" });
   });
 
   app.get(/^\/objects\/(.+)$/, async (req, res) => {
