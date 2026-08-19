@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, type ReactNode } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { Link } from "wouter";
 import { apiRequest } from "@/lib/queryClient";
 import { useUser } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
@@ -990,9 +991,7 @@ function OrderDialog({ order, isBuyer, currentUserId, onClose }: {
 
     const releaseMut = useMutation({
       mutationFn: () =>
-        pin
-          ? apiRequest("POST", `/api/p2p/orders/${order.id}/release-pin`, { pin })
-          : apiRequest("POST", `/api/p2p/orders/${order.id}/release`, { confirmedReceipt: true }),
+        apiRequest("POST", `/api/p2p/orders/${order.id}/release`, { pin }),
       onSuccess: () => { toast({ title: "USDT released", description: "Escrow released to the buyer." }); setPin(""); invalidate(); },
       onError: fail,
     });
@@ -1437,12 +1436,27 @@ function OrderDialog({ order, isBuyer, currentUserId, onClose }: {
                           <Checkbox id="conf" checked={confirmed} onCheckedChange={(v) => setConfirmed(!!v)} />
                           <label htmlFor="conf" className="text-xs">I confirm receipt of payment</label>
                         </div>
-                        <Input type="text" placeholder="Release PIN (optional)" value={pin} onChange={(e) => setPin(e.target.value)} className="h-8 text-xs" />
+                        <div className="space-y-1">
+                          <label htmlFor="p2p-release-pin" className="text-xs font-medium">6-digit release PIN</label>
+                          <Input
+                            id="p2p-release-pin"
+                            type="password"
+                            inputMode="numeric"
+                            autoComplete="one-time-code"
+                            maxLength={6}
+                            placeholder="Enter your active PIN"
+                            value={pin}
+                            onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                            className="h-8 text-xs"
+                            data-testid="input-p2p-release-pin"
+                          />
+                          <p className="text-[11px] text-muted-foreground">Activate or change this PIN in Seller Settings before releasing USDT.</p>
+                        </div>
                         <Button
                           className="w-full"
                           size="sm"
                           onClick={() => releaseMut.mutate()}
-                          disabled={(!confirmed && !pin) || releaseMut.isPending}
+                          disabled={!confirmed || !/^\d{6}$/.test(pin) || releaseMut.isPending}
                           data-testid="button-release"
                         >
                           {releaseMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
@@ -1514,6 +1528,7 @@ function SellerSettingsPanel() {
   const { toast } = useToast();
   const qc = useQueryClient();
   const { data: settings } = useQuery<any>({ queryKey: ["/api/p2p/settings"] });
+  const { data: releasePinStatus, isLoading: releasePinLoading } = useQuery<any>({ queryKey: ["/api/security/withdrawal-pin/status"] });
 
   const [msg, setMsg] = useState("");
   const [merchantInput, setMerchantInput] = useState("");
@@ -1541,6 +1556,34 @@ function SellerSettingsPanel() {
   return (
     <Card className="border-primary/20 bg-primary/5 mt-3">
       <CardContent className="p-4 space-y-4">
+        <div className="space-y-2">
+          <div className="flex items-center gap-2">
+            <Lock className="w-4 h-4 text-primary" />
+            <span className="text-sm font-medium">P2P Release PIN</span>
+            {releasePinLoading ? (
+              <span className="ml-auto h-5 w-14 rounded bg-muted animate-pulse" aria-label="Loading P2P release PIN status" />
+            ) : (
+              <Badge
+                variant={releasePinStatus?.hasWithdrawalPin ? "default" : "secondary"}
+                className="ml-auto text-[10px] py-0"
+                data-testid="badge-p2p-release-pin-status"
+              >
+                {releasePinStatus?.hasWithdrawalPin ? "Active" : "Required"}
+              </Badge>
+            )}
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Every USDT release requires your active 6-digit PIN. The PIN is never stored in this workspace.
+          </p>
+          <Button asChild variant={releasePinStatus?.hasWithdrawalPin ? "outline" : "default"} size="sm" data-testid="button-configure-p2p-release-pin">
+            <Link href="/security">
+              {releasePinStatus?.hasWithdrawalPin ? "Change release PIN" : "Activate 6-digit release PIN"}
+            </Link>
+          </Button>
+        </div>
+
+        <div className="border-t border-border" />
+
         <div className="space-y-2">
           <div className="flex items-center gap-2">
             <Store className="w-4 h-4 text-primary" />
