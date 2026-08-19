@@ -706,346 +706,576 @@ function CancelTradeDialog({ open, onOpenChange, onConfirm, pending }: {
 }
 
 function OrderDialog({ order, isBuyer, currentUserId, onClose }: {
-  order: any; isBuyer: boolean; currentUserId?: number; onClose: () => void;
-}) {
-  const { toast } = useToast();
-  const qc = useQueryClient();
-  const [pin, setPin] = useState("");
-  const [confirmed, setConfirmed] = useState(false);
-  const [reason, setReason] = useState("");
-  const [chatText, setChatText] = useState("");
-  const [pendingImage, setPendingImage] = useState<string | null>(null);
-  const [cancelOpen, setCancelOpen] = useState(false);
-  const [preview, setPreview] = useState<string | null>(null);
-  const fileRef = useRef<HTMLInputElement>(null);
-  const endRef = useRef<HTMLDivElement>(null);
+    order: any; isBuyer: boolean; currentUserId?: number; onClose: () => void;
+    }) {
+    const { toast } = useToast();
+    const qc = useQueryClient();
+    const [pin, setPin] = useState("");
+    const [confirmed, setConfirmed] = useState(false);
+    const [reason, setReason] = useState("");
+    const [chatText, setChatText] = useState("");
+    const [pendingImage, setPendingImage] = useState<string | null>(null);
+    const [cancelOpen, setCancelOpen] = useState(false);
+    const [preview, setPreview] = useState<string | null>(null);
+    const [menuOpen, setMenuOpen] = useState(false);
+    const [summaryExpanded, setSummaryExpanded] = useState(false);
+    const [disputeDialogOpen, setDisputeDialogOpen] = useState(false);
+    const fileRef = useRef<HTMLInputElement>(null);
+    const endRef = useRef<HTMLDivElement>(null);
+    const menuRef = useRef<HTMLDivElement>(null);
 
-  const { data: live } = useQuery<any[]>({ queryKey: ["/api/p2p/orders"], refetchInterval: 10000 });
-  const current = live?.find((o) => o.id === order.id) ?? order;
+    const { data: live } = useQuery<any[]>({ queryKey: ["/api/p2p/orders"], refetchInterval: 10000 });
+    const current = live?.find((o) => o.id === order.id) ?? order;
 
-  const { data: messages } = useQuery<any[]>({
-    queryKey: [`/api/p2p/orders/${order.id}/chat`],
-    refetchInterval: 5000,
-  });
+    const { data: messages } = useQuery<any[]>({
+      queryKey: [`/api/p2p/orders/${order.id}/chat`],
+      refetchInterval: 5000,
+    });
 
-  useEffect(() => { endRef.current?.scrollIntoView({ block: "end" }); }, [messages?.length, pendingImage]);
+    useEffect(() => { endRef.current?.scrollIntoView({ block: "end" }); }, [messages?.length, pendingImage]);
 
-  const invalidate = () => {
-    qc.invalidateQueries({ queryKey: ["/api/p2p/orders"] });
-    qc.invalidateQueries({ queryKey: [`/api/p2p/orders/${order.id}/chat`] });
-  };
-  const fail = (e: any) => toast({ title: "Action failed", description: e?.message ?? "Try again", variant: "destructive" });
+    // Close 3-dots menu when clicking outside
+    useEffect(() => {
+      if (!menuOpen) return;
+      const handler = (e: MouseEvent) => {
+        if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false);
+      };
+      document.addEventListener("mousedown", handler);
+      return () => document.removeEventListener("mousedown", handler);
+    }, [menuOpen]);
 
-  const payMut = useMutation({
-    mutationFn: () => apiRequest("PATCH", `/api/p2p/orders/${order.id}/pay`, {}),
-    onSuccess: () => { toast({ title: "Marked as paid", description: "The seller has been notified." }); invalidate(); },
-    onError: fail,
-  });
-
-  const releaseMut = useMutation({
-    mutationFn: () =>
-      pin
-        ? apiRequest("POST", `/api/p2p/orders/${order.id}/release-pin`, { pin })
-        : apiRequest("PATCH", `/api/p2p/orders/${order.id}/release`, { confirmedReceipt: true }),
-    onSuccess: () => { toast({ title: "USDT released", description: "Escrow released to the buyer." }); setPin(""); invalidate(); },
-    onError: fail,
-  });
-
-  const cancelMut = useMutation({
-    mutationFn: (payload: { reason: string }) =>
-      apiRequest("PATCH", `/api/p2p/orders/${order.id}/cancel`, {
-        reason: payload.reason,
-        paymentNotSent: true,
-        confirmedNotPaid: true,
-      }),
-    onSuccess: () => { toast({ title: "Order cancelled" }); setCancelOpen(false); invalidate(); onClose(); },
-    onError: fail,
-  });
-
-  const disputeMut = useMutation({
-    mutationFn: () => apiRequest("PATCH", `/api/p2p/orders/${order.id}/dispute`, { reason: reason || "Payment issue" }),
-    onSuccess: () => { toast({ title: "Dispute opened", description: "Support has been notified." }); invalidate(); },
-    onError: fail,
-  });
-
-  const chatMut = useMutation({
-    mutationFn: (payload: { message: string; image: string | null }) =>
-      apiRequest("POST", `/api/p2p/orders/${order.id}/chat`, {
-        message: payload.message || (payload.image ? "[image]" : ""),
-        // sent under several names so the API stores it whichever column it uses
-        image: payload.image ?? undefined,
-        imageUrl: payload.image ?? undefined,
-        image_url: payload.image ?? undefined,
-        attachmentType: payload.image ? "image/jpeg" : undefined,
-      }),
-    onSuccess: () => {
-      setChatText("");
-      setPendingImage(null);
+    const invalidate = () => {
+      qc.invalidateQueries({ queryKey: ["/api/p2p/orders"] });
       qc.invalidateQueries({ queryKey: [`/api/p2p/orders/${order.id}/chat`] });
-    },
-    onError: fail,
-  });
+    };
+    const fail = (e: any) => toast({ title: "Action failed", description: e?.message ?? "Try again", variant: "destructive" });
 
-  const onPickImage = async (file?: File | null) => {
-    if (!file) return;
-    if (!file.type.startsWith("image/")) {
-      toast({ title: "Image only", description: "Choose a JPEG or PNG picture.", variant: "destructive" });
-      return;
-    }
-    if (file.size > 10 * 1024 * 1024) {
-      toast({ title: "Image too large", description: "Maximum 10 MB.", variant: "destructive" });
-      return;
-    }
-    try {
-      setPendingImage(await fileToCompressedJpeg(file));
-    } catch (e: any) {
-      toast({ title: "Could not attach image", description: e?.message, variant: "destructive" });
-    }
-    if (fileRef.current) fileRef.current.value = "";
-  };
+    const payMut = useMutation({
+      mutationFn: () => apiRequest("PATCH", `/api/p2p/orders/${order.id}/pay`, {}),
+      onSuccess: () => { toast({ title: "Marked as paid", description: "The seller has been notified." }); invalidate(); },
+      onError: fail,
+    });
 
-  const status = current.status;
-  const closed = ["released", "cancelled", "completed"].includes(status);
-  const counterparty = isBuyer ? current.seller_name : current.buyer_name;
-  const totalLocal = num(current.amount_local ?? current.total_htg);
-  const currency = current.currency || "HTG";
+    const releaseMut = useMutation({
+      mutationFn: () =>
+        pin
+          ? apiRequest("POST", `/api/p2p/orders/${order.id}/release-pin`, { pin })
+          : apiRequest("PATCH", `/api/p2p/orders/${order.id}/release`, { confirmedReceipt: true }),
+      onSuccess: () => { toast({ title: "USDT released", description: "Escrow released to the buyer." }); setPin(""); invalidate(); },
+      onError: fail,
+    });
 
-  const steps = [
-    { key: "pending", label: isBuyer ? "Make the payment" : "Waiting for buyer payment" },
-    { key: "paid", label: isBuyer ? "Waiting for the seller to release" : "Confirm payment & release USDT" },
-    { key: "released", label: "USDT released" },
-  ];
-  const stepIndex = status === "pending" ? 0 : status === "paid" ? 1 : 2;
+    const cancelMut = useMutation({
+      mutationFn: (payload: { reason: string }) =>
+        apiRequest("PATCH", `/api/p2p/orders/${order.id}/cancel`, {
+          reason: payload.reason,
+          paymentNotSent: true,
+          confirmedNotPaid: true,
+        }),
+      onSuccess: () => { toast({ title: "Order cancelled" }); setCancelOpen(false); invalidate(); onClose(); },
+      onError: fail,
+    });
 
-  return (
-    <Dialog open onOpenChange={(v) => !v && onClose()}>
-      <DialogContent
-        className="flex h-[95vh] w-[98vw] max-w-6xl flex-col gap-0 overflow-hidden p-0 sm:h-[92vh]"
-        data-testid="dialog-order"
-      >
-        {/* Header */}
-        <DialogHeader className="shrink-0 border-b border-border px-4 py-3 sm:px-6">
-          <DialogTitle className="flex flex-wrap items-center gap-2 text-base">
-            <span>{isBuyer ? "Buy" : "Sell"} USDT</span>
-            <span className="text-muted-foreground font-normal text-xs">Order #{current.order_id}</span>
-            <StatusBadge status={status} />
-          </DialogTitle>
-          <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
-            <span>{isBuyer ? "Seller" : "Buyer"}: <span className="text-foreground font-medium">{counterparty ?? "—"}</span></span>
-            <PresenceIndicator lastActivity={isBuyer ? current.seller_last_activity : current.buyer_last_activity} />
-            {current.created_at && <span>Created {formatDistanceToNow(new Date(current.created_at), { addSuffix: true })}</span>}
-          </div>
-        </DialogHeader>
+    const disputeMut = useMutation({
+      mutationFn: () => apiRequest("PATCH", `/api/p2p/orders/${order.id}/dispute`, { reason: reason || "Payment issue" }),
+      onSuccess: () => { toast({ title: "Dispute opened", description: "Support has been notified." }); setDisputeDialogOpen(false); invalidate(); },
+      onError: fail,
+    });
 
-        {/* Body: details | chat */}
-        <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
-          {/* Left: order info + actions */}
-          <div className="min-h-0 overflow-y-auto border-b border-border p-4 sm:p-6 lg:border-b-0 lg:border-r">
-            {/* Steps */}
-            <ol className="mb-5 space-y-2">
-              {steps.map((s, i) => (
-                <li key={s.key} className="flex items-start gap-2 text-xs">
-                  <span className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border text-[10px] font-bold ${
-                    i < stepIndex ? "border-emerald-400/40 bg-emerald-400/15 text-emerald-500"
-                      : i === stepIndex ? "border-primary bg-primary/15 text-primary"
-                      : "border-border text-muted-foreground"
-                  }`}>{i + 1}</span>
-                  <span className={i === stepIndex ? "font-medium" : "text-muted-foreground"}>{s.label}</span>
-                </li>
-              ))}
-            </ol>
+    const chatMut = useMutation({
+      mutationFn: (payload: { message: string; image: string | null }) =>
+        apiRequest("POST", `/api/p2p/orders/${order.id}/chat`, {
+          message: payload.message || (payload.image ? "[image]" : ""),
+          image: payload.image ?? undefined,
+          imageUrl: payload.image ?? undefined,
+          image_url: payload.image ?? undefined,
+          attachmentType: payload.image ? "image/jpeg" : undefined,
+        }),
+      onSuccess: () => {
+        setChatText("");
+        setPendingImage(null);
+        qc.invalidateQueries({ queryKey: [`/api/p2p/orders/${order.id}/chat`] });
+      },
+      onError: fail,
+    });
 
-            <div className="space-y-2 rounded-xl border border-border bg-muted/30 p-4 text-sm">
-              <div className="flex items-baseline justify-between">
-                <span className="text-xs text-muted-foreground">Amount</span>
-                <span className="text-lg font-bold">{num(current.amount_usdt).toFixed(2)} USDT</span>
-              </div>
-              <div className="flex justify-between text-xs"><span className="text-muted-foreground">Total to pay</span><span className="font-semibold">{totalLocal.toFixed(2)} {currency}</span></div>
-              <div className="flex justify-between text-xs"><span className="text-muted-foreground">Rate</span><span>{num(current.rate ?? current.rate_htg).toFixed(2)} {currency}/USDT</span></div>
-              <div className="flex justify-between text-xs"><span className="text-muted-foreground">Payment method</span><span>{current.payment_method}</span></div>
-              {current.payment_details && (
-                <div className="flex justify-between gap-3 text-xs"><span className="text-muted-foreground">Pay to</span><span className="text-right break-all">{current.payment_details}</span></div>
-              )}
-              <div className="flex items-center gap-1.5 pt-1 text-[11px] text-emerald-500">
-                <ShieldCheck className="h-3.5 w-3.5" /> {num(current.amount_usdt).toFixed(2)} USDT locked in escrow
-              </div>
-            </div>
+    const onPickImage = async (file?: File | null) => {
+      if (!file) return;
+      if (!file.type.startsWith("image/")) {
+        toast({ title: "Image only", description: "Choose a JPEG or PNG picture.", variant: "destructive" });
+        return;
+      }
+      if (file.size > 10 * 1024 * 1024) {
+        toast({ title: "Image too large", description: "Maximum 10 MB.", variant: "destructive" });
+        return;
+      }
+      try {
+        setPendingImage(await fileToCompressedJpeg(file));
+      } catch (e: any) {
+        toast({ title: "Could not process image", description: e?.message ?? "Try another file.", variant: "destructive" });
+      }
+    };
 
-            {!closed && (
-              <div className="mt-5 space-y-3">
-                {isBuyer && status === "pending" && (
-                  <Button className="w-full" onClick={() => payMut.mutate()} disabled={payMut.isPending} data-testid="button-mark-paid">
-                    {payMut.isPending ? "Saving..." : "I have paid"}
-                  </Button>
-                )}
+    const sendChat = () => {
+      if (chatText.trim() || pendingImage) {
+        chatMut.mutate({ message: chatText.trim(), image: pendingImage });
+      }
+    };
 
-                {!isBuyer && status === "paid" && (
-                  <div className="space-y-2 rounded-xl border border-primary/20 bg-primary/5 p-3">
-                    <div className="flex items-start gap-2">
-                      <Checkbox id="confirm-receipt" checked={confirmed} onCheckedChange={(v) => setConfirmed(!!v)} />
-                      <label htmlFor="confirm-receipt" className="text-xs text-muted-foreground">
-                        I confirm I received {totalLocal.toFixed(2)} {currency}.
-                      </label>
-                    </div>
-                    <Input
-                      type="password"
-                      inputMode="numeric"
-                      value={pin}
-                      onChange={(e) => setPin(e.target.value)}
-                      placeholder="Withdrawal PIN (if set)"
-                    />
-                    <Button className="w-full gap-1" onClick={() => releaseMut.mutate()} disabled={!confirmed || releaseMut.isPending}>
-                      <Lock className="h-4 w-4" /> {releaseMut.isPending ? "Releasing..." : "Release USDT"}
-                    </Button>
-                  </div>
-                )}
+    const status = current.status;
+    const closed = ["released", "cancelled", "completed"].includes(status);
+    const counterparty = isBuyer ? current.seller_name : current.buyer_name;
+    const totalLocal = num(current.amount_local ?? current.total_htg);
+    const currency = current.currency || "HTG";
 
-                <div className="flex flex-wrap gap-2">
-                  {status === "pending" && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="flex-1 text-red-500"
-                      onClick={() => setCancelOpen(true)}
-                      data-testid="button-open-cancel"
-                    >
-                      Cancel order
-                    </Button>
+    const steps = [
+      { key: "pending", label: isBuyer ? "Make the payment" : "Waiting for buyer payment" },
+      { key: "paid", label: isBuyer ? "Waiting for seller to release" : "Confirm & release USDT" },
+      { key: "released", label: "USDT released" },
+    ];
+    const stepIndex = status === "pending" ? 0 : status === "paid" ? 1 : 2;
+
+    // ── Shared chat panel used in both buyer and seller views ─────────────────
+    const chatPanel = (
+      <>
+        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto bg-muted/10 p-3" data-testid="list-chat-messages">
+          {messages?.length ? messages.map((m) => {
+            const mine = m.sender_id === currentUserId;
+            const img = messageImage(m);
+            const text = m.message && m.message !== "[image]" && !String(m.message).startsWith("data:image/") ? m.message : "";
+            return (
+              <div key={m.id} className={`flex flex-col ${mine ? "items-end" : "items-start"}`}>
+                <div className={`max-w-[80%] space-y-1.5 rounded-2xl px-3 py-2 text-sm ${mine ? "bg-primary/15 rounded-br-sm" : "bg-card border border-border rounded-bl-sm"}`}>
+                  {img && (
+                    <button type="button" onClick={() => setPreview(img)} className="block">
+                      <img src={img} alt="Attachment" loading="lazy" className="max-h-56 rounded-xl object-cover" />
+                    </button>
                   )}
-                  {status !== "disputed" && (
-                    <Button variant="outline" size="sm" className="flex-1 gap-1 text-orange-500" onClick={() => disputeMut.mutate()} disabled={disputeMut.isPending}>
-                      <AlertTriangle className="h-3 w-3" /> Dispute
-                    </Button>
-                  )}
+                  {text && <p className="whitespace-pre-wrap break-words leading-snug">{text}</p>}
                 </div>
-                {status !== "disputed" && (
-                  <Textarea rows={2} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Dispute details (optional)" />
+                {m.created_at && (
+                  <span className="mt-0.5 px-1 text-[10px] text-muted-foreground">
+                    {formatDistanceToNow(new Date(m.created_at), { addSuffix: true })}
+                  </span>
                 )}
+              </div>
+            );
+          }) : (
+            <p className="py-10 text-center text-xs text-muted-foreground">
+              No messages yet — say hello and share your payment proof.
+            </p>
+          )}
+          <div ref={endRef} />
+        </div>
+
+        {!closed && (
+          <div className="shrink-0 space-y-2 border-t border-border bg-background px-3 py-2.5">
+            {pendingImage && (
+              <div className="relative inline-block">
+                <img src={pendingImage} alt="Attachment preview" className="h-16 rounded-lg border border-border object-cover" />
+                <button
+                  type="button"
+                  onClick={() => setPendingImage(null)}
+                  className="absolute -right-1.5 -top-1.5 rounded-full bg-destructive p-0.5 text-destructive-foreground"
+                  aria-label="Remove image"
+                >
+                  <X className="h-3 w-3" />
+                </button>
               </div>
             )}
-          </div>
-
-          {/* Right: chat */}
-          <div className="flex min-h-0 flex-col">
-            <div className="flex shrink-0 items-center gap-2 border-b border-border px-4 py-2.5 text-xs font-medium">
-              <MessageCircle className="h-3.5 w-3.5 text-primary" /> Chat with {counterparty ?? (isBuyer ? "seller" : "buyer")}
+            <div className="flex items-end gap-2">
+              <input
+                ref={fileRef}
+                type="file"
+                accept="image/jpeg,image/jpg,image/png"
+                className="hidden"
+                onChange={(e) => onPickImage(e.target.files?.[0])}
+                data-testid="input-chat-image"
+              />
+              <button
+                type="button"
+                onClick={() => fileRef.current?.click()}
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-border bg-muted/40 text-muted-foreground transition-colors hover:bg-muted"
+                aria-label="Attach image"
+                data-testid="button-attach-image"
+              >
+                <ImagePlus className="h-4 w-4" />
+              </button>
+              <Textarea
+                rows={1}
+                value={chatText}
+                onChange={(e) => setChatText(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    sendChat();
+                  }
+                }}
+                placeholder="Write a message… (Enter to send)"
+                className="max-h-28 min-h-[36px] resize-none rounded-xl text-sm"
+                data-testid="input-chat-message"
+              />
+              <button
+                type="button"
+                onClick={sendChat}
+                disabled={(!chatText.trim() && !pendingImage) || chatMut.isPending}
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground transition-opacity disabled:opacity-40"
+                data-testid="button-send-message"
+              >
+                {chatMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+              </button>
             </div>
+          </div>
+        )}
+      </>
+    );
 
-            <div className="min-h-0 flex-1 space-y-3 overflow-y-auto bg-muted/20 p-4" data-testid="list-chat-messages">
-              {messages?.length ? messages.map((m) => {
-                const mine = m.sender_id === currentUserId;
-                const img = messageImage(m);
-                const text = m.message && m.message !== "[image]" && !String(m.message).startsWith("data:image/") ? m.message : "";
-                return (
-                  <div key={m.id} className={`flex flex-col ${mine ? "items-end" : "items-start"}`}>
-                    <div className={`max-w-[85%] space-y-2 rounded-2xl px-3 py-2 text-sm ${mine ? "bg-primary/15 rounded-br-sm" : "bg-card border border-border rounded-bl-sm"}`}>
-                      {img && (
-                        <button type="button" onClick={() => setPreview(img)} className="block">
-                          <img src={img} alt="Chat attachment" loading="lazy" className="max-h-64 rounded-lg object-cover" />
+    // ── BUYER VIEW — chat-first, Binance P2P-style ────────────────────────────
+    if (isBuyer) {
+      return (
+        <>
+          <Dialog open onOpenChange={(v) => !v && onClose()}>
+            <DialogContent
+              className="flex h-[100dvh] w-full max-w-full flex-col gap-0 overflow-hidden p-0 sm:h-[95vh] sm:max-w-md sm:rounded-2xl"
+              data-testid="dialog-order"
+            >
+              {/* ── Top bar ── */}
+              <div className="shrink-0 flex items-center gap-2 border-b border-border bg-background/95 px-3 py-3">
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted"
+                  aria-label="Close"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-sm font-semibold leading-tight">Buy USDT</span>
+                    <StatusBadge status={status} />
+                  </div>
+                  <p className="mt-0.5 text-[10px] leading-none text-muted-foreground">Order #{current.order_id}</p>
+                </div>
+                {/* 3-dots context menu */}
+                <div ref={menuRef} className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setMenuOpen((v) => !v)}
+                    className="flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted"
+                    aria-label="More options"
+                  >
+                    <MoreVertical className="h-4 w-4" />
+                  </button>
+                  {menuOpen && (
+                    <div className="absolute right-0 top-10 z-50 w-52 overflow-hidden rounded-xl border border-border bg-card shadow-lg">
+                      {/* Seller presence */}
+                      <div className="border-b border-border/60 px-3.5 py-2.5">
+                        <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Seller</p>
+                        <div className="mt-0.5 flex items-center gap-1.5">
+                          <span className="text-sm font-medium">{counterparty ?? "—"}</span>
+                          <PresenceIndicator lastActivity={current.seller_last_activity} compact />
+                        </div>
+                      </div>
+                      {/* Cancel — only available when order is still pending */}
+                      {!closed && status === "pending" && (
+                        <button
+                          type="button"
+                          onClick={() => { setMenuOpen(false); setCancelOpen(true); }}
+                          className="flex w-full items-center gap-2.5 px-3.5 py-2.5 text-sm text-red-400 transition-colors hover:bg-red-500/10"
+                        >
+                          <ShieldOff className="h-4 w-4" /> Cancel Order
                         </button>
                       )}
-                      {text && <p className="whitespace-pre-wrap break-words">{text}</p>}
+                      {/* Dispute */}
+                      {!closed && status !== "disputed" && (
+                        <button
+                          type="button"
+                          onClick={() => { setMenuOpen(false); setDisputeDialogOpen(true); }}
+                          className="flex w-full items-center gap-2.5 px-3.5 py-2.5 text-sm text-orange-400 transition-colors hover:bg-orange-500/10"
+                        >
+                          <AlertTriangle className="h-4 w-4" /> Dispute / Report Seller
+                        </button>
+                      )}
                     </div>
-                    {m.created_at && (
-                      <span className="mt-1 text-[10px] text-muted-foreground">
-                        {formatDistanceToNow(new Date(m.created_at), { addSuffix: true })}
-                      </span>
-                    )}
-                  </div>
-                );
-              }) : (
-                <p className="py-10 text-center text-xs text-muted-foreground">
-                  No messages yet. Say hello and share your payment proof.
-                </p>
-              )}
-              <div ref={endRef} />
-            </div>
+                  )}
+                </div>
+              </div>
 
-            {!closed && (
-              <div className="shrink-0 space-y-2 border-t border-border p-3">
-                {pendingImage && (
-                  <div className="relative inline-block">
-                    <img src={pendingImage} alt="Attachment preview" className="h-20 rounded-lg border border-border object-cover" />
-                    <button
-                      type="button"
-                      onClick={() => setPendingImage(null)}
-                      className="absolute -right-2 -top-2 rounded-full bg-destructive p-1 text-destructive-foreground"
-                      aria-label="Remove image"
-                    >
-                      <Trash2 className="h-3 w-3" />
-                    </button>
+              {/* ── Collapsible order summary card ── */}
+              <div className="shrink-0 border-b border-border bg-background">
+                <button
+                  type="button"
+                  onClick={() => setSummaryExpanded((v) => !v)}
+                  className="flex w-full items-center justify-between px-4 py-2.5 text-left"
+                  aria-expanded={summaryExpanded}
+                >
+                  <div className="flex flex-wrap items-center gap-2 text-sm">
+                    <span className="font-bold">{num(current.amount_usdt).toFixed(2)} USDT</span>
+                    <span className="text-muted-foreground">·</span>
+                    <span className="text-muted-foreground">{totalLocal.toFixed(2)} {currency}</span>
+                    <span className="text-muted-foreground">·</span>
+                    <span className="text-xs text-muted-foreground">{current.payment_method}</span>
+                  </div>
+                  <div className="ml-2 flex shrink-0 items-center gap-2">
+                    <span className="inline-flex items-center gap-1 text-[10px] font-medium text-emerald-500">
+                      <ShieldCheck className="h-3 w-3" /> Escrow
+                    </span>
+                    <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform duration-200 ${summaryExpanded ? "rotate-180" : ""}`} />
+                  </div>
+                </button>
+                {summaryExpanded && (
+                  <div className="border-t border-border/40 bg-muted/20 px-4 pb-3">
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 pt-2.5 text-xs">
+                      <span className="text-muted-foreground">Amount</span>
+                      <span className="text-right font-semibold">{num(current.amount_usdt).toFixed(2)} USDT</span>
+                      <span className="text-muted-foreground">Total to pay</span>
+                      <span className="text-right font-semibold">{totalLocal.toFixed(2)} {currency}</span>
+                      <span className="text-muted-foreground">Rate</span>
+                      <span className="text-right">{num(current.rate ?? current.rate_htg).toFixed(2)} {currency}/USDT</span>
+                      <span className="text-muted-foreground">Payment method</span>
+                      <span className="text-right">{current.payment_method}</span>
+                      {current.payment_details && (
+                        <>
+                          <span className="text-muted-foreground">Pay to</span>
+                          <span className="break-all text-right">{current.payment_details}</span>
+                        </>
+                      )}
+                    </div>
+                    {/* Progress steps inline */}
+                    <div className="mt-2.5 flex items-start gap-0.5">
+                      {steps.map((s, i) => (
+                        <div key={s.key} className="flex min-w-0 flex-1 items-center gap-0.5">
+                          <div className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full border text-[9px] font-bold ${
+                            i < stepIndex ? "border-emerald-400/40 bg-emerald-400/15 text-emerald-500"
+                              : i === stepIndex ? "border-primary bg-primary/15 text-primary"
+                              : "border-border text-muted-foreground"
+                          }`}>{i + 1}</div>
+                          <span className={`truncate text-[9px] leading-tight ${i === stepIndex ? "font-medium" : "text-muted-foreground"}`}>{s.label}</span>
+                          {i < steps.length - 1 && <div className="mx-0.5 h-px flex-1 bg-border" />}
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 )}
-                <div className="flex items-end gap-2">
-                  <input
-                    ref={fileRef}
-                    type="file"
-                    accept="image/jpeg,image/jpg,image/png"
-                    className="hidden"
-                    onChange={(e) => onPickImage(e.target.files?.[0])}
-                    data-testid="input-chat-image"
-                  />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="icon"
-                    onClick={() => fileRef.current?.click()}
-                    aria-label="Attach image"
-                    data-testid="button-attach-image"
-                  >
-                    <ImagePlus className="h-4 w-4" />
-                  </Button>
-                  <Textarea
-                    rows={1}
-                    value={chatText}
-                    onChange={(e) => setChatText(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && !e.shiftKey) {
-                        e.preventDefault();
-                        if (chatText.trim() || pendingImage) chatMut.mutate({ message: chatText.trim(), image: pendingImage });
-                      }
-                    }}
-                    placeholder="Write a message... (Enter to send)"
-                    className="max-h-32 min-h-10 resize-none"
-                    data-testid="input-chat-message"
-                  />
-                  <Button
-                    size="icon"
-                    onClick={() => chatMut.mutate({ message: chatText.trim(), image: pendingImage })}
-                    disabled={(!chatText.trim() && !pendingImage) || chatMut.isPending}
-                    data-testid="button-send-message"
-                  >
-                    {chatMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-                  </Button>
-                </div>
-                <p className="text-[10px] text-muted-foreground">
-                  JPEG/PNG accepted (auto-compressed to JPEG). Never share your PIN or password.
-                </p>
               </div>
-            )}
-          </div>
-        </div>
-      </DialogContent>
 
-      <CancelTradeDialog
-        open={cancelOpen}
-        onOpenChange={setCancelOpen}
-        pending={cancelMut.isPending}
-        onConfirm={(r) => cancelMut.mutate({ reason: r })}
-      />
+              {/* ── Chat takes all remaining space ── */}
+              {chatPanel}
 
-      {preview && (
-        <Dialog open onOpenChange={(v) => !v && setPreview(null)}>
-          <DialogContent className="max-w-3xl p-2">
-            <img src={preview} alt="Attachment" className="max-h-[80vh] w-full rounded-lg object-contain" />
+              {/* ── Sticky primary action bar at bottom ── */}
+              {!closed && (
+                <div className="shrink-0 border-t border-border bg-background px-3 pb-4 pt-2.5">
+                  {status === "pending" && (
+                    <Button
+                      className="h-12 w-full gap-2 rounded-xl text-base font-semibold"
+                      onClick={() => payMut.mutate()}
+                      disabled={payMut.isPending}
+                      data-testid="button-mark-paid"
+                    >
+                      {payMut.isPending
+                        ? <Loader2 className="h-5 w-5 animate-spin" />
+                        : <ShieldCheck className="h-5 w-5" />}
+                      I have paid
+                    </Button>
+                  )}
+                  {status === "paid" && (
+                    <div className="flex items-center justify-center gap-2 rounded-xl border border-blue-400/30 bg-blue-400/10 px-4 py-3">
+                      <Loader2 className="h-4 w-4 animate-spin text-blue-400" />
+                      <span className="text-sm text-blue-400">Waiting for seller to release USDT…</span>
+                    </div>
+                  )}
+                  {status === "disputed" && (
+                    <div className="flex items-center justify-center gap-2 rounded-xl border border-orange-400/30 bg-orange-400/10 px-4 py-3">
+                      <AlertTriangle className="h-4 w-4 text-orange-400" />
+                      <span className="text-sm text-orange-400">Dispute in progress — support will reach out.</span>
+                    </div>
+                  )}
+                </div>
+              )}
+            </DialogContent>
+          </Dialog>
+
+          {/* Cancel trade dialog */}
+          <CancelTradeDialog
+            open={cancelOpen}
+            onOpenChange={setCancelOpen}
+            onConfirm={(r) => cancelMut.mutate({ reason: r })}
+            pending={cancelMut.isPending}
+          />
+
+          {/* Dispute modal — shown from 3-dots menu */}
+          <Dialog open={disputeDialogOpen} onOpenChange={setDisputeDialogOpen}>
+            <DialogContent className="max-w-md">
+              <DialogHeader><DialogTitle>Open a Dispute</DialogTitle></DialogHeader>
+              <p className="text-xs text-muted-foreground">
+                Describe the issue. Support will review the chat history and payment proofs before reaching out.
+              </p>
+              <Textarea
+                rows={3}
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+                placeholder="e.g. I sent the payment but the seller is not responding…"
+              />
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setDisputeDialogOpen(false)}>Cancel</Button>
+                <Button
+                  variant="destructive"
+                  onClick={() => disputeMut.mutate()}
+                  disabled={disputeMut.isPending}
+                >
+                  {disputeMut.isPending ? "Submitting…" : "Submit Dispute"}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
+          {/* Full-size image lightbox */}
+          {preview && (
+            <Dialog open onOpenChange={() => setPreview(null)}>
+              <DialogContent className="max-w-screen-md p-2">
+                <img src={preview} alt="Full size" className="max-h-[80vh] w-full rounded-lg object-contain" />
+              </DialogContent>
+            </Dialog>
+          )}
+        </>
+      );
+    }
+
+    // ── SELLER VIEW — keep existing 2-column desktop layout ───────────────────
+    return (
+      <>
+        <Dialog open onOpenChange={(v) => !v && onClose()}>
+          <DialogContent
+            className="flex h-[95vh] w-[98vw] max-w-6xl flex-col gap-0 overflow-hidden p-0 sm:h-[92vh]"
+            data-testid="dialog-order"
+          >
+            <DialogHeader className="shrink-0 border-b border-border px-4 py-3 sm:px-6">
+              <DialogTitle className="flex flex-wrap items-center gap-2 text-base">
+                <span>Sell USDT</span>
+                <span className="text-muted-foreground font-normal text-xs">Order #{current.order_id}</span>
+                <StatusBadge status={status} />
+              </DialogTitle>
+              <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                <span>Buyer: <span className="text-foreground font-medium">{counterparty ?? "—"}</span></span>
+                <PresenceIndicator lastActivity={current.buyer_last_activity} />
+                {current.created_at && <span>Created {formatDistanceToNow(new Date(current.created_at), { addSuffix: true })}</span>}
+              </div>
+            </DialogHeader>
+
+            <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
+              {/* Left: order details + seller actions */}
+              <div className="min-h-0 overflow-y-auto border-b border-border p-4 sm:p-6 lg:border-b-0 lg:border-r">
+                <ol className="mb-5 space-y-2">
+                  {steps.map((s, i) => (
+                    <li key={s.key} className="flex items-start gap-2 text-xs">
+                      <span className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border text-[10px] font-bold ${
+                        i < stepIndex ? "border-emerald-400/40 bg-emerald-400/15 text-emerald-500"
+                          : i === stepIndex ? "border-primary bg-primary/15 text-primary"
+                          : "border-border text-muted-foreground"
+                      }`}>{i + 1}</span>
+                      <span className={i === stepIndex ? "font-medium" : "text-muted-foreground"}>{s.label}</span>
+                    </li>
+                  ))}
+                </ol>
+
+                <div className="space-y-2 rounded-xl border border-border bg-muted/30 p-4 text-sm">
+                  <div className="flex items-baseline justify-between">
+                    <span className="text-xs text-muted-foreground">Amount</span>
+                    <span className="text-lg font-bold">{num(current.amount_usdt).toFixed(2)} USDT</span>
+                  </div>
+                  <div className="flex justify-between text-xs"><span className="text-muted-foreground">Total to pay</span><span className="font-semibold">{totalLocal.toFixed(2)} {currency}</span></div>
+                  <div className="flex justify-between text-xs"><span className="text-muted-foreground">Rate</span><span>{num(current.rate ?? current.rate_htg).toFixed(2)} {currency}/USDT</span></div>
+                  <div className="flex justify-between text-xs"><span className="text-muted-foreground">Payment method</span><span>{current.payment_method}</span></div>
+                  {current.payment_details && (
+                    <div className="flex justify-between gap-3 text-xs"><span className="text-muted-foreground">Pay to</span><span className="break-all text-right">{current.payment_details}</span></div>
+                  )}
+                  <div className="flex items-center gap-1.5 pt-1 text-[11px] text-emerald-500">
+                    <ShieldCheck className="h-3.5 w-3.5" /> {num(current.amount_usdt).toFixed(2)} USDT locked in escrow
+                  </div>
+                </div>
+
+                {!closed && (
+                  <div className="mt-5 space-y-3">
+                    {/* Release escrow when buyer has paid */}
+                    {status === "paid" && (
+                      <div className="space-y-2 rounded-xl border border-emerald-400/30 bg-emerald-400/5 p-3">
+                        <p className="text-xs font-medium text-emerald-400">Buyer marked as paid — verify then release</p>
+                        <div className="flex items-center gap-2">
+                          <Checkbox id="conf" checked={confirmed} onCheckedChange={(v) => setConfirmed(!!v)} />
+                          <label htmlFor="conf" className="text-xs">I confirm receipt of payment</label>
+                        </div>
+                        <Input type="text" placeholder="Release PIN (optional)" value={pin} onChange={(e) => setPin(e.target.value)} className="h-8 text-xs" />
+                        <Button
+                          className="w-full"
+                          size="sm"
+                          onClick={() => releaseMut.mutate()}
+                          disabled={(!confirmed && !pin) || releaseMut.isPending}
+                          data-testid="button-release"
+                        >
+                          {releaseMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
+                          Release USDT to Buyer
+                        </Button>
+                      </div>
+                    )}
+                    {status !== "disputed" && (
+                      <div className="space-y-2">
+                        <Textarea rows={2} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Dispute details (optional)" className="text-xs" />
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="w-full border-orange-400/30 text-orange-400 hover:bg-orange-400/10"
+                          onClick={() => disputeMut.mutate()}
+                          disabled={disputeMut.isPending}
+                          data-testid="button-dispute"
+                        >
+                          <AlertTriangle className="mr-1 h-4 w-4" />
+                          {disputeMut.isPending ? "Opening dispute…" : "Open Dispute"}
+                        </Button>
+                      </div>
+                    )}
+                    {status === "pending" && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="w-full text-muted-foreground"
+                        onClick={() => setCancelOpen(true)}
+                        data-testid="button-cancel"
+                      >
+                        Cancel Order
+                      </Button>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Right: chat panel */}
+              <div className="flex min-h-0 flex-col">
+                <div className="flex shrink-0 items-center gap-2 border-b border-border px-4 py-2.5 text-xs font-medium">
+                  <MessageCircle className="h-3.5 w-3.5 text-primary" /> Chat with {counterparty ?? "buyer"}
+                </div>
+                {chatPanel}
+              </div>
+            </div>
           </DialogContent>
         </Dialog>
-      )}
-    </Dialog>
-  );
-}
 
-/* ---------------------------------- Seller settings ---------------------------------- */
+        <CancelTradeDialog
+          open={cancelOpen}
+          onOpenChange={setCancelOpen}
+          onConfirm={(r) => cancelMut.mutate({ reason: r })}
+          pending={cancelMut.isPending}
+        />
+
+        {preview && (
+          <Dialog open onOpenChange={() => setPreview(null)}>
+            <DialogContent className="max-w-screen-md p-2">
+              <img src={preview} alt="Full size" className="max-h-[80vh] w-full rounded-lg object-contain" />
+            </DialogContent>
+          </Dialog>
+        )}
+      </>
+    );
+    }
 
 function SellerSettingsPanel() {
   const { toast } = useToast();
