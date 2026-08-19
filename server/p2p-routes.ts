@@ -285,19 +285,40 @@ import type { Express } from "express";
         if (Number(resultRows<any>(countRows)[0]?.cnt ?? 0) >= 5) {
           return res.status(400).json({ error: "Maximum 5 active ads allowed" });
         }
-        // Lock USDT from seller balance into the ad's escrow pool
-        await storage.updateProfileBalance(profileId, currentBalance - amount);
-        const adRows = await db.execute(sql`
-          INSERT INTO p2p_ads
-            (seller_id, amount_usdt, available_usdt, rate_htg, currency, payment_methods,
-             min_order_usdt, max_order_usdt, terms_note, status)
-          VALUES
-            (${profileId}, ${amount}, ${amount}, ${rate}, ${currency}, ${paymentMethods},
-             ${minOrder}, ${maxOrder}, ${termsNote ?? null}, 'active')
-          RETURNING *
-        `);
-        return res.status(201).json(resultRows(adRows)[0]);
+        // Keep the balance debit and the ad insert together: an ad must never
+        // fail to create after its seller's funds have already been locked.
+        // PostgreSQL expects a text[] value, so encode the validated methods
+        // explicitly instead of passing a JavaScript array as an untyped value.
+        const methodsPgLiteral = `{${paymentMethods
+          .map((method: unknown) => `"${String(method).replace(/"/g, '\\"')}"`)
+          .join(",")}}`;
+        const ad = await db.transaction(async (tx) => {
+          const balanceRows = await tx.execute(sql`
+            UPDATE profiles
+            SET balance = balance - ${amount}
+            WHERE id = ${profileId} AND balance >= ${amount}
+            RETURNING balance
+          `);
+          if (!resultRows(balanceRows)[0]) {
+            throw new Error("INSUFFICIENT_BALANCE");
+          }
+
+          const adRows = await tx.execute(sql`
+            INSERT INTO p2p_ads
+              (seller_id, amount_usdt, available_usdt, rate_htg, currency, payment_methods,
+               min_order_usdt, max_order_usdt, terms_note, status)
+            VALUES
+              (${profileId}, ${amount}, ${amount}, ${rate}, ${currency}, ${methodsPgLiteral}::text[],
+               ${minOrder}, ${maxOrder}, ${termsNote ?? null}, 'active')
+            RETURNING *
+          `);
+          return resultRows(adRows)[0];
+        });
+        return res.status(201).json(ad);
       } catch (e) {
+        if (e instanceof Error && e.message === "INSUFFICIENT_BALANCE") {
+          return res.status(400).json({ error: "Insufficient balance" });
+        }
         console.error("[p2p/ads POST]", e);
         return res.status(500).json({ error: "Internal error" });
       }
