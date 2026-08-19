@@ -520,7 +520,7 @@ import type { Express } from "express";
       if (!profileId) return res.status(401).json({ error: "Unauthorized" });
       const orderId = Number(req.params.id);
       const pin = (req.body?.pin ?? "").toString().trim();
-      if (!pin) return res.status(400).json({ error: "PIN required" });
+      if (!/^\d{6}$/.test(pin)) return res.status(400).json({ error: "A 6-digit release PIN is required" });
       try {
         const orderRows = await db.execute(sql`SELECT * FROM p2p_orders WHERE id = ${orderId}`);
         const order = resultRows<any>(orderRows)[0];
@@ -528,12 +528,12 @@ import type { Express } from "express";
         if (order.seller_id !== profileId) return res.status(403).json({ error: "Only the seller can release funds" });
         if (order.status !== "paid") return res.status(400).json({ error: "Order must be in paid status" });
         const sellerRows = await db.execute(sql`
-          SELECT withdrawal_pin_hash, pin_hash FROM profiles WHERE id = ${profileId}
+          SELECT withdrawal_pin_hash FROM profiles WHERE id = ${profileId}
         `);
         const seller = resultRows<any>(sellerRows)[0];
-        const pinHash = seller?.withdrawal_pin_hash || seller?.pin_hash;
+        const pinHash = seller?.withdrawal_pin_hash;
         if (!pinHash) {
-          return res.status(400).json({ error: "No PIN set. Please configure a PIN in security settings." });
+          return res.status(400).json({ error: "P2P release PIN is not active. Set a 6-digit withdrawal PIN in Security Settings." });
         }
         const valid = await bcrypt.compare(pin, pinHash);
         if (!valid) return res.status(400).json({ error: "Incorrect PIN" });
@@ -549,12 +549,26 @@ import type { Express } from "express";
       const profileId = req.session?.profileId;
       if (!profileId) return res.status(401).json({ error: "Unauthorized" });
       const orderId = Number(req.params.id);
+      const pin = (req.body?.pin ?? "").toString().trim();
       try {
         const orderRows = await db.execute(sql`SELECT * FROM p2p_orders WHERE id = ${orderId}`);
         const order = resultRows<any>(orderRows)[0];
         if (!order) return res.status(404).json({ error: "Order not found" });
         if (order.seller_id !== profileId) return res.status(403).json({ error: "Only the seller can release funds" });
         if (order.status !== "paid") return res.status(400).json({ error: "Order must be in paid status" });
+        if (!/^\d{6}$/.test(pin)) {
+          return res.status(400).json({ error: "A 6-digit release PIN is required" });
+        }
+        const sellerRows = await db.execute(sql`
+          SELECT withdrawal_pin_hash FROM profiles WHERE id = ${profileId}
+        `);
+        const seller = resultRows<any>(sellerRows)[0];
+        if (!seller?.withdrawal_pin_hash) {
+          return res.status(400).json({ error: "P2P release PIN is not active. Set a 6-digit withdrawal PIN in Security Settings." });
+        }
+        if (!(await bcrypt.compare(pin, seller.withdrawal_pin_hash))) {
+          return res.status(400).json({ error: "Incorrect release PIN" });
+        }
         const amount = parseFloat(order.amount_usdt);
         const buyerRows = await db.execute(sql`SELECT balance FROM profiles WHERE id = ${order.buyer_id}`);
         const buyerBalance = parseFloat(resultRows<any>(buyerRows)[0]?.balance ?? "0");
