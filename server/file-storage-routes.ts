@@ -93,8 +93,9 @@ import type { Express } from "express";
           )
           RETURNING id
         `);
-        const id = (rows as any[])[0]?.id;
-        if (!id) throw new Error("Insert returned no ID");
+        // db.execute returns { rows: [...] } with node-postgres, not a plain array
+        const id = (rows as any)?.rows?.[0]?.id ?? (rows as any)?.[0]?.id;
+        if (!id) throw new Error("Insert returned no ID — table may not exist yet");
 
         const url = `/api/files/${id}`;
         return res.status(201).json({
@@ -139,7 +140,7 @@ import type { Express } from "express";
           WHERE f.id = ${fileId}
           LIMIT 1
         `);
-        const file = (rows as any[])[0];
+        const file = (rows as any)?.rows?.[0] ?? (rows as any)?.[0];
         if (!file) return res.status(404).json({ error: "File not found" });
 
         // Only the owner or an admin may access the file
