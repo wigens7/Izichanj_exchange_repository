@@ -74,10 +74,10 @@ export function useUpload(options: UseUploadOptions = {}) {
         const base64 = await fileToCompressedDataUrl(file);
 
         setProgress(50);
-        const response = await fetch("/api/upload-image", {
+        const response = await fetch("/api/files/upload", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ image: base64 }),
+          body: JSON.stringify({ image: base64, purpose: "kyc" }),
         });
 
         if (!response.ok) {
