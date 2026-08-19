@@ -167,8 +167,8 @@ export default function DepositPage() {
         r.readAsDataURL(file);
       });
 
-      // POST to /api/upload-image — server proxies to ImgBB and returns the direct URL
-      const uploadRes = await apiRequest("POST", "/api/upload-image", { image: base64 });
+      // POST to /api/files/upload — image stored directly in the database (no external service)
+      const uploadRes = await apiRequest("POST", "/api/files/upload", { image: base64, purpose: "deposit_proof" });
       if (!uploadRes.ok) {
         const errData = await uploadRes.json().catch(() => ({}));
         throw new Error((errData as any).error || "Upload failed");
