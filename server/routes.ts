@@ -2125,12 +2125,14 @@ export async function registerRoutes(
 
   app.get(api.admin.users.path, isAuthenticated, isAdmin, async (req: any, res) => {
     const search = req.query.search as string | undefined;
+    // Never expose password hashes or 2FA secrets to the frontend
+    const stripSensitive = ({ passwordHash, twoFactorSecret, pinHash, withdrawalPinHash, ...safe }: any) => safe;
     if (search && search.trim()) {
       const results = await storage.searchProfiles(search.trim());
-      return res.json(results);
+      return res.json(results.map(stripSensitive));
     }
     const allProfiles = await storage.getAllProfiles();
-    res.json(allProfiles);
+    res.json(allProfiles.map(stripSensitive));
   });
 
   // ── Exchange Rates (public read, admin write) ──
