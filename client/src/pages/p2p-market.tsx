@@ -475,7 +475,7 @@ function MyAdsTab() {
   };
 
   const pauseMut = useMutation({
-    mutationFn: (id: number) => apiRequest("PATCH", `/api/p2p/ads/${id}/toggle-pause`),
+    mutationFn: (id: number) => apiRequest("POST", `/api/p2p/ads/${id}/toggle-pause`),
     onSuccess: () => { toast({ title: "Ad updated" }); invalidate(); },
     onError: (e: any) => toast({ title: "Failed", description: e?.message, variant: "destructive" }),
   });
@@ -751,7 +751,7 @@ function OrderDialog({ order, isBuyer, currentUserId, onClose }: {
     const fail = (e: any) => toast({ title: "Action failed", description: e?.message ?? "Try again", variant: "destructive" });
 
     const payMut = useMutation({
-      mutationFn: () => apiRequest("PATCH", `/api/p2p/orders/${order.id}/pay`, {}),
+      mutationFn: () => apiRequest("POST", `/api/p2p/orders/${order.id}/pay`, {}),
       onSuccess: () => { toast({ title: "Marked as paid", description: "The seller has been notified." }); invalidate(); },
       onError: fail,
     });
@@ -760,14 +760,14 @@ function OrderDialog({ order, isBuyer, currentUserId, onClose }: {
       mutationFn: () =>
         pin
           ? apiRequest("POST", `/api/p2p/orders/${order.id}/release-pin`, { pin })
-          : apiRequest("PATCH", `/api/p2p/orders/${order.id}/release`, { confirmedReceipt: true }),
+          : apiRequest("POST", `/api/p2p/orders/${order.id}/release`, { confirmedReceipt: true }),
       onSuccess: () => { toast({ title: "USDT released", description: "Escrow released to the buyer." }); setPin(""); invalidate(); },
       onError: fail,
     });
 
     const cancelMut = useMutation({
       mutationFn: (payload: { reason: string }) =>
-        apiRequest("PATCH", `/api/p2p/orders/${order.id}/cancel`, {
+        apiRequest("POST", `/api/p2p/orders/${order.id}/cancel`, {
           reason: payload.reason,
           paymentNotSent: true,
           confirmedNotPaid: true,
@@ -777,7 +777,7 @@ function OrderDialog({ order, isBuyer, currentUserId, onClose }: {
     });
 
     const disputeMut = useMutation({
-      mutationFn: () => apiRequest("PATCH", `/api/p2p/orders/${order.id}/dispute`, { reason: reason || "Payment issue" }),
+      mutationFn: () => apiRequest("POST", `/api/p2p/orders/${order.id}/dispute`, { reason: reason || "Payment issue" }),
       onSuccess: () => { toast({ title: "Dispute opened", description: "Support has been notified." }); setDisputeDialogOpen(false); invalidate(); },
       onError: fail,
     });
