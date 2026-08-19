@@ -75,6 +75,7 @@ import { sendVerificationEmail, sendPasswordResetEmail, sendNotificationEmail, s
 import { PUBLIC_APP_URL } from "./public-url";
 import { registerP2pRoutes } from "./p2p-routes";
 import { registerP2pChatRoutes } from "./p2p-chat";
+import { registerFileStorageRoutes } from "./file-storage-routes";
 
 if (process.env.SENDGRID_API_KEY) {
   sgMail.setApiKey(process.env.SENDGRID_API_KEY);
@@ -543,6 +544,7 @@ export async function registerRoutes(
   setupAuth(app);
   registerObjectStorageRoutes(app);
   registerMerchantRoutes(app);
+  await registerFileStorageRoutes(app);
   await registerP2pRoutes(app);
   registerP2pChatRoutes(app);
 
