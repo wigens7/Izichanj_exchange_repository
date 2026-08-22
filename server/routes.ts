@@ -3820,6 +3820,14 @@ export async function registerRoutes(
       const fundAmount = Number.isFinite(snapshotLoad) && snapshotLoad >= 5 ? snapshotLoad : getCardPricing().virtual.loadAmount;
       const nameOnCard = card.nameOnCard || profile.fullName;
 
+      // Strowallet's new card creation API requires the user's ID document image
+      // and the desired card brand. Fetch the KYC record to get the ID image URL.
+      const kycForRetry = await storage.getKyc(profile.id);
+      if (!kycForRetry?.idDocumentUrl) {
+        return res.status(400).json({ message: "This user's ID document could not be found on file. They must resubmit KYC verification before the card can be retried." });
+      }
+      const retryCardBrand = (card as any).brand === "MasterCard" ? "MasterCard" : "Visa";
+
       const createCardPayload: Record<string, string> = {
         name_on_card: nameOnCard,
         card_type: "visa",
@@ -3827,6 +3835,8 @@ export async function registerRoutes(
         amount: fundAmount.toString(),
         customerEmail: profile.email,
         customer_id: profile.strowalletCustomerId,
+        id_image: kycForRetry.idDocumentUrl,
+        brand: retryCardBrand,
       };
 
       console.log(`[ADMIN RETRY CARD] Retrying card creation for user ${profile.id} (${profile.email}), card DB id ${cardDbId}`);
@@ -5837,6 +5847,15 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Please complete the card KYC registration first before applying for a virtual card." });
       }
 
+      // Strowallet's new card creation API requires the user's ID document image
+      // and the desired card brand. Fetch the KYC record to get the ID image URL.
+      const kycForCard = await storage.getKyc(profile.id);
+      if (!kycForCard?.idDocumentUrl) {
+        return res.status(400).json({ message: "We couldn't find your ID document on file. Please resubmit your KYC verification before applying for a virtual card." });
+      }
+
+      const cardBrand = (req.body?.brand === "MasterCard" || req.body?.brand === "Visa") ? req.body.brand : "Visa";
+
       const createCardPayload: Record<string, string> = {
         name_on_card: nameOnCard,
         card_type: "visa",
@@ -5844,6 +5863,8 @@ export async function registerRoutes(
         amount: fundAmount.toString(),
         customerEmail: profile.email,
         customer_id: profile.strowalletCustomerId,
+        id_image: kycForCard.idDocumentUrl,
+        brand: cardBrand,
       };
 
       const response = await strowalletFetch(`${STROWALLET_BASE}/create-card/`, {
