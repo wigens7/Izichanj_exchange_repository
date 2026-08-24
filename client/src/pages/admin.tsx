@@ -6441,6 +6441,7 @@ function CanalplusTab() {
 const PAYOUT_METHOD_DISPLAY: Record<string, { label: string; colorName: string; hex: string }> = {
   moncash: { label: "MonCash", colorName: "Red", hex: "#EF4444" },
   natcash: { label: "NatCash", colorName: "Lemon Yellow", hex: "#E3FF00" },
+  usdt: { label: "USDT", colorName: "Crypto", hex: "#26A17B" },
   zelle: { label: "Zelle", colorName: "Navy Blue", hex: "#1A237E" },
   cashapp: { label: "CashApp", colorName: "Green", hex: "#22C55E" },
 };
@@ -6448,7 +6449,7 @@ const PAYOUT_METHOD_DISPLAY: Record<string, { label: string; colorName: string; 
 type AdminPayout = {
   id: number; userId: number; merchantId: number | null;
   amount: string; method: keyof typeof PAYOUT_METHOD_DISPLAY;
-  details: any; status: "pending" | "approved" | "rejected";
+  details: any; status: "pending" | "processing" | "approved" | "paid" | "failed" | "cancelled" | "rejected";
   adminNote: string | null; createdAt: string; processedAt: string | null;
   user: { id: number; fullName: string; email: string } | null;
   merchant: { id: number; businessName: string } | null;
@@ -6527,7 +6528,7 @@ function MerchantPayoutsTab() {
           <div className="space-y-3">
             {filtered.map((p) => {
               const meta = PAYOUT_METHOD_DISPLAY[p.method];
-              const detail = p.details?.phoneNumber || p.details?.email || p.details?.cashtag || "—";
+               const detail = p.details?.masked || p.details?.phoneNumber || p.details?.walletAddress || p.details?.email || p.details?.cashtag || "—";
               return (
                 <div key={p.id} className="border rounded-lg p-4 space-y-3" data-testid={`row-admin-payout-${p.id}`}>
                   <div className="flex items-start justify-between gap-3 flex-wrap">
@@ -6543,7 +6544,7 @@ function MerchantPayoutsTab() {
                     <div className="text-right shrink-0">
                       <p className="text-2xl font-bold" data-testid={`text-amount-${p.id}`}>{Number(p.amount).toFixed(2)} <span className="text-sm font-normal">USDT</span></p>
                       <Badge
-                        variant={p.status === "approved" ? "default" : p.status === "rejected" ? "destructive" : "secondary"}
+                         variant={p.status === "approved" || p.status === "paid" ? "default" : p.status === "rejected" || p.status === "failed" ? "destructive" : "secondary"}
                         data-testid={`badge-status-${p.id}`}
                       >{p.status}</Badge>
                       <p className="text-[11px] text-muted-foreground mt-1">{new Date(p.createdAt).toLocaleString()}</p>

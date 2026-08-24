@@ -58,3 +58,5 @@ export class ObjectStorageService {
     return true;
   }
 }
+
+export const objectStorageClient = new ObjectStorageService();

@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/dialog";
 import {
   KeyRound, Webhook, BarChart3, Plus, Copy, Trash2, Loader2, BookOpen,
-  ShieldAlert, CheckCircle2, FlaskConical,
+  ShieldAlert, CheckCircle2, FlaskConical, WalletCards, Landmark, CircleDollarSign,
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 
@@ -61,20 +61,128 @@ export default function MerchantToolsPage() {
       )}
 
       <Tabs value={tab} onValueChange={setTab}>
-        <TabsList className="w-full bg-[#1e232a] border border-border">
+         <TabsList className="w-full bg-[#1e232a] border border-border flex-wrap h-auto">
+           <TabsTrigger value="overview" className="flex-1 data-[state=active]:bg-amber-500 data-[state=active]:text-black font-medium">Overview</TabsTrigger>
+           <TabsTrigger value="account" className="flex-1 data-[state=active]:bg-amber-500 data-[state=active]:text-black font-medium">Account</TabsTrigger>
+           <TabsTrigger value="payouts" className="flex-1 data-[state=active]:bg-amber-500 data-[state=active]:text-black font-medium">Payout</TabsTrigger>
           <TabsTrigger value="keys" className="flex-1 data-[state=active]:bg-amber-500 data-[state=active]:text-black font-medium">API Keys</TabsTrigger>
           <TabsTrigger value="webhooks" className="flex-1 data-[state=active]:bg-amber-500 data-[state=active]:text-black font-medium">Webhooks</TabsTrigger>
           <TabsTrigger value="sandbox" className="flex-1 data-[state=active]:bg-amber-500 data-[state=active]:text-black font-medium">Sandbox</TabsTrigger>
           <TabsTrigger value="usage" className="flex-1 data-[state=active]:bg-amber-500 data-[state=active]:text-black font-medium">Usage</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="keys"><ApiKeysTab /></TabsContent>
+         <TabsContent value="overview"><OverviewTab /></TabsContent>
+         <TabsContent value="account"><AccountTab /></TabsContent>
+         <TabsContent value="payouts"><PayoutTab /></TabsContent>
+         <TabsContent value="keys"><ApiKeysTab /></TabsContent>
         <TabsContent value="webhooks"><WebhooksTab /></TabsContent>
         <TabsContent value="sandbox"><SandboxTab /></TabsContent>
         <TabsContent value="usage"><UsageTab /></TabsContent>
       </Tabs>
     </div>
   );
+}
+
+function useMerchantApi(path: string) {
+  return useQuery<any>({ queryKey: [path], queryFn: async () => {
+    const response = await fetch(path);
+    if (!response.ok) throw new Error("Unable to load merchant data");
+    return response.json();
+  }, staleTime: 15_000 });
+}
+
+function OverviewTab() {
+  const { data: balance, isLoading } = useMerchantApi("/api/merchant/balance");
+  const { data: txns } = useMerchantApi("/api/merchant/transactions");
+  if (isLoading) return <div className="flex justify-center py-10"><Loader2 className="w-6 h-6 animate-spin text-amber-500" /></div>;
+  const stats = [
+    ["Available balance", balance?.availableBalance],
+    ["Pending balance", balance?.pendingBalance],
+    ["Total received", balance?.totalReceived],
+    ["Total payouts", balance?.totalPayouts],
+  ];
+  return <div className="space-y-3 mt-3">
+    <div className="grid grid-cols-2 gap-3">
+      {stats.map(([label, value]) => <Card key={String(label)} className="bg-[#181c23] border-[#2b313a]"><CardContent className="p-4">
+        <p className="text-xs text-gray-400">{label}</p><p className="text-xl font-bold text-amber-400 mt-1">{Number(value || 0).toFixed(2)} <span className="text-xs font-normal">USDT</span></p>
+      </CardContent></Card>)}
+    </div>
+    <Card className="bg-[#181c23] border-[#2b313a]"><CardContent className="p-4">
+      <div className="flex items-center gap-2 mb-3"><CircleDollarSign className="w-4 h-4 text-amber-500" /><span className="text-sm font-medium text-white">Recent transactions</span></div>
+      {(txns?.transactions || []).slice(0, 6).map((t: any) => <div key={t.id} className="flex justify-between border-t border-[#2b313a] py-2 text-xs">
+        <span className="text-gray-300">{t.orderId || t.paymentId}</span><span className={t.status === "completed" ? "text-emerald-400" : "text-gray-400"}>{t.status} · {Number(t.netUsdt || 0).toFixed(2)} USDT</span>
+      </div>)}
+      {(txns?.transactions || []).length === 0 && <p className="text-xs text-gray-400 text-center py-4">No merchant payments yet.</p>}
+    </CardContent></Card>
+  </div>;
+}
+
+function AccountTab() {
+  const { data, isLoading } = useMerchantApi("/api/merchant/account");
+  if (isLoading) return <div className="flex justify-center py-10"><Loader2 className="w-6 h-6 animate-spin text-amber-500" /></div>;
+  const m = data?.merchant;
+  if (!m) return <Card className="mt-3 bg-[#181c23] border-[#2b313a]"><CardContent className="p-6 text-sm text-gray-400">Merchant account not found.</CardContent></Card>;
+  const rows = [["Merchant ID", m.merchantId], ["Business name", m.businessName], ["Email", m.email], ["Country", m.country || "—"]];
+  return <Card className="mt-3 bg-[#181c23] border-[#2b313a] text-white"><CardContent className="p-4 space-y-4">
+    <div className="flex items-center gap-2"><Landmark className="w-4 h-4 text-amber-500" /><span className="font-medium">Merchant account</span></div>
+    {rows.map(([label, value]) => <div key={String(label)} className="flex justify-between gap-4 border-t border-[#2b313a] pt-3 text-sm"><span className="text-gray-400">{label}</span><span className="text-right">{value || "—"}</span></div>)}
+    <div className="grid grid-cols-2 gap-2 pt-1">
+      {[
+        ["Account", m.accountStatus],
+        ["KYC", m.kycStatus],
+        ["Payments", m.paymentEnabled ? "Enabled" : "Disabled"],
+        ["Payouts", m.payoutEnabled ? "Enabled" : "Disabled"],
+      ].map(([label, value]) => <div key={String(label)} className="rounded border border-[#353d4c] bg-[#252b36] p-3"><p className="text-[11px] text-gray-400">{label}</p><p className="text-sm font-semibold mt-1">{value}</p></div>)}
+    </div>
+  </CardContent></Card>;
+}
+
+function PayoutTab() {
+  const { toast } = useToast();
+  const qc = useQueryClient();
+  const { data: methods } = useMerchantApi("/api/merchant/payout-methods");
+  const { data: payouts } = useMerchantApi("/api/merchant/payouts");
+  const { data: balance } = useMerchantApi("/api/merchant/balance");
+  const [amount, setAmount] = useState("");
+  const [method, setMethod] = useState("moncash");
+  const [destination, setDestination] = useState("");
+  const [network, setNetwork] = useState("TRC20");
+  const [saving, setSaving] = useState(false);
+  const [useSaved, setUseSaved] = useState("");
+
+  async function requestPayout() {
+    setSaving(true);
+    try {
+      const selected = (methods?.methods || []).find((m: any) => String(m.id) === useSaved);
+      const body: any = { amount, method: selected?.method || method, acknowledged: true, idempotencyKey: crypto.randomUUID(), payoutMethodId: selected?.id };
+      if (!selected) {
+        if (method === "usdt") { body.walletAddress = destination; body.network = network; }
+        else if (method === "zelle") body.email = destination;
+        else if (method === "cashapp") body.cashtag = destination;
+        else body.phoneNumber = destination;
+      }
+      const r = await apiRequest("POST", "/api/merchant/payouts", body);
+      const result = await r.json();
+      toast({ title: "Payout requested", description: `Request #${result?.payout?.id || ""} is pending review.` });
+      setAmount(""); setDestination(""); setUseSaved("");
+      qc.invalidateQueries({ queryKey: ["/api/merchant/balance"] });
+      qc.invalidateQueries({ queryKey: ["/api/merchant/payouts"] });
+    } catch (e: any) { toast({ title: "Payout unavailable", description: e?.message || "Please check your details.", variant: "destructive" }); }
+    finally { setSaving(false); }
+  }
+  return <div className="space-y-3 mt-3">
+    <Card className="bg-[#181c23] border-[#2b313a] text-white"><CardContent className="p-4 space-y-4">
+      <div className="flex items-center justify-between"><div className="flex items-center gap-2"><WalletCards className="w-4 h-4 text-amber-500" /><span className="font-medium">Request a payout</span></div><span className="text-xs text-gray-400">Available: {Number(balance?.availableBalance || 0).toFixed(2)} USDT</span></div>
+      <div className="space-y-2"><Label className="text-gray-300">Amount (USDT)</Label><Input value={amount} onChange={e => setAmount(e.target.value)} type="number" min="5" step="0.01" className="bg-[#252b36] border-[#353d4c] text-white" /></div>
+      {(methods?.methods || []).length > 0 && <div className="space-y-2"><Label className="text-gray-300">Saved destination</Label><select value={useSaved} onChange={e => setUseSaved(e.target.value)} className="w-full h-10 rounded bg-[#252b36] border border-[#353d4c] px-3 text-sm"><option value="">Enter a new destination</option>{methods.methods.map((m: any) => <option key={m.id} value={m.id}>{m.method.toUpperCase()} · {m.maskedDetails}</option>)}</select></div>}
+      {!useSaved && <><div className="space-y-2"><Label className="text-gray-300">Payout method</Label><select value={method} onChange={e => setMethod(e.target.value)} className="w-full h-10 rounded bg-[#252b36] border border-[#353d4c] px-3 text-sm"><option value="moncash">MonCash</option><option value="natcash">NatCash</option><option value="usdt">USDT</option><option value="zelle">Zelle</option><option value="cashapp">Cash App</option></select></div>
+      {method === "usdt" && <div className="space-y-2"><Label className="text-gray-300">Network</Label><select value={network} onChange={e => setNetwork(e.target.value)} className="w-full h-10 rounded bg-[#252b36] border border-[#353d4c] px-3 text-sm"><option>TRC20</option><option>BEP20</option><option>ERC20</option></select></div>}
+      <div className="space-y-2"><Label className="text-gray-300">{method === "usdt" ? "Wallet address" : method === "zelle" ? "Email or phone" : method === "cashapp" ? "Cashtag" : "Phone number"}</Label><Input value={destination} onChange={e => setDestination(e.target.value)} className="bg-[#252b36] border-[#353d4c] text-white" /></div></>}
+      <p className="text-xs text-gray-400">Fee: 0.00 USDT · You receive: {Number(amount || 0).toFixed(2)} USDT. Processing usually takes 24–48 hours.</p>
+      <Button onClick={requestPayout} disabled={saving || !amount || (!destination && !useSaved)} className="bg-amber-500 hover:bg-amber-600 text-black font-bold w-full">{saving ? <Loader2 className="w-4 h-4 animate-spin" /> : "Confirm payout"}</Button>
+    </CardContent></Card>
+    <Card className="bg-[#181c23] border-[#2b313a] text-white"><CardContent className="p-4"><div className="text-sm font-medium mb-3">Payout history</div>{(payouts?.payouts || []).map((p: any) => <div key={p.id} className="flex justify-between border-t border-[#2b313a] py-2 text-xs"><span>{new Date(p.createdAt).toLocaleDateString()} · {p.method}</span><span>{Number(p.amount).toFixed(2)} USDT · {p.status}</span></div>)}{(payouts?.payouts || []).length === 0 && <p className="text-xs text-gray-400 text-center py-4">No payouts yet.</p>}</CardContent></Card>
+  </div>;
 }
 
 function CopyField({ label, value, masked }: { label: string; value: string; masked?: boolean }) {

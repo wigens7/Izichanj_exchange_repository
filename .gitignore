@@ -4,3 +4,11 @@ dist
 server/public
 vite.config.ts.*
 *.tar.gz
+*.zip
+*.tsbuildinfo
+.cache/
+.local/
+recovered_kyc/
+screenshots/
+attached_assets/
+node_modules/

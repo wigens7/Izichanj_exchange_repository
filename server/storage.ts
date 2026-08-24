@@ -1,4 +1,4 @@
-import { profiles, deposits, withdrawals, kycDocuments, otps, webauthnCredentials, notifications, supportConversations, supportMessages, supportQuickReplies, virtualCards, blacklistedUsers, kycArchives, p2pTransfers, loginLogs, fraudRejections, cardTransactions, topUpTransactions, securityEvents, balanceLogs, userReports, referralEarnings, referralPayoutRequests, nfcCards, nfcCardTransactions, type Profile, type Deposit, type InsertDeposit, type Withdrawal, type InsertWithdrawal, type KycDocument, type WebAuthnCredential, type Notification, type SupportConversation, type SupportMessage, type SupportQuickReply, type InsertSupportQuickReply, type VirtualCard, type BlacklistedUser, type KycArchive, type P2PTransfer, type LoginLog, type FraudRejection, type CardTransaction, type TopUpTransaction, type SecurityEvent, type BalanceLog, type UserReport, type ReferralEarning, type ReferralPayoutRequest, type NfcCard, type NfcCardTransaction, merchants, merchantTransactions, type Merchant, type MerchantTransaction, payoutRequests, type PayoutRequest, type InsertPayoutRequest } from "@shared/schema";
+import { profiles, deposits, withdrawals, kycDocuments, otps, webauthnCredentials, notifications, supportConversations, supportMessages, supportQuickReplies, virtualCards, blacklistedUsers, kycArchives, p2pTransfers, loginLogs, fraudRejections, cardTransactions, topUpTransactions, securityEvents, balanceLogs, userReports, referralEarnings, referralPayoutRequests, nfcCards, nfcCardTransactions, type Profile, type Deposit, type InsertDeposit, type Withdrawal, type InsertWithdrawal, type KycDocument, type WebAuthnCredential, type Notification, type SupportConversation, type SupportMessage, type SupportQuickReply, type InsertSupportQuickReply, type VirtualCard, type BlacklistedUser, type KycArchive, type P2PTransfer, type LoginLog, type FraudRejection, type CardTransaction, type TopUpTransaction, type SecurityEvent, type BalanceLog, type UserReport, type ReferralEarning, type ReferralPayoutRequest, type NfcCard, type NfcCardTransaction, merchants, merchantTransactions, merchantPayoutMethods, merchantLedgerEntries, type Merchant, type MerchantTransaction, payoutRequests, type PayoutRequest, type InsertPayoutRequest, type MerchantPayoutMethod, type MerchantLedgerEntry } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, ne, lt, sql, or, ilike, inArray, isNull } from "drizzle-orm";
 import crypto from "crypto";
@@ -180,6 +180,10 @@ export interface IStorage {
   markMerchantTransactionPaid(paymentId: string, payerProfileId: number): Promise<MerchantTransaction | undefined>;
   markMerchantTransactionExpired(paymentId: string): Promise<void>;
   incrementWebhookAttempt(paymentId: string, delivered: boolean): Promise<void>;
+  getMerchantPayoutMethods(merchantId: number): Promise<MerchantPayoutMethod[]>;
+  createMerchantPayoutMethod(data: { merchantId: number; method: MerchantPayoutMethod["method"]; label?: string; encryptedDetails: string; maskedDetails: string; isDefault?: boolean }): Promise<MerchantPayoutMethod>;
+  deleteMerchantPayoutMethod(id: number, merchantId: number): Promise<boolean>;
+  getMerchantLedger(merchantId: number, limit?: number): Promise<MerchantLedgerEntry[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1128,11 +1132,12 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getWithdrawalRiskInfo(withdrawalId: number): Promise<any> {
-    const [w] = await db.execute(sql`
+    const result = await db.execute(sql`
       SELECT w.*, p.full_name, p.email, p.last_ip, p.id as uid
       FROM withdrawals w LEFT JOIN profiles p ON p.id = w.profile_id
       WHERE w.id = ${withdrawalId}
     `);
+    const [w] = result.rows as any[];
     if (!w) return null;
     const withdrawal = (w as any);
     const profileId = withdrawal.profile_id;
@@ -1331,8 +1336,20 @@ export class DatabaseStorage implements IStorage {
   async createMerchant(profileId: number, businessName: string): Promise<Merchant> {
     const apiPublicKey = "izi_pk_" + crypto.randomBytes(18).toString("hex");
     const apiSecretKey = "izi_sk_" + crypto.randomBytes(28).toString("hex");
+    const profile = await this.getProfile(profileId);
     const [m] = await db.insert(merchants).values({
-      profileId, businessName, apiPublicKey, apiSecretKey,
+      profileId,
+      merchantId: `mch_${crypto.randomBytes(6).toString("hex")}`,
+      businessName,
+      email: profile?.email,
+      phone: profile?.phone,
+      country: profile?.country,
+      accountStatus: profile?.kycStatus === "verified" ? "active" : "pending",
+      kycStatus: profile?.kycStatus === "verified" ? "verified" : "not_started",
+      paymentEnabled: profile?.kycStatus === "verified",
+      payoutEnabled: profile?.kycStatus === "verified",
+      apiPublicKey,
+      apiSecretKey,
     }).returning();
     return m;
   }
@@ -1341,6 +1358,7 @@ export class DatabaseStorage implements IStorage {
     if (data.businessName !== undefined) update.businessName = data.businessName;
     if (data.webhookUrl !== undefined) update.webhookUrl = data.webhookUrl || null;
     if (Object.keys(update).length === 0) return this.getMerchantByProfile(profileId);
+    update.updatedAt = new Date();
     const [m] = await db.update(merchants).set(update).where(eq(merchants.profileId, profileId)).returning();
     return m;
   }
@@ -1409,6 +1427,23 @@ export class DatabaseStorage implements IStorage {
     await db.update(merchantTransactions)
       .set({ webhookDelivered: delivered, webhookAttempts: sql`${merchantTransactions.webhookAttempts} + 1` })
       .where(eq(merchantTransactions.paymentId, paymentId));
+  }
+  async getMerchantPayoutMethods(merchantId: number): Promise<MerchantPayoutMethod[]> {
+    return db.select().from(merchantPayoutMethods).where(eq(merchantPayoutMethods.merchantId, merchantId)).orderBy(desc(merchantPayoutMethods.createdAt));
+  }
+  async createMerchantPayoutMethod(data: { merchantId: number; method: MerchantPayoutMethod["method"]; label?: string; encryptedDetails: string; maskedDetails: string; isDefault?: boolean }): Promise<MerchantPayoutMethod> {
+    return db.transaction(async (tx) => {
+      if (data.isDefault) await tx.update(merchantPayoutMethods).set({ isDefault: false }).where(eq(merchantPayoutMethods.merchantId, data.merchantId));
+      const [row] = await tx.insert(merchantPayoutMethods).values(data).returning();
+      return row;
+    });
+  }
+  async deleteMerchantPayoutMethod(id: number, merchantId: number): Promise<boolean> {
+    const result = await db.delete(merchantPayoutMethods).where(and(eq(merchantPayoutMethods.id, id), eq(merchantPayoutMethods.merchantId, merchantId)));
+    return (result.rowCount || 0) > 0;
+  }
+  async getMerchantLedger(merchantId: number, limit = 100): Promise<MerchantLedgerEntry[]> {
+    return db.select().from(merchantLedgerEntries).where(eq(merchantLedgerEntries.merchantId, merchantId)).orderBy(desc(merchantLedgerEntries.createdAt)).limit(limit);
   }
 }
 
