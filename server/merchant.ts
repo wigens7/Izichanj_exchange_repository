@@ -1,7 +1,7 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import { storage } from "./storage";
 import { db } from "./db";
-import { profiles, merchants, type Merchant } from "@shared/schema";
+import { profiles, merchants, merchantTransactions, type Merchant, type MerchantTransaction } from "@shared/schema";
 import { eq, sql, and } from "drizzle-orm";
 import { isAuthenticated } from "./auth";
 import { getDepositRate } from "./rates";
@@ -449,7 +449,7 @@ export function registerMerchantRoutes(app: Express) {
   });
 
   app.get("/api/v1/payment/:id", requireApiKey, async (req, res) => {
-    const t = await storage.getMerchantTransactionByPaymentId(req.params.id);
+    const t = await storage.getMerchantTransactionByPaymentId(String(req.params.id));
     if (!t || t.merchantId !== req.merchant!.id) return res.status(404).json({ error: "Not found" });
     res.json({
       payment_id: t.paymentId,
@@ -528,24 +528,36 @@ export function registerMerchantRoutes(app: Express) {
         return res.status(400).json({ message: `Insufficient balance. Need ${amountUsdt.toFixed(2)} USDT, you have ${payerBal.toFixed(2)} USDT.` });
       }
 
-      // Atomic transfer: debit payer profile, credit MERCHANT BALANCE (separate from personal account)
-      await db.transaction(async (tx) => {
-        await tx.update(profiles)
-          .set({ balance: sql`${profiles.balance} - ${amountUsdt}` })
-          .where(eq(profiles.id, payer.id));
-        await tx.update(merchants)
-          .set({ balance: sql`${merchants.balance} + ${netUsdt}` })
-          .where(eq(merchants.id, merchant.id));
-      });
+      // One transaction for the state transition and both balance changes.
+      // The balance predicate prevents concurrent requests from overdrawing.
+      let updated: MerchantTransaction;
+      try {
+        updated = await db.transaction(async (tx) => {
+          const [debited] = await tx.update(profiles)
+            .set({ balance: sql`${profiles.balance} - ${amountUsdt}` })
+            .where(and(eq(profiles.id, payer.id), sql`${profiles.balance} >= ${amountUsdt}`))
+            .returning();
+          if (!debited) throw new Error("INSUFFICIENT_BALANCE");
 
-      const updated = await storage.markMerchantTransactionPaid(t.paymentId, payer.id);
-      if (!updated) {
-        // race condition rollback
-        await db.transaction(async (tx) => {
-          await tx.update(profiles).set({ balance: sql`${profiles.balance} + ${amountUsdt}` }).where(eq(profiles.id, payer.id));
-          await tx.update(merchants).set({ balance: sql`${merchants.balance} - ${netUsdt}` }).where(eq(merchants.id, merchant.id));
+          const [paid] = await tx.update(merchantTransactions)
+            .set({ status: "completed", paidAt: new Date(), payerProfileId: payer.id })
+            .where(and(eq(merchantTransactions.paymentId, t.paymentId), eq(merchantTransactions.status, "pending")))
+            .returning();
+          if (!paid) throw new Error("PAYMENT_ALREADY_PROCESSED");
+
+          await tx.update(merchants)
+            .set({ balance: sql`${merchants.balance} + ${netUsdt}` })
+            .where(eq(merchants.id, merchant.id));
+          return paid;
         });
-        return res.status(409).json({ message: "Payment was concurrently processed" });
+      } catch (txErr: any) {
+        if (txErr?.message === "INSUFFICIENT_BALANCE") {
+          return res.status(400).json({ message: "Insufficient balance or payment was already processed." });
+        }
+        if (txErr?.message === "PAYMENT_ALREADY_PROCESSED") {
+          return res.status(409).json({ message: "Payment was concurrently processed" });
+        }
+        throw txErr;
       }
 
       // In-app notifications for both parties

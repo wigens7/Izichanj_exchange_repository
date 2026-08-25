@@ -187,7 +187,7 @@ export default function MerchantPage() {
         <Card>
           <CardHeader>
             <CardTitle>Become a Merchant</CardTitle>
-            <CardDescription>Activate your merchant account to generate API keys and start accepting payments. A 1.5% fee applies on each successful payment.</CardDescription>
+            <CardDescription>Activate your merchant account to generate API keys and start accepting payments. Izichanj Pay currently charges 0% transaction fees.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div>
@@ -245,7 +245,7 @@ export default function MerchantPage() {
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">Total received (net)</p><p className="text-2xl font-bold" data-testid="text-total-received">{totalCompleted.toFixed(2)} USDT</p></CardContent></Card>
         <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">Successful payments</p><p className="text-2xl font-bold" data-testid="text-payment-count">{totalCount}</p></CardContent></Card>
-        <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">Transaction fee</p><p className="text-2xl font-bold">1.5%</p></CardContent></Card>
+        <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">Transaction fee</p><p className="text-2xl font-bold">0%</p></CardContent></Card>
       </div>
 
       <Card data-testid="card-payout">
@@ -349,7 +349,7 @@ export default function MerchantPage() {
               !acknowledged ||
               !payoutMethod ||
               Number(payoutAmount) < 5 ||
-              Number(payoutAmount) > Number(user?.balance || 0) ||
+              Number(payoutAmount) > Number(merchant.balance || 0) ||
               ((payoutMethod === "moncash" || payoutMethod === "natcash") && payoutPhone.trim().length < 6) ||
               (payoutMethod === "zelle" && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(payoutEmail.trim())) ||
               (payoutMethod === "cashapp" && payoutCashtag.trim().length < 1)
