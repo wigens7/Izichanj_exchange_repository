@@ -19,13 +19,14 @@ declare module "http" {
 
 app.use(
   express.json({
+    limit: "25mb",
     verify: (req, _res, buf) => {
       req.rawBody = buf;
     },
   }),
 );
 
-app.use(express.urlencoded({ extended: false }));
+app.use(express.urlencoded({ extended: false, limit: "25mb" }));
 
 export function log(message: string, source = "express") {
   const formattedTime = new Date().toLocaleTimeString("en-US", {
@@ -711,9 +712,14 @@ app.use((req, res, next) => {
     await db.execute(sql`DO $$ BEGIN
       CREATE TYPE payout_method AS ENUM ('moncash','natcash','zelle','cashapp');
     EXCEPTION WHEN duplicate_object THEN NULL; END $$;`);
+    await db.execute(sql`ALTER TYPE payout_method ADD VALUE IF NOT EXISTS 'usdt'`);
     await db.execute(sql`DO $$ BEGIN
       CREATE TYPE payout_status AS ENUM ('pending','approved','rejected');
     EXCEPTION WHEN duplicate_object THEN NULL; END $$;`);
+    await db.execute(sql`ALTER TYPE payout_status ADD VALUE IF NOT EXISTS 'processing'`);
+    await db.execute(sql`ALTER TYPE payout_status ADD VALUE IF NOT EXISTS 'paid'`);
+    await db.execute(sql`ALTER TYPE payout_status ADD VALUE IF NOT EXISTS 'failed'`);
+    await db.execute(sql`ALTER TYPE payout_status ADD VALUE IF NOT EXISTS 'cancelled'`);
     await db.execute(sql`
       CREATE TABLE IF NOT EXISTS payout_requests (
         id SERIAL PRIMARY KEY,
@@ -723,22 +729,91 @@ app.use((req, res, next) => {
         method payout_method NOT NULL,
         details JSONB NOT NULL,
         status payout_status NOT NULL DEFAULT 'pending',
+        idempotency_key TEXT,
+        currency TEXT NOT NULL DEFAULT 'USDT',
+        fee DECIMAL(14,4) NOT NULL DEFAULT 0,
+        net_amount DECIMAL(14,4) NOT NULL DEFAULT 0,
+        external_reference TEXT,
+        failure_reason TEXT,
         admin_note TEXT,
         processed_at TIMESTAMP,
         processed_by INTEGER,
-        created_at TIMESTAMP NOT NULL DEFAULT NOW()
+        created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMP NOT NULL DEFAULT NOW()
       )
     `);
+    await db.execute(sql`ALTER TABLE payout_requests ADD COLUMN IF NOT EXISTS idempotency_key TEXT`);
+    await db.execute(sql`ALTER TABLE payout_requests ADD COLUMN IF NOT EXISTS currency TEXT NOT NULL DEFAULT 'USDT'`);
+    await db.execute(sql`ALTER TABLE payout_requests ADD COLUMN IF NOT EXISTS fee DECIMAL(14,4) NOT NULL DEFAULT 0`);
+    await db.execute(sql`ALTER TABLE payout_requests ADD COLUMN IF NOT EXISTS net_amount DECIMAL(14,4) NOT NULL DEFAULT 0`);
+    await db.execute(sql`ALTER TABLE payout_requests ADD COLUMN IF NOT EXISTS external_reference TEXT`);
+    await db.execute(sql`ALTER TABLE payout_requests ADD COLUMN IF NOT EXISTS failure_reason TEXT`);
+    await db.execute(sql`ALTER TABLE payout_requests ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP NOT NULL DEFAULT NOW()`);
+    await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS payout_requests_idempotency_idx ON payout_requests(user_id, idempotency_key) WHERE idempotency_key IS NOT NULL`);
     console.log("[startup migration] payout_requests table ensured");
   } catch (e) {
     console.warn("[startup migration] payout_requests skipped:", (e as Error).message);
   }
 
   try {
+    await db.execute(sql`DO $$ BEGIN
+      CREATE TYPE merchant_account_status AS ENUM ('pending','active','restricted','suspended','closed');
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$;`);
+    await db.execute(sql`DO $$ BEGIN
+      CREATE TYPE merchant_kyc_status AS ENUM ('not_started','pending','under_review','verified','rejected');
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$;`);
     await db.execute(sql`ALTER TABLE merchants ADD COLUMN IF NOT EXISTS balance DECIMAL(14,4) NOT NULL DEFAULT 0`);
+    await db.execute(sql`ALTER TABLE merchants ADD COLUMN IF NOT EXISTS merchant_id TEXT`);
+    await db.execute(sql`ALTER TABLE merchants ADD COLUMN IF NOT EXISTS email TEXT`);
+    await db.execute(sql`ALTER TABLE merchants ADD COLUMN IF NOT EXISTS phone TEXT`);
+    await db.execute(sql`ALTER TABLE merchants ADD COLUMN IF NOT EXISTS country TEXT`);
+    await db.execute(sql`ALTER TABLE merchants ADD COLUMN IF NOT EXISTS account_status TEXT NOT NULL DEFAULT 'pending'`);
+    await db.execute(sql`ALTER TABLE merchants ADD COLUMN IF NOT EXISTS merchant_kyc_status TEXT NOT NULL DEFAULT 'not_started'`);
+    await db.execute(sql`ALTER TABLE merchants ADD COLUMN IF NOT EXISTS payment_enabled BOOLEAN NOT NULL DEFAULT FALSE`);
+    await db.execute(sql`ALTER TABLE merchants ADD COLUMN IF NOT EXISTS payout_enabled BOOLEAN NOT NULL DEFAULT FALSE`);
+    await db.execute(sql`ALTER TABLE merchants ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP NOT NULL DEFAULT NOW()`);
+    await db.execute(sql`UPDATE merchants SET merchant_id = 'mch_' || LPAD(id::text, 8, '0') WHERE merchant_id IS NULL`);
+    await db.execute(sql`UPDATE merchants m SET email = p.email, phone = p.phone, country = p.country, merchant_kyc_status = CASE WHEN p.kyc_status = 'verified' THEN 'verified' ELSE 'not_started' END, account_status = CASE WHEN m.is_verified THEN 'active' ELSE 'pending' END, payment_enabled = m.is_verified, payout_enabled = m.is_verified FROM profiles p WHERE p.id = m.profile_id AND (m.email IS NULL OR m.phone IS NULL OR m.merchant_id IS NULL)`);
+    await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS merchants_merchant_id_idx ON merchants(merchant_id)`);
     console.log("[startup migration] merchants.balance column ensured");
   } catch (e) {
     console.warn("[startup migration] merchants.balance skipped:", (e as Error).message);
+  }
+
+  try {
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS merchant_payout_methods (
+        id SERIAL PRIMARY KEY,
+        merchant_id INTEGER NOT NULL REFERENCES merchants(id),
+        method payout_method NOT NULL,
+        label TEXT,
+        encrypted_details TEXT NOT NULL,
+        masked_details TEXT NOT NULL,
+        is_default BOOLEAN NOT NULL DEFAULT FALSE,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    `);
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS merchant_ledger_entries (
+        id SERIAL PRIMARY KEY,
+        merchant_id INTEGER NOT NULL REFERENCES merchants(id),
+        payment_id TEXT,
+        payout_id INTEGER REFERENCES payout_requests(id),
+        entry_type TEXT NOT NULL,
+        balance_type TEXT NOT NULL DEFAULT 'available',
+        amount DECIMAL(14,4) NOT NULL,
+        currency TEXT NOT NULL DEFAULT 'USDT',
+        idempotency_key TEXT UNIQUE,
+        description TEXT,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    `);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS merchant_payout_methods_merchant_idx ON merchant_payout_methods(merchant_id)`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS merchant_ledger_entries_merchant_idx ON merchant_ledger_entries(merchant_id, created_at DESC)`);
+    console.log("[startup migration] merchant account, payout methods, and ledger tables ensured");
+  } catch (e) {
+    console.warn("[startup migration] merchant infrastructure skipped:", (e as Error).message);
   }
 
   try {

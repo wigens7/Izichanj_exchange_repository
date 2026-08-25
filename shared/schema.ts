@@ -602,16 +602,28 @@ export const merchantTxnStatusEnum = pgEnum("merchant_txn_status", [
   "failed",
 ]);
 
+export const merchantAccountStatusEnum = pgEnum("merchant_account_status", ["pending", "active", "restricted", "suspended", "closed"]);
+export const merchantKycStatusEnum = pgEnum("merchant_kyc_status", ["not_started", "pending", "under_review", "verified", "rejected"]);
+
 export const merchants = pgTable("merchants", {
   id: serial("id").primaryKey(),
   profileId: integer("profile_id").references(() => profiles.id).notNull().unique(),
+  merchantId: text("merchant_id").unique(),
   businessName: text("business_name").notNull(),
+  email: text("email"),
+  phone: text("phone"),
+  country: text("country"),
+  accountStatus: merchantAccountStatusEnum("account_status").default("pending").notNull(),
+  kycStatus: merchantKycStatusEnum("merchant_kyc_status").default("not_started").notNull(),
+  paymentEnabled: boolean("payment_enabled").default(false).notNull(),
+  payoutEnabled: boolean("payout_enabled").default(false).notNull(),
   webhookUrl: text("webhook_url"),
   apiPublicKey: text("api_public_key").notNull().unique(),
   apiSecretKey: text("api_secret_key").notNull().unique(),
   isVerified: boolean("is_verified").default(false).notNull(),
   balance: decimal("balance", { precision: 14, scale: 4 }).default("0").notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 export type Merchant = typeof merchants.$inferSelect;
 
@@ -641,8 +653,10 @@ export const merchantTransactions = pgTable("merchant_transactions", {
 export type MerchantTransaction = typeof merchantTransactions.$inferSelect;
 
 // Merchant payout requests
-export const payoutMethodEnum = pgEnum("payout_method", ["moncash", "natcash", "zelle", "cashapp"]);
-export const payoutStatusEnum = pgEnum("payout_status", ["pending", "approved", "rejected"]);
+export const payoutMethodEnum = pgEnum("payout_method", ["moncash", "natcash", "usdt", "zelle", "cashapp"]);
+export const payoutStatusEnum = pgEnum("payout_status", ["pending", "processing", "approved", "paid", "failed", "cancelled", "rejected"]);
+export const merchantLedgerEntryTypeEnum = pgEnum("merchant_ledger_entry_type", ["payment", "fee", "payout_reservation", "payout_refund", "payout", "adjustment"]);
+export const merchantLedgerBalanceEnum = pgEnum("merchant_ledger_balance", ["available", "pending"]);
 
 export const payoutRequests = pgTable("payout_requests", {
   id: serial("id").primaryKey(),
@@ -652,25 +666,73 @@ export const payoutRequests = pgTable("payout_requests", {
   method: payoutMethodEnum("method").notNull(),
   details: jsonb("details").notNull(),
   status: payoutStatusEnum("status").default("pending").notNull(),
+  idempotencyKey: text("idempotency_key"),
+  currency: text("currency").default("USDT").notNull(),
+  fee: decimal("fee", { precision: 14, scale: 4 }).default("0").notNull(),
+  netAmount: decimal("net_amount", { precision: 14, scale: 4 }).default("0").notNull(),
+  externalReference: text("external_reference"),
+  failureReason: text("failure_reason"),
   adminNote: text("admin_note"),
   processedAt: timestamp("processed_at"),
   processedBy: integer("processed_by"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 export type PayoutRequest = typeof payoutRequests.$inferSelect;
 export type InsertPayoutRequest = typeof payoutRequests.$inferInsert;
 
+export const merchantPayoutMethods = pgTable("merchant_payout_methods", {
+  id: serial("id").primaryKey(),
+  merchantId: integer("merchant_id").references(() => merchants.id).notNull(),
+  method: payoutMethodEnum("method").notNull(),
+  label: text("label"),
+  encryptedDetails: text("encrypted_details").notNull(),
+  maskedDetails: text("masked_details").notNull(),
+  isDefault: boolean("is_default").default(false).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+export type MerchantPayoutMethod = typeof merchantPayoutMethods.$inferSelect;
+
+export const merchantLedgerEntries = pgTable("merchant_ledger_entries", {
+  id: serial("id").primaryKey(),
+  merchantId: integer("merchant_id").references(() => merchants.id).notNull(),
+  paymentId: text("payment_id"),
+  payoutId: integer("payout_id").references(() => payoutRequests.id),
+  entryType: merchantLedgerEntryTypeEnum("entry_type").notNull(),
+  balanceType: merchantLedgerBalanceEnum("balance_type").default("available").notNull(),
+  amount: decimal("amount", { precision: 14, scale: 4 }).notNull(),
+  currency: text("currency").default("USDT").notNull(),
+  idempotencyKey: text("idempotency_key").unique(),
+  description: text("description"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+export type MerchantLedgerEntry = typeof merchantLedgerEntries.$inferSelect;
+
 export const payoutRequestSchema = z.object({
   amount: z.coerce.number().positive().min(5, "Minimum payout is 5 USDT"),
-  method: z.enum(["moncash", "natcash", "zelle", "cashapp"]),
+  method: z.enum(["moncash", "natcash", "usdt", "zelle", "cashapp"]),
+  payoutMethodId: z.coerce.number().int().positive().optional(),
+  network: z.string().trim().min(2).max(32).optional(),
+  accountName: z.string().trim().min(2).max(120).optional(),
+  recipientName: z.string().trim().min(2).max(120).optional(),
   phoneNumber: z.string().optional(),
   email: z.string().optional(),
   cashtag: z.string().optional(),
+  walletAddress: z.string().trim().min(12).max(160).optional(),
+  idempotencyKey: z.string().trim().min(8).max(120).optional(),
   acknowledged: z.literal(true, { errorMap: () => ({ message: "You must acknowledge the 24-48h processing time" }) }),
 }).superRefine((v, ctx) => {
   if ((v.method === "moncash" || v.method === "natcash")) {
     if (!v.phoneNumber || !/^[0-9+\s-]{6,20}$/.test(v.phoneNumber.trim())) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["phoneNumber"], message: "Valid phone number required" });
+    }
+  } else if (v.method === "usdt") {
+    if (!v.walletAddress || !/^[A-Za-z0-9:_-]{12,160}$/.test(v.walletAddress.trim())) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["walletAddress"], message: "Valid wallet address required" });
+    }
+    if (!v.network) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["network"], message: "Select the USDT network" });
     }
   } else if (v.method === "zelle") {
     if (!v.email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v.email.trim())) {
@@ -686,6 +748,7 @@ export const payoutRequestSchema = z.object({
 export const PAYOUT_METHOD_META: Record<string, { label: string; colorName: string; hex: string }> = {
   moncash: { label: "MonCash", colorName: "Red", hex: "#EF4444" },
   natcash: { label: "NatCash", colorName: "Lemon Yellow (Citron)", hex: "#E3FF00" },
+  usdt: { label: "USDT", colorName: "Crypto", hex: "#26A17B" },
   zelle: { label: "Zelle", colorName: "Navy Blue", hex: "#1A237E" },
   cashapp: { label: "CashApp", colorName: "Green", hex: "#22C55E" },
 };

@@ -1,4 +1,5 @@
 import { Resend } from "resend";
+import { PUBLIC_APP_URL } from "./public-url";
 
 // Sender address. Resend requires the domain in this address to be verified at
 // https://resend.com/domains before it will deliver mail. Override via EMAIL_FROM
@@ -107,8 +108,8 @@ function parseWhatsAppMessage(message: string): { title: string; bodyHtml: strin
   // Drop the leading "*Izichanj*\n\n" or "*Izichanj — ...*\n\n" header — the
   // email template already brands itself.
   text = text.replace(/^\*Izichanj[^\n*]*\*\s*\n+/i, "");
-  // Drop the trailing canonical https://izichanj.com line if present.
-  text = text.replace(/\n+https?:\/\/izichanj\.com\/?\s*$/i, "");
+  // Drop the trailing canonical app link if present.
+  text = text.replace(/\n+https?:\/\/(?:www\.)?izichanj\.com\/?\s*$/i, "");
 
   // First non-empty line becomes the title (e.g. "✅ Deposit Approved").
   const lines = text.split("\n");
@@ -149,7 +150,7 @@ function buildNotificationHtml(opts: { title: string; bodyHtml: string; recipien
           <p style="font-size:15px;line-height:1.6;color:#dddddd;margin:0 0 18px 0">${greeting}</p>
           <div style="font-size:15px;line-height:1.6;color:#dddddd">${opts.bodyHtml}</div>
           <div style="text-align:center;margin:30px 0 6px 0">
-            <a href="https://izichanj.com" style="background-color:#D4AF37;color:#111111;padding:14px 30px;text-decoration:none;font-weight:bold;font-size:16px;border-radius:8px;display:inline-block;box-shadow:0 4px 10px rgba(212,175,55,0.3)">Open Izichanj</a>
+            <a href="${PUBLIC_APP_URL}" style="background-color:#D4AF37;color:#111111;padding:14px 30px;text-decoration:none;font-weight:bold;font-size:16px;border-radius:8px;display:inline-block;box-shadow:0 4px 10px rgba(212,175,55,0.3)">Open Izichanj</a>
           </div>
           <p style="color:#a0a0a0;font-size:12px;line-height:1.6;text-align:center;margin-top:30px;border-top:1px solid #333;padding-top:20px">
             You're receiving this email because notifications are enabled on your Izichanj account.<br>
@@ -166,7 +167,7 @@ export async function sendNotificationEmail(to: string, message: string, name?: 
   if (!to) return { ok: false, error: "no recipient" };
   const { title, bodyHtml, bodyText } = parseWhatsAppMessage(message);
   const html = buildNotificationHtml({ title, bodyHtml, recipientName: name });
-  const text = `${title}\n\n${bodyText}\n\nhttps://izichanj.com`;
+  const text = `${title}\n\n${bodyText}\n\n${PUBLIC_APP_URL}`;
   return send({ to, subject: `${title} — Izichanj`, html, text });
 }
 
@@ -217,10 +218,10 @@ function buildNewsletterHtml(opts: { subject: string; body: string; recipientNam
           <p style="font-size:14px;color:#dddddd;margin:0 0 22px 0">${greeting}</p>
           <div style="font-size:15px;line-height:1.7;color:#dddddd">${bodyHtml}</div>
           <div style="text-align:center;margin:30px 0 6px 0">
-            <a href="https://izichanj.com" style="background-color:#D4AF37;color:#111111;padding:14px 30px;text-decoration:none;font-weight:bold;font-size:16px;border-radius:8px;display:inline-block;box-shadow:0 4px 10px rgba(212,175,55,0.3)">Visit Izichanj</a>
+            <a href="${PUBLIC_APP_URL}" style="background-color:#D4AF37;color:#111111;padding:14px 30px;text-decoration:none;font-weight:bold;font-size:16px;border-radius:8px;display:inline-block;box-shadow:0 4px 10px rgba(212,175,55,0.3)">Visit Izichanj</a>
           </div>
           <div style="font-size:13px;color:#a0a0a0;margin-top:24px">— The Izichanj Team<br>
-            <a href="https://izichanj.com" style="color:#D4AF37;text-decoration:none">https://izichanj.com</a>
+            <a href="${PUBLIC_APP_URL}" style="color:#D4AF37;text-decoration:none">${PUBLIC_APP_URL}</a>
           </div>
           <p style="color:#a0a0a0;font-size:12px;line-height:1.6;text-align:center;margin-top:30px;border-top:1px solid #333;padding-top:20px">
             You're receiving this because you subscribed to the Izichanj newsletter.<br>
@@ -238,7 +239,7 @@ export async function sendNewsletterEmail(to: string, name: string | null | unde
   if (!to) return { ok: false, error: "no recipient" };
   const html = buildNewsletterHtml({ subject, body, recipientName: name });
   const greeting = `Hi ${name || "there"},`;
-  const text = `${greeting}\n\n${body}\n\n— The Izichanj Team\nhttps://izichanj.com\n\nYou're receiving this because you subscribed to the Izichanj newsletter. You can unsubscribe anytime from your Izichanj profile.`;
+  const text = `${greeting}\n\n${body}\n\n— The Izichanj Team\n${PUBLIC_APP_URL}\n\nYou're receiving this because you subscribed to the Izichanj newsletter. You can unsubscribe anytime from your Izichanj profile.`;
   return send({ to, subject, html, text });
 }
 

@@ -1,51 +1,46 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, type ReactNode } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { Link } from "wouter";
 import { apiRequest } from "@/lib/queryClient";
 import { useUser } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
-  Store, ShieldOff, AlertTriangle, Ban, Plus, Pause, Play, Trash2,
-  Send, Paperclip, MessageSquare, AlertCircle, CheckCircle2, ChevronRight,
-  ShieldCheck, Loader2, RefreshCcw, X, Image as ImageIcon, Clock, Check,
-  Lock, KeyRound, Settings, MessageCircle, Save, ArrowLeft
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
+} from "@/components/ui/dialog";
+import {
+  Store, ShieldOff, Ban, Plus, ShoppingCart, AlertTriangle, Send,
+  ShieldCheck, Loader2, RefreshCcw, Lock, Settings, MessageCircle, Trash2, Pause, Play,
+  ImagePlus, ChevronDown, MoreVertical, X, Wallet, LayoutDashboard, ListChecks,
 } from "lucide-react";
-import { formatDistanceToNow, format } from "date-fns";
-import { parseTs, formatTime } from "@/lib/dateUtils";
+import { formatDistanceToNow } from "date-fns";
 
-// ─── Presence Indicator ────────────────────────────────────────────────────
-// Considers a user "online" if last_activity is within the last 2 minutes.
 const ONLINE_WINDOW_MS = 2 * 60 * 1000;
+
 function PresenceIndicator({ lastActivity, compact = false }: { lastActivity?: string | Date | null; compact?: boolean }) {
-  if (!lastActivity) {
-    return compact ? null : <span className="text-[10px] text-muted-foreground">Offline</span>;
-  }
-  const last = parseTs(lastActivity);
-  if (!last) return compact ? null : <span className="text-[10px] text-muted-foreground">Offline</span>;
+  if (!lastActivity) return compact ? null : <span className="text-[10px] text-muted-foreground">Offline</span>;
+  const last = new Date(lastActivity);
+  if (isNaN(last.getTime())) return compact ? null : <span className="text-[10px] text-muted-foreground">Offline</span>;
   const isOnline = Date.now() - last.getTime() < ONLINE_WINDOW_MS;
+
   if (isOnline) {
     return (
-      <span className="inline-flex items-center gap-1" data-testid="presence-online">
+      <span className="inline-flex items-center gap-1">
         <span className="w-2 h-2 rounded-full bg-emerald-500 ring-2 ring-emerald-500/20 animate-pulse" />
         {!compact && <span className="text-[10px] text-emerald-500 font-medium">Online</span>}
       </span>
     );
   }
   return (
-    <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground" data-testid="presence-offline" title={last.toLocaleString()}>
+    <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground">
       <span className="w-2 h-2 rounded-full bg-muted-foreground/40" />
-      {!compact && <>Last seen {formatDistanceToNow(last as Date, { addSuffix: true })}</>}
+      {!compact && <>Last seen {formatDistanceToNow(last, { addSuffix: true })}</>}
     </span>
   );
 }
@@ -55,10 +50,10 @@ const STATUS_COLORS: Record<string, string> = {
   paused: "text-yellow-400 bg-yellow-400/10 border-yellow-400/30",
   cancelled: "text-red-400 bg-red-400/10 border-red-400/30",
   completed: "text-blue-400 bg-blue-400/10 border-blue-400/30",
-  pending: "text-yellow-400 bg-yellow-400/10 border-yellow-400/30",
-  paid: "text-blue-400 bg-blue-400/10 border-blue-400/30",
   released: "text-emerald-400 bg-emerald-400/10 border-emerald-400/30",
-  disputed: "text-red-400 bg-red-400/10 border-red-400/30",
+  paid: "text-blue-400 bg-blue-400/10 border-blue-400/30",
+  disputed: "text-orange-400 bg-orange-400/10 border-orange-400/30",
+  pending: "text-yellow-400 bg-yellow-400/10 border-yellow-400/30",
 };
 
 function StatusBadge({ status }: { status: string }) {
@@ -69,59 +64,23 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
-function TimeAgo({ date }: { date: string }) {
-  const d = parseTs(date);
-  return <span className="text-xs text-muted-foreground">{d ? formatDistanceToNow(d, { addSuffix: true }) : ""}</span>;
-}
-
-function ExpiryCountdown({ expiresAt }: { expiresAt: string }) {
-  const [remaining, setRemaining] = useState<number>(0);
-  useEffect(() => {
-    const update = () => {
-      const diff = new Date(expiresAt).getTime() - Date.now();
-      setRemaining(Math.max(0, Math.floor(diff / 1000)));
-    };
-    update();
-    const t = setInterval(update, 1000);
-    return () => clearInterval(t);
-  }, [expiresAt]);
-  const m = Math.floor(remaining / 60);
-  const s = remaining % 60;
-  const urgent = remaining < 300;
-  return (
-    <span className={`inline-flex items-center gap-1 text-xs font-medium ${urgent ? "text-red-400" : "text-yellow-400"}`}>
-      <Clock className="w-3 h-3" />
-      {remaining > 0 ? `${m}:${String(s).padStart(2, "0")} left` : "Expired"}
-    </span>
-  );
-}
+const num = (v: any) => parseFloat(v ?? 0) || 0;
 
 export default function P2PMarketPage() {
   const { data: user } = useUser();
-  const { toast } = useToast();
-  const qc = useQueryClient();
 
   const { data: banData } = useQuery<any>({ queryKey: ["/api/p2p/ban"] });
-  const { data: paymentMethods } = useQuery<any>({ queryKey: ["/api/p2p/payment-methods"] });
-
-  const [activeTab, setActiveTab] = useState("marketplace");
-  const [selectedOrder, setSelectedOrder] = useState<any>(null);
-  const [showPostAd, setShowPostAd] = useState(false);
-  const [showBuyDialog, setShowBuyDialog] = useState<any>(null);
+  const [mode, setMode] = useState<"buy" | "sell">("sell");
+  const [activeTab, setActiveTab] = useState("overview");
 
   const isKycVerified = user?.kycStatus === "verified";
   const isBanned = banData?.banned;
-
-  const requireKyc = (action: string) => {
-    toast({
-      title: "Identity verification required",
-      description: `Please complete KYC in your Profile to ${action} on the P2P Market.`,
-      variant: "destructive",
-    });
+  const switchMode = (nextMode: "buy" | "sell") => {
+    setMode(nextMode);
+    setActiveTab(nextMode === "sell" ? "overview" : "marketplace");
   };
 
   if (isBanned) {
-    const until = banData?.bannedUntil ? new Date(banData.bannedUntil) : null;
     return (
       <div className="p-4 space-y-4 max-w-lg mx-auto mt-8">
         <Card className="border-red-500/30 bg-red-500/5">
@@ -129,10 +88,7 @@ export default function P2PMarketPage() {
             <Ban className="w-12 h-12 text-red-500 mx-auto" />
             <div>
               <h2 className="text-lg font-semibold">Temporarily Banned</h2>
-              <p className="text-sm text-muted-foreground mt-1">
-                {banData?.reason ?? "Too many cancellations."}
-                {until && <> Banned until <strong>{until.toLocaleString()}</strong>.</>}
-              </p>
+              <p className="text-sm text-muted-foreground mt-1">{banData?.reason ?? "Account restricted."}</p>
             </div>
           </CardContent>
         </Card>
@@ -142,19 +98,51 @@ export default function P2PMarketPage() {
 
   return (
     <div className="p-4 space-y-4">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Store className="w-5 h-5 text-primary" />
-          <h1 className="text-xl font-bold">P2P Market</h1>
+      <div className="space-y-3">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-start gap-2 min-w-0">
+            {mode === "sell" ? <Store className="w-5 h-5 text-primary mt-1 shrink-0" /> : <ShoppingCart className="w-5 h-5 text-primary mt-1 shrink-0" />}
+            <div className="min-w-0">
+              <p className="text-[11px] uppercase tracking-wider text-muted-foreground font-medium">
+                {mode === "sell" ? "Seller workspace" : "Buyer marketplace"}
+              </p>
+              <h1 className="text-xl font-bold">{mode === "sell" ? "Sell USDT" : "Buy USDT"}</h1>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                {mode === "sell"
+                  ? "Manage your ads, escrow, and buyer trades."
+                  : "Find a trusted seller and buy USDT securely."}
+              </p>
+            </div>
+          </div>
+          {mode === "sell" && <PostAdButton isKycVerified={isKycVerified} label="Create sell ad" />}
         </div>
-        <Button
-          size="sm"
-          onClick={() => isKycVerified ? setShowPostAd(true) : requireKyc("post an ad")}
-          className="gap-2"
-          data-testid="button-post-ad"
-        >
-          <Plus className="w-4 h-4" /> Post Ad
-        </Button>
+
+        <div className="grid grid-cols-2 gap-1 rounded-lg border border-border bg-muted/40 p-1" role="tablist" aria-label="P2P mode">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={mode === "sell"}
+            data-testid="tab-sell-usdt"
+            onClick={() => switchMode("sell")}
+            className={`flex items-center justify-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
+              mode === "sell" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            <Store className="w-4 h-4" aria-hidden="true" /> Sell USDT
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={mode === "buy"}
+            data-testid="tab-buy-usdt"
+            onClick={() => switchMode("buy")}
+            className={`flex items-center justify-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
+              mode === "buy" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            <ShoppingCart className="w-4 h-4" aria-hidden="true" /> Buy USDT
+          </button>
+        </div>
       </div>
 
       {!isKycVerified && (
@@ -162,193 +150,1440 @@ export default function P2PMarketPage() {
           <CardContent className="py-3 px-4 flex items-center gap-3">
             <ShieldOff className="w-5 h-5 text-yellow-500 shrink-0" />
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium">Identity verification required to trade</p>
-              <p className="text-xs text-muted-foreground">You can browse offers below, but you'll need to complete KYC before posting or placing orders.</p>
+              <p className="text-sm font-medium">
+                {mode === "sell" ? "Verify your identity before selling" : "Identity verification required"}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {mode === "sell"
+                  ? "Selling is unavailable until identity verification is complete."
+                  : "You can browse ads, but you must verify to buy or sell."}
+              </p>
             </div>
-            <Button size="sm" variant="outline" onClick={() => window.location.href = "/profile"} className="gap-1 shrink-0" data-testid="button-go-kyc">
+            <Button size="sm" variant="outline" onClick={() => window.location.href = "/profile"} className="gap-1 shrink-0">
               <ShieldCheck className="w-4 h-4" /> Verify
             </Button>
           </CardContent>
         </Card>
       )}
 
-      <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="w-full" data-testid="p2p-tabs">
-          <TabsTrigger value="marketplace" className="flex-1" data-testid="tab-marketplace">Marketplace</TabsTrigger>
-          <TabsTrigger value="my-ads" className="flex-1" data-testid="tab-my-ads">My Ads</TabsTrigger>
-          <TabsTrigger value="my-orders" className="flex-1" data-testid="tab-my-orders">My Orders</TabsTrigger>
-        </TabsList>
+      {mode === "sell" ? (
+        <Tabs value={activeTab} onValueChange={setActiveTab}>
+          <TabsList className="w-full">
+            <TabsTrigger value="overview" className="flex-1 text-xs gap-1" data-testid="tab-seller-overview"><LayoutDashboard className="w-3.5 h-3.5" /> Overview</TabsTrigger>
+            <TabsTrigger value="seller-orders" className="flex-1 text-xs gap-1" data-testid="tab-seller-trades"><ListChecks className="w-3.5 h-3.5" /> Seller trades</TabsTrigger>
+            <TabsTrigger value="my-ads" className="flex-1 text-xs" data-testid="tab-seller-ads">My Ads</TabsTrigger>
+            <TabsTrigger value="seller-settings" className="flex-1 text-xs" data-testid="tab-seller-settings">Settings</TabsTrigger>
+          </TabsList>
 
-        <TabsContent value="marketplace">
-          <MarketplaceTab
-            onBuy={(ad) => isKycVerified ? setShowBuyDialog(ad) : requireKyc("buy USDT")}
-            currentUserId={user?.id}
-          />
-        </TabsContent>
-
-        <TabsContent value="my-orders">
-          <MyOrdersTab onOpen={(order) => setSelectedOrder(order)} currentUserId={user?.id} />
-        </TabsContent>
-
-        <TabsContent value="my-ads">
-          <MyAdsTab />
-        </TabsContent>
-      </Tabs>
-
-      {showPostAd && (
-        <PostAdDialog
-          open={showPostAd}
-          onClose={() => setShowPostAd(false)}
-          paymentMethodsData={paymentMethods ?? { methods: ["MonCash", "NatCash"], currency: "HTG", group: "HT" }}
-          userBalance={parseFloat(user?.balance ?? "0")}
-        />
-      )}
-
-      {showBuyDialog && (
-        <PlaceOrderDialog
-          open={!!showBuyDialog}
-          ad={showBuyDialog}
-          onClose={() => setShowBuyDialog(null)}
-          onPlaced={() => { setShowBuyDialog(null); setActiveTab("my-orders"); }}
-        />
-      )}
-
-      {selectedOrder && (
-        <TradeDialog
-          open={!!selectedOrder}
-          order={selectedOrder}
-          currentUserId={user?.id}
-          onClose={() => { setSelectedOrder(null); qc.invalidateQueries({ queryKey: ["/api/p2p/orders"] }); }}
-        />
+          <TabsContent value="overview">
+            <SellerOverview
+              currentUserId={user?.id}
+              walletBalance={user?.balance}
+              isKycVerified={isKycVerified}
+              onOpenAds={() => setActiveTab("my-ads")}
+              onOpenOrders={() => setActiveTab("seller-orders")}
+            />
+          </TabsContent>
+          <TabsContent value="seller-orders">
+            <MyOrdersTab currentUserId={user?.id} role="seller" />
+          </TabsContent>
+          <TabsContent value="my-ads">
+            <MyAdsTab />
+          </TabsContent>
+          <TabsContent value="seller-settings">
+            <SellerSettingsPanel />
+          </TabsContent>
+        </Tabs>
+      ) : (
+        <Tabs value={activeTab} onValueChange={setActiveTab}>
+          <TabsList className="w-full">
+            <TabsTrigger value="marketplace" className="flex-1 text-xs" data-testid="tab-buyer-marketplace">Marketplace</TabsTrigger>
+            <TabsTrigger value="orders" className="flex-1 text-xs" data-testid="tab-buyer-trades">My Trades</TabsTrigger>
+          </TabsList>
+          <TabsContent value="marketplace">
+            <MarketplaceTab currentUserId={user?.id} isKycVerified={isKycVerified} />
+          </TabsContent>
+          <TabsContent value="orders">
+            <MyOrdersTab currentUserId={user?.id} />
+          </TabsContent>
+        </Tabs>
       )}
     </div>
   );
 }
 
-// ─── Marketplace Tab ───────────────────────────────────────────────────────
-function MarketplaceTab({ onBuy, currentUserId }: { onBuy: (ad: any) => void; currentUserId?: number }) {
-  const { data: ads, isLoading, refetch } = useQuery<any[]>({ queryKey: ["/api/p2p/ads"] });
+/* ---------------------------------- Seller workspace ---------------------------------- */
 
-  if (isLoading) return <div className="flex justify-center py-10"><Loader2 className="w-6 h-6 animate-spin text-primary" /></div>;
-  if (!ads?.length) return <EmptyState icon={Store} message="No ads available right now. Be the first to post one!" />;
+function SellerOverview({
+  currentUserId,
+  walletBalance,
+  isKycVerified,
+  onOpenAds,
+  onOpenOrders,
+}: {
+  currentUserId?: number;
+  walletBalance?: string | number | null;
+  isKycVerified: boolean;
+  onOpenAds: () => void;
+  onOpenOrders: () => void;
+}) {
+  const { data: ads, isLoading: adsLoading } = useQuery<any[]>({
+    queryKey: ["/api/p2p/ads/my"],
+    refetchInterval: 20000,
+  });
+  const { data: orders, isLoading: ordersLoading } = useQuery<any[]>({
+    queryKey: ["/api/p2p/orders"],
+    refetchInterval: 15000,
+  });
+
+  const sellerOrders = (orders ?? []).filter((order) => Number(order.seller_id) === Number(currentUserId));
+  const activeAds = (ads ?? []).filter((ad) => ["active", "paused"].includes(ad.status));
+  const activeOrders = sellerOrders.filter((order) => !["cancelled", "completed", "released"].includes(order.status));
+  const reservedUsdt = activeAds.reduce((sum, ad) => sum + num(ad.available_usdt), 0);
+  const activeTradeUsdt = activeOrders.reduce((sum, order) => sum + num(order.amount_usdt), 0);
+  const isLoading = adsLoading || ordersLoading;
 
   return (
-    <div className="space-y-3 mt-2">
-      <div className="flex justify-end">
-        <Button variant="ghost" size="sm" onClick={() => refetch()} className="gap-1 text-xs text-muted-foreground" data-testid="button-refresh-ads">
-          <RefreshCcw className="w-3 h-3" /> Refresh
-        </Button>
+    <div className="space-y-3 mt-3">
+      <Card className="border-primary/20 bg-primary/5">
+        <CardContent className="p-4">
+          <div className="flex items-start gap-3">
+            <div className="rounded-lg bg-primary/15 p-2 text-primary"><Wallet className="w-5 h-5" aria-hidden="true" /></div>
+            <div className="min-w-0">
+              <p className="font-medium">Your selling activity</p>
+              <p className="text-xs text-muted-foreground mt-1">
+                Posting an ad reserves the listed USDT in escrow until it is sold or the ad is cancelled.
+              </p>
+            </div>
+          </div>
+          {!isKycVerified && (
+            <p className="text-xs text-yellow-500 mt-3">Complete identity verification to create a sell ad.</p>
+          )}
+        </CardContent>
+      </Card>
+
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <SellerMetric label="Wallet balance" value={`${num(walletBalance).toFixed(2)} USDT`} icon={<Wallet className="w-4 h-4" />} loading={isLoading} testId="seller-metric-wallet" />
+        <SellerMetric label="Reserved in ads" value={`${reservedUsdt.toFixed(2)} USDT`} icon={<Lock className="w-4 h-4" />} loading={isLoading} testId="seller-metric-reserved" />
+        <SellerMetric label="Active trades" value={String(activeOrders.length)} detail={`${activeTradeUsdt.toFixed(2)} USDT`} icon={<ListChecks className="w-4 h-4" />} loading={isLoading} testId="seller-metric-trades" />
+        <SellerMetric label="Live ads" value={String(activeAds.filter((ad) => ad.status === "active").length)} detail={`${activeAds.length} active or paused`} icon={<Store className="w-4 h-4" />} loading={isLoading} testId="seller-metric-ads" />
       </div>
-      {ads.map((ad) => (
-        <AdCard key={ad.id} ad={ad} onBuy={onBuy} isMine={(ad.seller_id ?? ad.sellerId) === currentUserId} />
-      ))}
+
+      <Card>
+        <CardContent className="p-4">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="font-medium">Manage your seller workflow</p>
+              <p className="text-xs text-muted-foreground mt-1">Review buyer trades and keep your sell ads available.</p>
+            </div>
+            <Store className="w-5 h-5 text-muted-foreground shrink-0" aria-hidden="true" />
+          </div>
+          <div className="grid grid-cols-2 gap-2 mt-4">
+            <Button variant="outline" size="sm" onClick={onOpenAds} data-testid="button-manage-seller-ads">Manage ads</Button>
+            <Button variant="outline" size="sm" onClick={onOpenOrders} data-testid="button-view-seller-trades">View seller trades</Button>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }
 
-function AdCard({ ad, onBuy, isMine }: { ad: any; onBuy: (ad: any) => void; isMine: boolean }) {
-  const rate = parseFloat(ad.rate_htg ?? ad.rateHtg ?? 0);
-  const avail = parseFloat(ad.available_usdt ?? ad.availableUsdt ?? 0);
-  const minOrd = parseFloat(ad.min_order_usdt ?? ad.minOrderUsdt ?? 0);
-  const maxOrd = parseFloat(ad.max_order_usdt ?? ad.maxOrderUsdt ?? 0);
-  const methods: string[] = ad.payment_methods ?? ad.paymentMethods ?? [];
-  const sellerName = ad.seller_name ?? ad.sellerName ?? "Seller";
-  const termsNote = ad.terms_note ?? ad.terms;
-  const currency = ad.currency ?? "HTG";
-
+function SellerMetric({
+  label,
+  value,
+  detail,
+  icon,
+  loading,
+  testId,
+}: {
+  label: string;
+  value: string;
+  detail?: string;
+  icon: ReactNode;
+  loading: boolean;
+  testId: string;
+}) {
   return (
-    <Card className="border-border hover:border-primary/40 transition-colors" data-testid={`ad-card-${ad.id}`}>
-      <CardContent className="p-4">
-        <div className="flex items-start justify-between gap-3">
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 mb-1 flex-wrap">
-              <span className="font-semibold text-sm truncate">{sellerName}</span>
-              <PresenceIndicator lastActivity={ad.seller_last_activity ?? ad.sellerLastActivity} />
-              {isMine && <Badge variant="outline" className="text-[10px] py-0">You</Badge>}
-            </div>
-            <div className="text-2xl font-bold text-primary">{rate.toFixed(2)} <span className="text-sm font-normal text-muted-foreground">{currency}/USDT</span></div>
-            <div className="text-xs text-muted-foreground mt-1">
-              Available: <span className="text-foreground font-medium">{avail.toFixed(2)} USDT</span>
-              {" · "}Min: <span className="text-foreground">{minOrd.toFixed(0)}</span>
-              {" – "}Max: <span className="text-foreground">{maxOrd.toFixed(0)} USDT</span>
-            </div>
-            <div className="flex flex-wrap gap-1 mt-2">
-              {methods.map((m: string) => (
-                <span key={m} className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] border border-border text-muted-foreground">{m}</span>
-              ))}
-            </div>
-            {termsNote && <p className="text-xs text-muted-foreground mt-2 line-clamp-2 italic">"{termsNote}"</p>}
-          </div>
-          <div className="flex flex-col items-end gap-2 shrink-0">
-            <StatusBadge status={ad.status} />
-            {!isMine && ad.status === "active" && avail > 0 && (
-              <Button size="sm" onClick={() => onBuy(ad)} className="gap-1" data-testid={`button-buy-${ad.id}`}>
-                Buy USDT
-              </Button>
-            )}
-          </div>
+    <Card data-testid={testId}>
+      <CardContent className="p-3">
+        <div className="flex items-center gap-1.5 text-muted-foreground">
+          {icon}
+          <span className="text-[11px] leading-tight">{label}</span>
         </div>
+        {loading ? (
+          <div className="h-6 w-20 rounded bg-muted animate-pulse mt-2" aria-label={`Loading ${label}`} />
+        ) : (
+          <>
+            <p className="text-base font-semibold mt-2">{value}</p>
+            {detail && <p className="text-[10px] text-muted-foreground mt-0.5">{detail}</p>}
+          </>
+        )}
       </CardContent>
     </Card>
   );
 }
 
-// ─── Seller Settings Panel ─────────────────────────────────────────────────
+/* ---------------------------------- Marketplace ---------------------------------- */
+
+function MarketplaceTab({ currentUserId, isKycVerified }: { currentUserId?: number; isKycVerified: boolean }) {
+  const { data: ads, isLoading, refetch } = useQuery<any[]>({ queryKey: ["/api/p2p/ads"], refetchInterval: 20000 });
+
+  if (isLoading) return <div className="flex justify-center py-10"><Loader2 className="w-6 h-6 animate-spin text-primary" /></div>;
+
+  return (
+    <div className="space-y-3 mt-2">
+      <div className="flex justify-end">
+        <Button variant="ghost" size="sm" onClick={() => refetch()} className="gap-1 text-xs text-muted-foreground">
+          <RefreshCcw className="w-3 h-3" /> Refresh
+        </Button>
+      </div>
+      {(!ads || ads.length === 0) && (
+        <Card><CardContent className="py-10 text-center text-sm text-muted-foreground">No active ads right now.</CardContent></Card>
+      )}
+      {ads?.map((ad) => (
+        <AdCard
+          key={ad.id}
+          ad={ad}
+          isMine={(ad.seller_id ?? ad.sellerId) === currentUserId}
+          isKycVerified={isKycVerified}
+        />
+      ))}
+    </div>
+  );
+}
+
+function AdCard({ ad, isMine, isKycVerified }: { ad: any; isMine: boolean; isKycVerified: boolean }) {
+  const [buyOpen, setBuyOpen] = useState(false);
+  const rate = num(ad.rate_htg ?? ad.rateHtg);
+  const avail = num(ad.available_usdt ?? ad.availableUsdt);
+  const min = num(ad.min_order_usdt ?? ad.minOrderUsdt);
+  const max = num(ad.max_order_usdt ?? ad.maxOrderUsdt) || avail;
+  const currency = ad.currency || "HTG";
+
+  return (
+    <Card className="border-border hover:border-primary/40 transition-colors">
+      <CardContent className="p-4">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 mb-1 flex-wrap">
+              <span className="font-semibold text-sm truncate">{ad.seller_name ?? "Seller"}</span>
+              <PresenceIndicator lastActivity={ad.seller_last_activity} />
+              {isMine && <Badge variant="outline" className="text-[10px] py-0">You</Badge>}
+            </div>
+            <div className="text-2xl font-bold text-primary">{rate.toFixed(2)} {currency}/USDT</div>
+            <div className="text-xs text-muted-foreground mt-1">Available: {avail.toFixed(2)} USDT</div>
+            <div className="text-xs text-muted-foreground">
+              Limits: {min.toFixed(2)} – {max.toFixed(2)} USDT
+            </div>
+            {ad.terms_note && (
+              <p className="text-xs text-muted-foreground mt-2 line-clamp-2 italic">{ad.terms_note}</p>
+            )}
+          </div>
+          <div className="flex flex-col items-end gap-2 shrink-0">
+            <StatusBadge status={ad.status} />
+            {!isMine && (
+              <Button
+                size="sm"
+                className="gap-1"
+                data-testid={`button-buy-ad-${ad.id}`}
+                onClick={() => setBuyOpen(true)}
+              >
+                <ShoppingCart className="w-4 h-4" /> BUY
+              </Button>
+            )}
+          </div>
+        </div>
+
+        {buyOpen && (
+          <BuyDialog
+            ad={ad}
+            open={buyOpen}
+            onOpenChange={setBuyOpen}
+            isKycVerified={isKycVerified}
+          />
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function BuyDialog({ ad, open, onOpenChange, isKycVerified }: {
+  ad: any; open: boolean; onOpenChange: (v: boolean) => void; isKycVerified: boolean;
+}) {
+  const { toast } = useToast();
+  const qc = useQueryClient();
+  const rate = num(ad.rate_htg ?? ad.rateHtg);
+  const avail = num(ad.available_usdt ?? ad.availableUsdt);
+  const min = num(ad.min_order_usdt ?? ad.minOrderUsdt);
+  const max = num(ad.max_order_usdt ?? ad.maxOrderUsdt) || avail;
+  const currency = ad.currency || "HTG";
+
+  const { data: pm } = useQuery<any>({ queryKey: ["/api/p2p/payment-methods"] });
+  const adMethods: string[] = Array.isArray(ad.payment_methods)
+    ? ad.payment_methods
+    : (() => { try { return JSON.parse(ad.payment_methods ?? "[]"); } catch { return []; } })();
+  const methods: string[] = (adMethods.length ? adMethods : (pm?.methods ?? [])).map((m: any) =>
+    typeof m === "string" ? m : (m?.id ?? m?.name ?? String(m))
+  );
+
+  const [amount, setAmount] = useState(min ? String(min) : "");
+  const [method, setMethod] = useState<string>("");
+
+  useEffect(() => {
+    if (!method && methods.length) setMethod(methods[0]);
+  }, [methods.join("|")]);
+
+  const amt = num(amount);
+  const total = amt * rate;
+  const invalid =
+    !isKycVerified || !method || amt <= 0 || amt < min || amt > max || amt > avail;
+
+  const buyMut = useMutation({
+    mutationFn: async () =>
+      (await apiRequest("POST", "/api/p2p/orders", {
+        adId: ad.id,
+        amountUsdt: amt,
+        paymentMethod: method,
+      })).json(),
+    onSuccess: () => {
+      toast({ title: "Order created", description: "Funds are locked in escrow. Open My Trades to pay and chat." });
+      qc.invalidateQueries({ queryKey: ["/api/p2p/ads"] });
+      qc.invalidateQueries({ queryKey: ["/api/p2p/orders"] });
+      onOpenChange(false);
+    },
+    onError: (e: any) => toast({ title: "Could not create order", description: e?.message ?? "Try again", variant: "destructive" }),
+  });
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Buy USDT from {ad.seller_name ?? "Seller"}</DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-3">
+          <div className="rounded-lg border border-border bg-muted/30 p-3 text-xs space-y-1">
+            <div className="flex justify-between"><span className="text-muted-foreground">Rate</span><span className="font-semibold">{rate.toFixed(2)} {currency}/USDT</span></div>
+            <div className="flex justify-between"><span className="text-muted-foreground">Available</span><span>{avail.toFixed(2)} USDT</span></div>
+            <div className="flex justify-between"><span className="text-muted-foreground">Limits</span><span>{min.toFixed(2)} – {max.toFixed(2)} USDT</span></div>
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium">Amount (USDT)</label>
+            <Input
+              type="number"
+              inputMode="decimal"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              placeholder={`Min ${min}`}
+              data-testid="input-buy-amount"
+            />
+            <p className="text-xs text-muted-foreground">
+              You pay: <span className="font-semibold text-foreground">{total.toFixed(2)} {currency}</span>
+            </p>
+          </div>
+
+          {methods.length > 0 && (
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium">Payment method</label>
+              <div className="flex flex-wrap gap-2">
+                {methods.map((m) => (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => setMethod(m)}
+                    className={`px-3 py-1.5 rounded-full border text-xs transition-colors ${
+                      method === m ? "border-primary bg-primary/10 text-primary font-medium" : "border-border text-muted-foreground"
+                    }`}
+                  >
+                    {m}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="flex items-start gap-2 rounded-lg border border-primary/20 bg-primary/5 p-3">
+            <Lock className="w-4 h-4 text-primary shrink-0 mt-0.5" />
+            <p className="text-xs text-muted-foreground">
+              The seller's USDT is locked in escrow for 60 minutes. Pay, then mark as paid — the seller releases the USDT to your balance.
+            </p>
+          </div>
+
+          {!isKycVerified && (
+            <p className="text-xs text-yellow-500">Verify your identity before trading.</p>
+          )}
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button
+            onClick={() => buyMut.mutate()}
+            disabled={invalid || buyMut.isPending}
+            data-testid="button-confirm-buy"
+            className="gap-1"
+          >
+            {buyMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <ShoppingCart className="w-4 h-4" />}
+            Confirm Buy
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/* ---------------------------------- Post Ad ---------------------------------- */
+
+function PostAdButton({ isKycVerified, label = "Post Ad" }: { isKycVerified: boolean; label?: string }) {
+  const [open, setOpen] = useState(false);
+  const { toast } = useToast();
+  const qc = useQueryClient();
+  const { data: pm } = useQuery<any>({ queryKey: ["/api/p2p/payment-methods"] });
+
+  const [amountUsdt, setAmountUsdt] = useState("");
+  const [rateHtg, setRateHtg] = useState("");
+  const [minOrderUsdt, setMinOrderUsdt] = useState("10");
+  const [maxOrderUsdt, setMaxOrderUsdt] = useState("");
+  const [termsNote, setTermsNote] = useState("");
+  const [selected, setSelected] = useState<string[]>([]);
+
+  const methods: string[] = (pm?.methods ?? []).map((m: any) => (typeof m === "string" ? m : (m?.id ?? m?.name ?? String(m))));
+  const currency = pm?.currency || "HTG";
+
+  const createMut = useMutation({
+    mutationFn: async () =>
+      (await apiRequest("POST", "/api/p2p/ads", {
+        amountUsdt: num(amountUsdt),
+        rateHtg: num(rateHtg),
+        currency,
+        paymentMethods: selected,
+        minOrderUsdt: num(minOrderUsdt),
+        maxOrderUsdt: maxOrderUsdt ? num(maxOrderUsdt) : undefined,
+        termsNote: termsNote || undefined,
+      })).json(),
+    onSuccess: () => {
+      toast({ title: "Ad posted", description: "Your USDT is locked and listed on the marketplace." });
+      qc.invalidateQueries({ queryKey: ["/api/p2p/ads"] });
+      qc.invalidateQueries({ queryKey: ["/api/p2p/ads/my"] });
+      setOpen(false);
+      setAmountUsdt(""); setRateHtg(""); setTermsNote("");
+    },
+    onError: (e: any) => toast({ title: "Could not post ad", description: e?.message ?? "Try again", variant: "destructive" }),
+  });
+
+  const invalid = !isKycVerified || num(amountUsdt) < 10 || num(rateHtg) <= 0 || selected.length === 0;
+
+  return (
+    <>
+      <Button size="sm" className="gap-2" onClick={() => setOpen(true)} data-testid="button-post-ad" aria-label="Create a new USDT sell ad">
+        <Plus className="w-4 h-4" /> {label}
+      </Button>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader><DialogTitle>Sell USDT — Post an Ad</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium">Amount (USDT)</label>
+                <Input type="number" inputMode="decimal" value={amountUsdt} onChange={(e) => setAmountUsdt(e.target.value)} placeholder="Min 10" />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium">Rate ({currency}/USDT)</label>
+                <Input type="number" inputMode="decimal" value={rateHtg} onChange={(e) => setRateHtg(e.target.value)} placeholder="e.g. 140" />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium">Min order</label>
+                <Input type="number" inputMode="decimal" value={minOrderUsdt} onChange={(e) => setMinOrderUsdt(e.target.value)} />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium">Max order</label>
+                <Input type="number" inputMode="decimal" value={maxOrderUsdt} onChange={(e) => setMaxOrderUsdt(e.target.value)} placeholder="Optional" />
+              </div>
+            </div>
+
+            {methods.length > 0 && (
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium">Payment methods you accept</label>
+                <div className="flex flex-wrap gap-2">
+                  {methods.map((m) => {
+                    const on = selected.includes(m);
+                    return (
+                      <button
+                        key={m}
+                        type="button"
+                        onClick={() => setSelected(on ? selected.filter((x) => x !== m) : [...selected, m])}
+                        className={`px-3 py-1.5 rounded-full border text-xs transition-colors ${
+                          on ? "border-primary bg-primary/10 text-primary font-medium" : "border-border text-muted-foreground"
+                        }`}
+                      >
+                        {m}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium">Terms (optional)</label>
+              <Textarea rows={2} value={termsNote} onChange={(e) => setTermsNote(e.target.value)} placeholder="e.g. MonCash only, send within 15 min." />
+            </div>
+            {!isKycVerified && <p className="text-xs text-yellow-500">Verify your identity before selling.</p>}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
+            <Button onClick={() => createMut.mutate()} disabled={invalid || createMut.isPending}>
+              {createMut.isPending ? "Posting..." : "Post Ad"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
+/* ---------------------------------- My Ads ---------------------------------- */
+
+function MyAdsTab() {
+  const { toast } = useToast();
+  const qc = useQueryClient();
+  const { data: ads, isLoading } = useQuery<any[]>({ queryKey: ["/api/p2p/ads/my"] });
+
+  const invalidate = () => {
+    qc.invalidateQueries({ queryKey: ["/api/p2p/ads/my"] });
+    qc.invalidateQueries({ queryKey: ["/api/p2p/ads"] });
+  };
+
+  const pauseMut = useMutation({
+    mutationFn: (id: number) => apiRequest("POST", `/api/p2p/ads/${id}/toggle-pause`),
+    onSuccess: () => { toast({ title: "Ad updated" }); invalidate(); },
+    onError: (e: any) => toast({ title: "Failed", description: e?.message, variant: "destructive" }),
+  });
+
+  const cancelMut = useMutation({
+    mutationFn: (id: number) => apiRequest("DELETE", `/api/p2p/ads/${id}`),
+    onSuccess: () => { toast({ title: "Ad cancelled", description: "Locked USDT refunded to your balance." }); invalidate(); },
+    onError: (e: any) => toast({ title: "Failed", description: e?.message, variant: "destructive" }),
+  });
+
+  if (isLoading) return <div className="flex justify-center py-10"><Loader2 className="w-6 h-6 animate-spin text-primary" /></div>;
+  if (!ads?.length) return (
+    <Card className="mt-3" data-testid="seller-ads-empty">
+      <CardContent className="py-10 text-center text-sm text-muted-foreground">
+        <p>You have no sell ads yet.</p>
+        <p className="text-xs mt-1">Create an ad to make your USDT available to buyers.</p>
+      </CardContent>
+    </Card>
+  );
+
+  return (
+    <div className="space-y-3 mt-3">
+      <div className="flex items-end justify-between gap-3">
+        <div>
+          <h2 className="font-semibold">Your sell ads</h2>
+          <p className="text-xs text-muted-foreground mt-0.5">Pause or cancel a listing when you need to manage reserved USDT.</p>
+        </div>
+        <span className="text-xs text-muted-foreground shrink-0">{ads.filter((ad) => ["active", "paused"].includes(ad.status)).length} open</span>
+      </div>
+      {ads.map((ad) => (
+        <Card key={ad.id} data-testid={`seller-ad-card-${ad.id}`}>
+          <CardContent className="p-4 space-y-2">
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <div className="text-lg font-bold text-primary">{num(ad.rate_htg).toFixed(2)} {ad.currency || "HTG"}/USDT</div>
+                <div className="text-xs text-muted-foreground">Available in escrow: {num(ad.available_usdt).toFixed(2)} USDT</div>
+                <div className="text-xs text-muted-foreground mt-1">
+                  Limits: {num(ad.min_order_usdt).toFixed(2)} – {num(ad.max_order_usdt) ? num(ad.max_order_usdt).toFixed(2) : "No maximum"} USDT
+                </div>
+                {!!ad.payment_methods?.length && (
+                  <div className="text-xs text-muted-foreground mt-1">Accepts: {Array.isArray(ad.payment_methods) ? ad.payment_methods.join(", ") : ad.payment_methods}</div>
+                )}
+                {ad.terms_note && <p className="text-xs text-muted-foreground mt-1 italic break-words">{ad.terms_note}</p>}
+              </div>
+              <StatusBadge status={ad.status} />
+            </div>
+            {ad.status !== "cancelled" && (
+              <div className="flex gap-2">
+                <Button size="sm" variant="outline" className="gap-1" onClick={() => pauseMut.mutate(ad.id)} data-testid={`seller-action-pause-${ad.id}`} aria-label={`${ad.status === "active" ? "Pause" : "Resume"} sell ad ${ad.id}`}>
+                  {ad.status === "active" ? <><Pause className="w-3 h-3" /> Pause</> : <><Play className="w-3 h-3" /> Resume</>}
+                </Button>
+                <Button size="sm" variant="outline" className="gap-1 text-red-500" onClick={() => cancelMut.mutate(ad.id)} data-testid={`seller-action-cancel-${ad.id}`} aria-label={`Cancel sell ad ${ad.id} and refund available USDT`}>
+                  <Trash2 className="w-3 h-3" /> Cancel & refund
+                </Button>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      ))}
+    </div>
+  );
+}
+
+/* ---------------------------------- My Orders ---------------------------------- */
+
+function MyOrdersTab({ currentUserId, role = "all" }: { currentUserId?: number; role?: "all" | "seller" }) {
+  const { data: orders, isLoading } = useQuery<any[]>({ queryKey: ["/api/p2p/orders"], refetchInterval: 15000 });
+  const [openOrder, setOpenOrder] = useState<any | null>(null);
+  const visibleOrders = (orders ?? [])
+    .filter((order) => role !== "seller" || Number(order.seller_id) === Number(currentUserId))
+    .sort((a, b) => {
+      const priority = (status: string) => status === "paid" ? 0 : status === "disputed" ? 1 : status === "pending" ? 2 : 3;
+      return priority(a.status) - priority(b.status) || new Date(b.created_at ?? 0).getTime() - new Date(a.created_at ?? 0).getTime();
+    });
+
+  if (isLoading) return <div className="flex justify-center py-10"><Loader2 className="w-6 h-6 animate-spin text-primary" /></div>;
+  if (!visibleOrders.length) return (
+    <Card className="mt-3" data-testid={role === "seller" ? "seller-trades-empty" : "trades-empty"}>
+      <CardContent className="py-10 text-center text-sm text-muted-foreground">
+        {role === "seller" ? "No buyer trades yet." : "No trades yet. Buy USDT from the marketplace."}
+      </CardContent>
+    </Card>
+  );
+
+  return (
+    <div className="space-y-3 mt-3">
+      <div>
+        <h2 className="font-semibold">{role === "seller" ? "Buyer trades needing attention" : "My trades"}</h2>
+        <p className="text-xs text-muted-foreground mt-0.5">
+          {role === "seller" ? "Orders marked paid, disputed, and pending are shown first." : "Open a trade to view its status, payment steps, and chat."}
+        </p>
+      </div>
+      {visibleOrders.map((o) => {
+        const isBuyer = Number(o.buyer_id) === Number(currentUserId);
+        return (
+          <Card
+            key={o.id}
+            className="cursor-pointer hover:border-primary/40"
+            onClick={() => setOpenOrder(o)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                setOpenOrder(o);
+              }
+            }}
+            role="button"
+            tabIndex={0}
+            aria-label={`Open ${isBuyer ? "buying" : "selling"} trade ${o.order_id}`}
+            data-testid={`${role === "seller" ? "seller-" : ""}trade-card-${o.id}`}
+          >
+            <CardContent className="p-4">
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <Badge variant="outline" className="text-[10px] py-0">{isBuyer ? "Buying" : "Selling"}</Badge>
+                    <span className="text-xs text-muted-foreground">#{o.order_id}</span>
+                  </div>
+                  <div className="text-lg font-bold mt-1">{num(o.amount_usdt).toFixed(2)} USDT</div>
+                  <div className="text-xs text-muted-foreground">
+                    {num(o.amount_local ?? o.total_htg).toFixed(2)} {o.currency || "HTG"} · {o.payment_method}
+                  </div>
+                </div>
+                <StatusBadge status={o.status} />
+              </div>
+            </CardContent>
+          </Card>
+        );
+      })}
+      {openOrder && (
+        <OrderDialog
+          order={openOrder}
+          isBuyer={openOrder.buyer_id === currentUserId}
+          currentUserId={currentUserId}
+          onClose={() => setOpenOrder(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+export const CANCEL_REASONS = [
+  "Mwen pa vle achte / vann ankò (I no longer want to trade)",
+  "Mwen pa rive fè peman an (I could not complete the payment)",
+  "Lòt pati a pa reponn (The other party is not responding)",
+  "Mwen pa dakò ak metòd peman an (Payment method not acceptable)",
+  "Enfòmasyon kont peman an pa kòrèk (Wrong payment account details)",
+  "Mwen sispèk yon fwod (I suspect a scam)",
+];
+
+/** Compress any picked image to a JPEG data URL (max 1280px, quality 0.8). */
+async function fileToCompressedJpeg(file: File): Promise<string> {
+  const dataUrl = await new Promise<string>((resolve, reject) => {
+    const fr = new FileReader();
+    fr.onload = () => resolve(String(fr.result));
+    fr.onerror = () => reject(new Error("Could not read the image"));
+    fr.readAsDataURL(file);
+  });
+  const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const i = new Image();
+    i.onload = () => resolve(i);
+    i.onerror = () => reject(new Error("Invalid image"));
+    i.src = dataUrl;
+  });
+  const max = 1280;
+  const scale = Math.min(1, max / Math.max(img.width, img.height));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.round(img.width * scale);
+  canvas.height = Math.round(img.height * scale);
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return dataUrl;
+  ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+  return canvas.toDataURL("image/jpeg", 0.8);
+}
+
+/** Reads an image out of a chat row whatever field name the API used. */
+function messageImage(m: any): string | null {
+  const raw = m.file_url ?? m.fileUrl ?? m.image_url ?? m.imageUrl ?? m.image ?? m.attachment_url ?? m.attachmentUrl ?? null;
+  if (typeof raw === "string" && raw.length > 10) return raw;
+  if (typeof m.message === "string" && m.message.startsWith("data:image/")) return m.message;
+  return null;
+}
+
+function CancelTradeDialog({ open, onOpenChange, onConfirm, pending }: {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  onConfirm: (reason: string) => void;
+  pending: boolean;
+}) {
+  const [selected, setSelected] = useState<string>("");
+  const [other, setOther] = useState("");
+  const [notSent, setNotSent] = useState(false);
+
+  const reason = selected === "__other" ? other.trim() : selected;
+  const canSubmit = !!reason && notSent && !pending;
+
+  useEffect(() => {
+    if (!open) { setSelected(""); setOther(""); setNotSent(false); }
+  }, [open]);
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="text-base">Cancel this order</DialogTitle>
+        </DialogHeader>
+
+        <p className="text-xs text-muted-foreground">
+          Chwazi rezon ki fè w ap anile lòd la. Si ou deja voye lajan an, <b>pa anile</b> — louvri yon dispit pito.
+        </p>
+
+        <div className="space-y-2">
+          {CANCEL_REASONS.map((r) => (
+            <label
+              key={r}
+              className={`flex cursor-pointer items-start gap-2 rounded-lg border p-2.5 text-xs transition-colors ${
+                selected === r ? "border-primary bg-primary/5" : "border-border hover:bg-muted/40"
+              }`}
+            >
+              <input
+                type="radio"
+                name="cancel-reason"
+                className="mt-0.5 accent-current"
+                checked={selected === r}
+                onChange={() => setSelected(r)}
+              />
+              <span>{r}</span>
+            </label>
+          ))}
+          <label
+            className={`flex cursor-pointer items-start gap-2 rounded-lg border p-2.5 text-xs transition-colors ${
+              selected === "__other" ? "border-primary bg-primary/5" : "border-border hover:bg-muted/40"
+            }`}
+          >
+            <input
+              type="radio"
+              name="cancel-reason"
+              className="mt-0.5 accent-current"
+              checked={selected === "__other"}
+              onChange={() => setSelected("__other")}
+            />
+            <span>Lòt rezon (other)</span>
+          </label>
+          {selected === "__other" && (
+            <Textarea
+              rows={2}
+              value={other}
+              onChange={(e) => setOther(e.target.value)}
+              placeholder="Eksplike rezon an..."
+              data-testid="input-cancel-other-reason"
+            />
+          )}
+        </div>
+
+        <div className="flex items-start gap-2 rounded-lg border border-orange-400/30 bg-orange-400/10 p-3">
+          <Checkbox
+            id="confirm-not-sent"
+            checked={notSent}
+            onCheckedChange={(v) => setNotSent(!!v)}
+            data-testid="checkbox-not-paid"
+          />
+          <label htmlFor="confirm-not-sent" className="text-xs leading-snug">
+            Mwen konfime ke <b>mwen pa voye lajan an</b> bay vandè a. (I confirm I have not sent the payment.)
+          </label>
+        </div>
+
+        <DialogFooter className="gap-2">
+          <Button variant="outline" size="sm" onClick={() => onOpenChange(false)}>Keep order</Button>
+          <Button
+            size="sm"
+            variant="destructive"
+            disabled={!canSubmit}
+            onClick={() => onConfirm(reason)}
+            data-testid="button-confirm-cancel"
+          >
+            {pending ? "Cancelling..." : "Cancel order"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function OrderDialog({ order, isBuyer, currentUserId, onClose }: {
+    order: any; isBuyer: boolean; currentUserId?: number; onClose: () => void;
+    }) {
+    const { toast } = useToast();
+    const qc = useQueryClient();
+    const [pin, setPin] = useState("");
+    const [confirmed, setConfirmed] = useState(false);
+    const [reason, setReason] = useState("");
+    const [chatText, setChatText] = useState("");
+    const [pendingImage, setPendingImage] = useState<string | null>(null);
+    const [cancelOpen, setCancelOpen] = useState(false);
+    const [preview, setPreview] = useState<string | null>(null);
+    const [menuOpen, setMenuOpen] = useState(false);
+    const [summaryExpanded, setSummaryExpanded] = useState(false);
+    const [disputeDialogOpen, setDisputeDialogOpen] = useState(false);
+    const fileRef = useRef<HTMLInputElement>(null);
+    const endRef = useRef<HTMLDivElement>(null);
+    const menuRef = useRef<HTMLDivElement>(null);
+
+    const { data: live } = useQuery<any[]>({ queryKey: ["/api/p2p/orders"], refetchInterval: 10000 });
+    const current = live?.find((o) => o.id === order.id) ?? order;
+
+    const { data: messages } = useQuery<any[]>({
+      queryKey: [`/api/p2p/orders/${order.id}/chat`],
+      refetchInterval: 5000,
+    });
+
+    useEffect(() => { endRef.current?.scrollIntoView({ block: "end" }); }, [messages?.length, pendingImage]);
+
+    // Close 3-dots menu when clicking outside
+    useEffect(() => {
+      if (!menuOpen) return;
+      const handler = (e: MouseEvent) => {
+        if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false);
+      };
+      document.addEventListener("mousedown", handler);
+      return () => document.removeEventListener("mousedown", handler);
+    }, [menuOpen]);
+
+    const invalidate = () => {
+      qc.invalidateQueries({ queryKey: ["/api/p2p/orders"] });
+      qc.invalidateQueries({ queryKey: [`/api/p2p/orders/${order.id}/chat`] });
+    };
+    const fail = (e: any) => toast({ title: "Action failed", description: e?.message ?? "Try again", variant: "destructive" });
+
+    const payMut = useMutation({
+      mutationFn: () => apiRequest("POST", `/api/p2p/orders/${order.id}/pay`, {}),
+      onSuccess: () => { toast({ title: "Marked as paid", description: "The seller has been notified." }); invalidate(); },
+      onError: fail,
+    });
+
+    const releaseMut = useMutation({
+      mutationFn: () =>
+        apiRequest("POST", `/api/p2p/orders/${order.id}/release`, { pin }),
+      onSuccess: () => { toast({ title: "USDT released", description: "Escrow released to the buyer." }); setPin(""); invalidate(); },
+      onError: fail,
+    });
+
+    const cancelMut = useMutation({
+      mutationFn: (payload: { reason: string }) =>
+        apiRequest("POST", `/api/p2p/orders/${order.id}/cancel`, {
+          reason: payload.reason,
+          paymentNotSent: true,
+          confirmedNotPaid: true,
+        }),
+      onSuccess: () => { toast({ title: "Order cancelled" }); setCancelOpen(false); invalidate(); onClose(); },
+      onError: fail,
+    });
+
+    const disputeMut = useMutation({
+      mutationFn: () => apiRequest("POST", `/api/p2p/orders/${order.id}/dispute`, { reason: reason || "Payment issue" }),
+      onSuccess: () => { toast({ title: "Dispute opened", description: "Support has been notified." }); setDisputeDialogOpen(false); invalidate(); },
+      onError: fail,
+    });
+
+    const chatMut = useMutation({
+      mutationFn: (payload: { message: string; image: string | null }) =>
+        apiRequest("POST", `/api/p2p/orders/${order.id}/chat`, {
+          message: payload.message || (payload.image ? "[image]" : ""),
+          image: payload.image ?? undefined,
+          imageUrl: payload.image ?? undefined,
+          image_url: payload.image ?? undefined,
+          attachmentType: payload.image ? "image/jpeg" : undefined,
+        }),
+      onSuccess: () => {
+        setChatText("");
+        setPendingImage(null);
+        qc.invalidateQueries({ queryKey: [`/api/p2p/orders/${order.id}/chat`] });
+      },
+      onError: fail,
+    });
+
+    const onPickImage = async (file?: File | null) => {
+      if (!file) return;
+      if (!file.type.startsWith("image/")) {
+        toast({ title: "Image only", description: "Choose a JPEG or PNG picture.", variant: "destructive" });
+        return;
+      }
+      if (file.size > 10 * 1024 * 1024) {
+        toast({ title: "Image too large", description: "Maximum 10 MB.", variant: "destructive" });
+        return;
+      }
+      try {
+        setPendingImage(await fileToCompressedJpeg(file));
+      } catch (e: any) {
+        toast({ title: "Could not process image", description: e?.message ?? "Try another file.", variant: "destructive" });
+      }
+    };
+
+    const sendChat = () => {
+      if (chatText.trim() || pendingImage) {
+        chatMut.mutate({ message: chatText.trim(), image: pendingImage });
+      }
+    };
+
+    const status = current.status;
+    const closed = ["released", "cancelled", "completed"].includes(status);
+    const counterparty = isBuyer ? current.seller_name : current.buyer_name;
+    const totalLocal = num(current.amount_local ?? current.total_htg);
+    const currency = current.currency || "HTG";
+
+    const steps = [
+      { key: "pending", label: isBuyer ? "Make the payment" : "Waiting for buyer payment" },
+      { key: "paid", label: isBuyer ? "Waiting for seller to release" : "Confirm & release USDT" },
+      { key: "released", label: "USDT released" },
+    ];
+    const stepIndex = status === "pending" ? 0 : status === "paid" ? 1 : 2;
+
+    // ── Shared chat panel used in both buyer and seller views ─────────────────
+    const chatPanel = (
+      <>
+        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto bg-muted/10 p-3" data-testid="list-chat-messages">
+          {messages?.length ? messages.map((m) => {
+            const mine = (m.sender_id ?? m.senderId) === currentUserId;
+            const img = messageImage(m);
+            const text = m.message && m.message !== "[image]" && !String(m.message).startsWith("data:image/") ? m.message : "";
+            const createdAt = m.created_at ?? m.createdAt;
+            return (
+              <div key={m.id} className={`flex flex-col ${mine ? "items-end" : "items-start"}`}>
+                <div className={`max-w-[80%] space-y-1.5 rounded-2xl px-3 py-2 text-sm ${mine ? "bg-primary/15 rounded-br-sm" : "bg-card border border-border rounded-bl-sm"}`}>
+                  {img && (
+                    <button type="button" onClick={() => setPreview(img)} className="block">
+                      <img src={img} alt="Attachment" loading="lazy" className="max-h-56 rounded-xl object-cover" />
+                    </button>
+                  )}
+                  {text && <p className="whitespace-pre-wrap break-words leading-snug">{text}</p>}
+                </div>
+                {createdAt && !isNaN(new Date(createdAt).getTime()) && (
+                  <span className="mt-0.5 px-1 text-[10px] text-muted-foreground">
+                    {formatDistanceToNow(new Date(createdAt), { addSuffix: true })}
+                  </span>
+                )}
+              </div>
+            );
+          }) : (
+            <p className="py-10 text-center text-xs text-muted-foreground">
+              No messages yet — say hello and share your payment proof.
+            </p>
+          )}
+          <div ref={endRef} />
+        </div>
+
+        {!closed && (
+          <div className="shrink-0 space-y-2 border-t border-border bg-background px-3 py-2.5">
+            {pendingImage && (
+              <div className="relative inline-block">
+                <img src={pendingImage} alt="Attachment preview" className="h-16 rounded-lg border border-border object-cover" />
+                <button
+                  type="button"
+                  onClick={() => setPendingImage(null)}
+                  className="absolute -right-1.5 -top-1.5 rounded-full bg-destructive p-0.5 text-destructive-foreground"
+                  aria-label="Remove image"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </div>
+            )}
+            <div className="flex items-end gap-2">
+              <input
+                ref={fileRef}
+                type="file"
+                accept="image/jpeg,image/jpg,image/png"
+                className="hidden"
+                onChange={(e) => onPickImage(e.target.files?.[0])}
+                data-testid="input-chat-image"
+              />
+              <button
+                type="button"
+                onClick={() => fileRef.current?.click()}
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-border bg-muted/40 text-muted-foreground transition-colors hover:bg-muted"
+                aria-label="Attach image"
+                data-testid="button-attach-image"
+              >
+                <ImagePlus className="h-4 w-4" />
+              </button>
+              <Textarea
+                rows={1}
+                value={chatText}
+                onChange={(e) => setChatText(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    sendChat();
+                  }
+                }}
+                placeholder="Write a message… (Enter to send)"
+                className="max-h-28 min-h-[36px] resize-none rounded-xl text-sm"
+                data-testid="input-chat-message"
+              />
+              <button
+                type="button"
+                onClick={sendChat}
+                disabled={(!chatText.trim() && !pendingImage) || chatMut.isPending}
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground transition-opacity disabled:opacity-40"
+                data-testid="button-send-message"
+              >
+                {chatMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+              </button>
+            </div>
+          </div>
+        )}
+      </>
+    );
+
+    // ── BUYER VIEW — chat-first, Binance P2P-style ────────────────────────────
+    if (isBuyer) {
+      return (
+        <>
+          <Dialog open onOpenChange={(v) => !v && onClose()}>
+            <DialogContent
+              className="flex h-[100dvh] w-full max-w-full flex-col gap-0 overflow-hidden p-0 sm:h-[95vh] sm:max-w-md sm:rounded-2xl"
+              data-testid="dialog-order"
+            >
+              {/* ── Top bar ── */}
+              <div className="shrink-0 flex items-center gap-2 border-b border-border bg-background/95 px-3 py-3">
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted"
+                  aria-label="Close"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-sm font-semibold leading-tight">Buy USDT</span>
+                    <StatusBadge status={status} />
+                  </div>
+                  <p className="mt-0.5 text-[10px] leading-none text-muted-foreground">Order #{current.order_id}</p>
+                </div>
+                {/* 3-dots context menu */}
+                <div ref={menuRef} className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setMenuOpen((v) => !v)}
+                    className="flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted"
+                    aria-label="More options"
+                  >
+                    <MoreVertical className="h-4 w-4" />
+                  </button>
+                  {menuOpen && (
+                    <div className="absolute right-0 top-10 z-50 w-52 overflow-hidden rounded-xl border border-border bg-card shadow-lg">
+                      {/* Seller presence */}
+                      <div className="border-b border-border/60 px-3.5 py-2.5">
+                        <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Seller</p>
+                        <div className="mt-0.5 flex items-center gap-1.5">
+                          <span className="text-sm font-medium">{counterparty ?? "—"}</span>
+                          <PresenceIndicator lastActivity={current.seller_last_activity} compact />
+                        </div>
+                      </div>
+                      {/* Cancel — only available when order is still pending */}
+                      {!closed && status === "pending" && (
+                        <button
+                          type="button"
+                          onClick={() => { setMenuOpen(false); setCancelOpen(true); }}
+                          className="flex w-full items-center gap-2.5 px-3.5 py-2.5 text-sm text-red-400 transition-colors hover:bg-red-500/10"
+                        >
+                          <ShieldOff className="h-4 w-4" /> Cancel Order
+                        </button>
+                      )}
+                      {/* Dispute */}
+                      {!closed && status !== "disputed" && (
+                        <button
+                          type="button"
+                          onClick={() => { setMenuOpen(false); setDisputeDialogOpen(true); }}
+                          className="flex w-full items-center gap-2.5 px-3.5 py-2.5 text-sm text-orange-400 transition-colors hover:bg-orange-500/10"
+                        >
+                          <AlertTriangle className="h-4 w-4" /> Dispute / Report Seller
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* ── Collapsible order summary card ── */}
+              <div className="shrink-0 border-b border-border bg-background">
+                <button
+                  type="button"
+                  onClick={() => setSummaryExpanded((v) => !v)}
+                  className="flex w-full items-center justify-between px-4 py-2.5 text-left"
+                  aria-expanded={summaryExpanded}
+                >
+                  <div className="flex flex-wrap items-center gap-2 text-sm">
+                    <span className="font-bold">{num(current.amount_usdt).toFixed(2)} USDT</span>
+                    <span className="text-muted-foreground">·</span>
+                    <span className="text-muted-foreground">{totalLocal.toFixed(2)} {currency}</span>
+                    <span className="text-muted-foreground">·</span>
+                    <span className="text-xs text-muted-foreground">{current.payment_method}</span>
+                  </div>
+                  <div className="ml-2 flex shrink-0 items-center gap-2">
+                    <span className="inline-flex items-center gap-1 text-[10px] font-medium text-emerald-500">
+                      <ShieldCheck className="h-3 w-3" /> Escrow
+                    </span>
+                    <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform duration-200 ${summaryExpanded ? "rotate-180" : ""}`} />
+                  </div>
+                </button>
+                {summaryExpanded && (
+                  <div className="border-t border-border/40 bg-muted/20 px-4 pb-3">
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 pt-2.5 text-xs">
+                      <span className="text-muted-foreground">Amount</span>
+                      <span className="text-right font-semibold">{num(current.amount_usdt).toFixed(2)} USDT</span>
+                      <span className="text-muted-foreground">Total to pay</span>
+                      <span className="text-right font-semibold">{totalLocal.toFixed(2)} {currency}</span>
+                      <span className="text-muted-foreground">Rate</span>
+                      <span className="text-right">{num(current.rate ?? current.rate_htg).toFixed(2)} {currency}/USDT</span>
+                      <span className="text-muted-foreground">Payment method</span>
+                      <span className="text-right">{current.payment_method}</span>
+                      {current.payment_details && (
+                        <>
+                          <span className="text-muted-foreground">Pay to</span>
+                          <span className="break-all text-right">{current.payment_details}</span>
+                        </>
+                      )}
+                    </div>
+                    {/* Progress steps inline */}
+                    <div className="mt-2.5 flex items-start gap-0.5">
+                      {steps.map((s, i) => (
+                        <div key={s.key} className="flex min-w-0 flex-1 items-center gap-0.5">
+                          <div className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full border text-[9px] font-bold ${
+                            i < stepIndex ? "border-emerald-400/40 bg-emerald-400/15 text-emerald-500"
+                              : i === stepIndex ? "border-primary bg-primary/15 text-primary"
+                              : "border-border text-muted-foreground"
+                          }`}>{i + 1}</div>
+                          <span className={`truncate text-[9px] leading-tight ${i === stepIndex ? "font-medium" : "text-muted-foreground"}`}>{s.label}</span>
+                          {i < steps.length - 1 && <div className="mx-0.5 h-px flex-1 bg-border" />}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* ── Chat takes all remaining space ── */}
+              {chatPanel}
+
+              {/* ── Sticky primary action bar at bottom ── */}
+              {!closed && (
+                <div className="shrink-0 border-t border-border bg-background px-3 pb-4 pt-2.5">
+                  {status === "pending" && (
+                    <Button
+                      className="h-12 w-full gap-2 rounded-xl text-base font-semibold"
+                      onClick={() => payMut.mutate()}
+                      disabled={payMut.isPending}
+                      data-testid="button-mark-paid"
+                    >
+                      {payMut.isPending
+                        ? <Loader2 className="h-5 w-5 animate-spin" />
+                        : <ShieldCheck className="h-5 w-5" />}
+                      I have paid
+                    </Button>
+                  )}
+                  {status === "paid" && (
+                    <div className="flex items-center justify-center gap-2 rounded-xl border border-blue-400/30 bg-blue-400/10 px-4 py-3">
+                      <Loader2 className="h-4 w-4 animate-spin text-blue-400" />
+                      <span className="text-sm text-blue-400">Waiting for seller to release USDT…</span>
+                    </div>
+                  )}
+                  {status === "disputed" && (
+                    <div className="flex items-center justify-center gap-2 rounded-xl border border-orange-400/30 bg-orange-400/10 px-4 py-3">
+                      <AlertTriangle className="h-4 w-4 text-orange-400" />
+                      <span className="text-sm text-orange-400">Dispute in progress — support will reach out.</span>
+                    </div>
+                  )}
+                </div>
+              )}
+            </DialogContent>
+          </Dialog>
+
+          {/* Cancel trade dialog */}
+          <CancelTradeDialog
+            open={cancelOpen}
+            onOpenChange={setCancelOpen}
+            onConfirm={(r) => cancelMut.mutate({ reason: r })}
+            pending={cancelMut.isPending}
+          />
+
+          {/* Dispute modal — shown from 3-dots menu */}
+          <Dialog open={disputeDialogOpen} onOpenChange={setDisputeDialogOpen}>
+            <DialogContent className="max-w-md">
+              <DialogHeader><DialogTitle>Open a Dispute</DialogTitle></DialogHeader>
+              <p className="text-xs text-muted-foreground">
+                Describe the issue. Support will review the chat history and payment proofs before reaching out.
+              </p>
+              <Textarea
+                rows={3}
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+                placeholder="e.g. I sent the payment but the seller is not responding…"
+              />
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setDisputeDialogOpen(false)}>Cancel</Button>
+                <Button
+                  variant="destructive"
+                  onClick={() => disputeMut.mutate()}
+                  disabled={disputeMut.isPending}
+                >
+                  {disputeMut.isPending ? "Submitting…" : "Submit Dispute"}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
+          {/* Full-size image lightbox */}
+          {preview && (
+            <Dialog open onOpenChange={() => setPreview(null)}>
+              <DialogContent className="max-w-screen-md p-2">
+                <img src={preview} alt="Full size" className="max-h-[80vh] w-full rounded-lg object-contain" />
+              </DialogContent>
+            </Dialog>
+          )}
+        </>
+      );
+    }
+
+    // ── SELLER VIEW — keep existing 2-column desktop layout ───────────────────
+    return (
+      <>
+        <Dialog open onOpenChange={(v) => !v && onClose()}>
+          <DialogContent
+            className="flex h-[95vh] w-[98vw] max-w-6xl flex-col gap-0 overflow-hidden p-0 sm:h-[92vh]"
+            data-testid="dialog-order"
+          >
+            <DialogHeader className="shrink-0 border-b border-border px-4 py-3 sm:px-6">
+              <DialogTitle className="flex flex-wrap items-center gap-2 text-base">
+                <span>Sell USDT</span>
+                <span className="text-muted-foreground font-normal text-xs">Order #{current.order_id}</span>
+                <StatusBadge status={status} />
+              </DialogTitle>
+              <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                <span>Buyer: <span className="text-foreground font-medium">{counterparty ?? "—"}</span></span>
+                <PresenceIndicator lastActivity={current.buyer_last_activity} />
+                {current.created_at && <span>Created {formatDistanceToNow(new Date(current.created_at), { addSuffix: true })}</span>}
+              </div>
+            </DialogHeader>
+
+            <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
+              {/* Left: order details + seller actions */}
+              <div className="min-h-0 overflow-y-auto border-b border-border p-4 sm:p-6 lg:border-b-0 lg:border-r">
+                <ol className="mb-5 space-y-2">
+                  {steps.map((s, i) => (
+                    <li key={s.key} className="flex items-start gap-2 text-xs">
+                      <span className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border text-[10px] font-bold ${
+                        i < stepIndex ? "border-emerald-400/40 bg-emerald-400/15 text-emerald-500"
+                          : i === stepIndex ? "border-primary bg-primary/15 text-primary"
+                          : "border-border text-muted-foreground"
+                      }`}>{i + 1}</span>
+                      <span className={i === stepIndex ? "font-medium" : "text-muted-foreground"}>{s.label}</span>
+                    </li>
+                  ))}
+                </ol>
+
+                <div className="space-y-2 rounded-xl border border-border bg-muted/30 p-4 text-sm">
+                  <div className="flex items-baseline justify-between">
+                    <span className="text-xs text-muted-foreground">Amount</span>
+                    <span className="text-lg font-bold">{num(current.amount_usdt).toFixed(2)} USDT</span>
+                  </div>
+                  <div className="flex justify-between text-xs"><span className="text-muted-foreground">Total to pay</span><span className="font-semibold">{totalLocal.toFixed(2)} {currency}</span></div>
+                  <div className="flex justify-between text-xs"><span className="text-muted-foreground">Rate</span><span>{num(current.rate ?? current.rate_htg).toFixed(2)} {currency}/USDT</span></div>
+                  <div className="flex justify-between text-xs"><span className="text-muted-foreground">Payment method</span><span>{current.payment_method}</span></div>
+                  {current.payment_details && (
+                    <div className="flex justify-between gap-3 text-xs"><span className="text-muted-foreground">Pay to</span><span className="break-all text-right">{current.payment_details}</span></div>
+                  )}
+                  <div className="flex items-center gap-1.5 pt-1 text-[11px] text-emerald-500">
+                    <ShieldCheck className="h-3.5 w-3.5" /> {num(current.amount_usdt).toFixed(2)} USDT locked in escrow
+                  </div>
+                </div>
+
+                {!closed && (
+                  <div className="mt-5 space-y-3">
+                    {/* Release escrow when buyer has paid */}
+                    {status === "paid" && (
+                      <div className="space-y-2 rounded-xl border border-emerald-400/30 bg-emerald-400/5 p-3">
+                        <p className="text-xs font-medium text-emerald-400">Buyer marked as paid — verify then release</p>
+                        <div className="flex items-center gap-2">
+                          <Checkbox id="conf" checked={confirmed} onCheckedChange={(v) => setConfirmed(!!v)} />
+                          <label htmlFor="conf" className="text-xs">I confirm receipt of payment</label>
+                        </div>
+                        <div className="space-y-1">
+                          <label htmlFor="p2p-release-pin" className="text-xs font-medium">6-digit release PIN</label>
+                          <Input
+                            id="p2p-release-pin"
+                            type="password"
+                            inputMode="numeric"
+                            autoComplete="one-time-code"
+                            maxLength={6}
+                            placeholder="Enter your active PIN"
+                            value={pin}
+                            onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                            className="h-8 text-xs"
+                            data-testid="input-p2p-release-pin"
+                          />
+                          <p className="text-[11px] text-muted-foreground">Activate or change this PIN in Seller Settings before releasing USDT.</p>
+                        </div>
+                        <Button
+                          className="w-full"
+                          size="sm"
+                          onClick={() => releaseMut.mutate()}
+                          disabled={!confirmed || !/^\d{6}$/.test(pin) || releaseMut.isPending}
+                          data-testid="button-release"
+                        >
+                          {releaseMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
+                          Release USDT to Buyer
+                        </Button>
+                      </div>
+                    )}
+                    {status !== "disputed" && (
+                      <div className="space-y-2">
+                        <Textarea rows={2} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Dispute details (optional)" className="text-xs" />
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="w-full border-orange-400/30 text-orange-400 hover:bg-orange-400/10"
+                          onClick={() => disputeMut.mutate()}
+                          disabled={disputeMut.isPending}
+                          data-testid="button-dispute"
+                        >
+                          <AlertTriangle className="mr-1 h-4 w-4" />
+                          {disputeMut.isPending ? "Opening dispute…" : "Open Dispute"}
+                        </Button>
+                      </div>
+                    )}
+                    {status === "pending" && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="w-full text-muted-foreground"
+                        onClick={() => setCancelOpen(true)}
+                        data-testid="button-cancel"
+                      >
+                        Cancel Order
+                      </Button>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Right: chat panel */}
+              <div className="flex min-h-0 flex-col">
+                <div className="flex shrink-0 items-center gap-2 border-b border-border px-4 py-2.5 text-xs font-medium">
+                  <MessageCircle className="h-3.5 w-3.5 text-primary" /> Chat with {counterparty ?? "buyer"}
+                </div>
+                {chatPanel}
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        <CancelTradeDialog
+          open={cancelOpen}
+          onOpenChange={setCancelOpen}
+          onConfirm={(r) => cancelMut.mutate({ reason: r })}
+          pending={cancelMut.isPending}
+        />
+
+        {preview && (
+          <Dialog open onOpenChange={() => setPreview(null)}>
+            <DialogContent className="max-w-screen-md p-2">
+              <img src={preview} alt="Full size" className="max-h-[80vh] w-full rounded-lg object-contain" />
+            </DialogContent>
+          </Dialog>
+        )}
+      </>
+    );
+    }
+
 function SellerSettingsPanel() {
   const { toast } = useToast();
   const qc = useQueryClient();
-  const { data: settings, isLoading } = useQuery<any>({ queryKey: ["/api/p2p/settings"] });
+  const { data: settings } = useQuery<any>({ queryKey: ["/api/p2p/settings"] });
+  const { data: releasePinStatus, isLoading: releasePinLoading } = useQuery<any>({ queryKey: ["/api/security/withdrawal-pin/status"] });
+
   const [msg, setMsg] = useState("");
-  const [open, setOpen] = useState(false);
-  // Merchant name state
   const [merchantInput, setMerchantInput] = useState("");
   const [merchantAgreed, setMerchantAgreed] = useState(false);
   const [showMerchantForm, setShowMerchantForm] = useState(false);
 
   useEffect(() => {
-    if (settings?.welcomeMessage !== undefined) setMsg(settings.welcomeMessage);
+    if (settings?.welcomeMessage) setMsg(settings.welcomeMessage);
   }, [settings?.welcomeMessage]);
 
   const saveMut = useMutation({
     mutationFn: () => apiRequest("PUT", "/api/p2p/settings", { welcomeMessage: msg }),
-    onSuccess: () => { toast({ title: "Settings saved", description: "Welcome message updated." }); setOpen(false); },
-    onError: () => toast({ title: "Error", description: "Failed to save settings.", variant: "destructive" }),
+    onSuccess: () => toast({ title: "Settings saved", description: "Welcome message updated." }),
   });
 
   const merchantMut = useMutation({
     mutationFn: () => apiRequest("POST", "/api/p2p/merchant-name", { merchantName: merchantInput }),
     onSuccess: () => {
-      toast({ title: "Merchant name set!", description: `"${merchantInput}" is now your permanent display name.` });
+      toast({ title: "Merchant name set!" });
       qc.invalidateQueries({ queryKey: ["/api/p2p/settings"] });
       setShowMerchantForm(false);
-      setMerchantInput("");
-      setMerchantAgreed(false);
     },
-    onError: (e: any) => toast({ title: "Error", description: e?.message ?? "Failed to set merchant name.", variant: "destructive" }),
   });
 
-  if (!open) {
-    return (
-      <button
-        onClick={() => setOpen(true)}
-        className="w-full flex items-center gap-2 px-3 py-2.5 rounded-lg border border-border bg-muted/20 text-sm text-muted-foreground hover:border-primary/40 hover:text-foreground transition-colors"
-        data-testid="button-seller-settings"
-      >
-        <Settings className="w-4 h-4 shrink-0" />
-        <span className="flex-1 text-left truncate">
-          {settings?.welcomeMessage ? (
-            <><span className="text-foreground">Welcome msg: </span>{settings.welcomeMessage}</>
-          ) : "Set welcome message for buyers…"}
-        </span>
-      </button>
-    );
-  }
-
   return (
-    <Card className="border-primary/20 bg-primary/5">
+    <Card className="border-primary/20 bg-primary/5 mt-3">
       <CardContent className="p-4 space-y-4">
+        <div className="space-y-2">
+          <div className="flex items-center gap-2">
+            <Lock className="w-4 h-4 text-primary" />
+            <span className="text-sm font-medium">P2P Release PIN</span>
+            {releasePinLoading ? (
+              <span className="ml-auto h-5 w-14 rounded bg-muted animate-pulse" aria-label="Loading P2P release PIN status" />
+            ) : (
+              <Badge
+                variant={releasePinStatus?.hasWithdrawalPin ? "default" : "secondary"}
+                className="ml-auto text-[10px] py-0"
+                data-testid="badge-p2p-release-pin-status"
+              >
+                {releasePinStatus?.hasWithdrawalPin ? "Active" : "Required"}
+              </Badge>
+            )}
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Every USDT release requires your active 6-digit PIN. The PIN is never stored in this workspace.
+          </p>
+          <Button asChild variant={releasePinStatus?.hasWithdrawalPin ? "outline" : "default"} size="sm" data-testid="button-configure-p2p-release-pin">
+            <Link href="/security">
+              {releasePinStatus?.hasWithdrawalPin ? "Change release PIN" : "Activate 6-digit release PIN"}
+            </Link>
+          </Button>
+        </div>
 
-        {/* Merchant Display Name */}
+        <div className="border-t border-border" />
+
         <div className="space-y-2">
           <div className="flex items-center gap-2">
             <Store className="w-4 h-4 text-primary" />
@@ -362,1124 +1597,60 @@ function SellerSettingsPanel() {
 
           {settings?.merchantName ? (
             <div className="flex items-center gap-2 bg-muted/30 border border-border rounded-lg px-3 py-2.5">
-              <Store className="w-4 h-4 text-muted-foreground shrink-0" />
               <span className="text-sm font-semibold text-foreground">{settings.merchantName}</span>
-              <span className="text-[10px] text-muted-foreground ml-auto">Visible to buyers only</span>
             </div>
           ) : showMerchantForm ? (
             <div className="space-y-2.5">
               <Input
                 value={merchantInput}
                 onChange={e => setMerchantInput(e.target.value.slice(0, 60))}
-                placeholder="e.g. CryptoExchange HT, MoneyFast, etc."
-                maxLength={60}
-                className="text-sm"
-                data-testid="input-merchant-name"
+                placeholder="Merchant name..."
               />
-              <p className="text-[10px] text-muted-foreground">{merchantInput.length}/60 characters — buyers will see this instead of your real name.</p>
-              <div className="border border-red-500/30 bg-red-500/10 rounded-lg p-3 space-y-2">
-                <p className="text-[11px] font-semibold text-red-300 uppercase tracking-wider">Important — Read Before Saving</p>
-                <div className="flex items-start gap-2.5">
-                  <Checkbox
-                    id="merchant-agree"
-                    checked={merchantAgreed}
-                    onCheckedChange={(v) => setMerchantAgreed(!!v)}
-                    className="mt-0.5 shrink-0 border-red-400 data-[state=checked]:bg-red-500 data-[state=checked]:border-red-500"
-                    data-testid="checkbox-merchant-agree"
-                  />
-                  <label htmlFor="merchant-agree" className="text-xs text-red-100/90 leading-relaxed cursor-pointer select-none">
-                    I understand that this merchant name is <strong>permanent and cannot be changed</strong> after saving. I agree to this condition.
-                  </label>
-                </div>
+              <div className="flex items-start gap-2.5">
+                <Checkbox
+                  id="merchant-agree"
+                  checked={merchantAgreed}
+                  onCheckedChange={(v) => setMerchantAgreed(!!v)}
+                />
+                <label htmlFor="merchant-agree" className="text-xs text-muted-foreground">
+                  I understand this is permanent.
+                </label>
               </div>
               <div className="flex gap-2">
-                <Button variant="outline" size="sm" className="flex-1" onClick={() => { setShowMerchantForm(false); setMerchantInput(""); setMerchantAgreed(false); }}>
-                  Cancel
-                </Button>
-                <Button
-                  size="sm"
-                  className="flex-1 gap-1.5"
-                  onClick={() => merchantMut.mutate()}
-                  disabled={!merchantInput.trim() || !merchantAgreed || merchantMut.isPending}
-                  data-testid="button-save-merchant-name"
-                >
-                  {merchantMut.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
-                  Save Permanently
+                <Button variant="outline" size="sm" onClick={() => setShowMerchantForm(false)}>Cancel</Button>
+                <Button size="sm" onClick={() => merchantMut.mutate()} disabled={!merchantInput.trim() || !merchantAgreed}>
+                  Save
                 </Button>
               </div>
             </div>
           ) : (
-            <button
-              onClick={() => setShowMerchantForm(true)}
-              className="w-full text-left text-xs px-3 py-2.5 rounded-lg border border-dashed border-border text-muted-foreground hover:border-primary/40 hover:text-foreground transition-colors"
-              data-testid="button-set-merchant-name"
-            >
-              + Add a merchant name (optional — shown to buyers instead of your KYC name)
-            </button>
+            <Button variant="outline" size="sm" onClick={() => setShowMerchantForm(true)}>+ Add merchant name</Button>
           )}
         </div>
 
         <div className="border-t border-border" />
 
-        {/* Welcome Message */}
         <div className="space-y-2">
           <div className="flex items-center gap-2">
-            <MessageCircle className="w-4 h-4 text-primary" />
+            <Settings className="w-4 h-4 text-primary" />
             <span className="text-sm font-medium">Buyer Welcome Message</span>
           </div>
           <Textarea
             value={msg}
-            onChange={e => setMsg(e.target.value)}
-            placeholder="e.g. Welcome! Please transfer to MonCash 509-XXXX-XXXX. Send screenshot once done."
+            onChange={(e) => setMsg(e.target.value)}
+            placeholder="e.g. Welcome! Transfer via MonCash..."
             rows={3}
-            maxLength={500}
-            className="text-sm resize-none"
-            data-testid="input-welcome-message"
           />
-          <p className="text-[10px] text-muted-foreground">Auto-sent as the first message in every new trade. {msg.length}/500</p>
-        </div>
-
-        <div className="flex gap-2">
-          <Button variant="outline" size="sm" className="flex-1" onClick={() => { setOpen(false); setMsg(settings?.welcomeMessage ?? ""); }}>Close</Button>
-          <Button size="sm" className="flex-1 gap-1.5" onClick={() => saveMut.mutate()} disabled={saveMut.isPending} data-testid="button-save-welcome">
-            {saveMut.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
-            Save Message
+          <Button
+            size="sm"
+            className="w-full mt-2"
+            onClick={() => saveMut.mutate()}
+            disabled={saveMut.isPending}
+          >
+            {saveMut.isPending ? "Saving..." : "Save Welcome Message"}
           </Button>
         </div>
       </CardContent>
     </Card>
-  );
-}
-
-// ─── My Ads Tab ────────────────────────────────────────────────────────────
-function MyAdsTab() {
-  const qc = useQueryClient();
-  const { toast } = useToast();
-  const { data: ads, isLoading } = useQuery<any[]>({ queryKey: ["/api/p2p/ads/my"] });
-
-  const pauseMut = useMutation({
-    mutationFn: (id: number) => apiRequest("PATCH", `/api/p2p/ads/${id}/toggle-pause`),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["/api/p2p/ads/my"] }); toast({ title: "Ad updated" }); },
-    onError: () => toast({ title: "Error", description: "Failed to update ad.", variant: "destructive" }),
-  });
-
-  const cancelMut = useMutation({
-    mutationFn: (id: number) => apiRequest("DELETE", `/api/p2p/ads/${id}`),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["/api/p2p/ads/my"] }); toast({ title: "Ad cancelled", description: "Funds returned to your balance." }); },
-    onError: (e: any) => toast({ title: "Error", description: e?.message ?? "Failed to cancel ad.", variant: "destructive" }),
-  });
-
-  return (
-    <div className="space-y-3 mt-2">
-      {/* Seller settings panel always visible */}
-      <SellerSettingsPanel />
-
-      {isLoading && <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin text-primary" /></div>}
-      {!isLoading && !ads?.length && <EmptyState icon={Plus} message="You have no ads yet. Post one to start selling USDT." />}
-
-      {ads?.map((ad) => {
-        const currency = ad.currency ?? "HTG";
-        return (
-          <Card key={ad.id} className="border-border" data-testid={`my-ad-${ad.id}`}>
-            <CardContent className="p-4">
-              <div className="flex items-start justify-between gap-2">
-                <div>
-                  <div className="text-lg font-bold text-primary">{parseFloat(ad.rate_htg ?? ad.rateHtg ?? 0).toFixed(2)} {currency}/USDT</div>
-                  <div className="text-xs text-muted-foreground">
-                    Total: {parseFloat(ad.amount_usdt ?? ad.totalUsdt ?? 0).toFixed(2)} · Available: {parseFloat(ad.available_usdt ?? ad.availableUsdt ?? 0).toFixed(2)} USDT
-                  </div>
-                  <div className="text-xs text-muted-foreground">Min {parseFloat(ad.min_order_usdt ?? ad.minOrderUsdt ?? 0).toFixed(0)} – Max {parseFloat(ad.max_order_usdt ?? ad.maxOrderUsdt ?? 0).toFixed(0)} USDT</div>
-                  <div className="flex flex-wrap gap-1 mt-1.5">
-                    {((ad.payment_methods ?? ad.paymentMethods) ?? []).map((m: string) => (
-                      <span key={m} className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] border border-border text-muted-foreground">{m}</span>
-                    ))}
-                  </div>
-                  <TimeAgo date={ad.created_at ?? ad.createdAt} />
-                </div>
-                <div className="flex flex-col items-end gap-2 shrink-0">
-                  <StatusBadge status={ad.status} />
-                  <div className="flex gap-1.5">
-                    {(ad.status === "active" || ad.status === "paused") && (
-                      <>
-                        <Button
-                          variant="outline" size="icon" className="h-7 w-7"
-                          onClick={() => pauseMut.mutate(ad.id)}
-                          disabled={pauseMut.isPending}
-                          title={ad.status === "active" ? "Pause" : "Resume"}
-                          data-testid={`button-pause-${ad.id}`}
-                        >
-                          {ad.status === "active" ? <Pause className="w-3 h-3" /> : <Play className="w-3 h-3" />}
-                        </Button>
-                        <Button
-                          variant="outline" size="icon" className="h-7 w-7 hover:border-destructive hover:text-destructive"
-                          onClick={() => cancelMut.mutate(ad.id)}
-                          disabled={cancelMut.isPending}
-                          title="Cancel ad"
-                          data-testid={`button-cancel-ad-${ad.id}`}
-                        >
-                          <Trash2 className="w-3 h-3" />
-                        </Button>
-                      </>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        );
-      })}
-    </div>
-  );
-}
-
-// ─── My Orders Tab ─────────────────────────────────────────────────────────
-function MyOrdersTab({ onOpen, currentUserId }: { onOpen: (order: any) => void; currentUserId?: number }) {
-  const { data: orders, isLoading } = useQuery<any[]>({ queryKey: ["/api/p2p/orders"] });
-
-  if (isLoading) return <div className="flex justify-center py-10"><Loader2 className="w-6 h-6 animate-spin text-primary" /></div>;
-  if (!orders?.length) return <EmptyState icon={MessageSquare} message="No orders yet. Buy USDT from the Marketplace." />;
-
-  return (
-    <div className="space-y-3 mt-2">
-      {orders.map((order) => {
-        const isBuyer = (order.buyer_id ?? order.buyerId) === currentUserId;
-        const currency = order.currency ?? "HTG";
-        const expiresAt = order.expires_at ?? order.expiresAt;
-        const isPending = order.status === "pending";
-        return (
-          <Card key={order.id} className="border-border hover:border-primary/30 transition-colors cursor-pointer" onClick={() => onOpen(order)} data-testid={`order-card-${order.id}`}>
-            <CardContent className="p-4">
-              <div className="flex items-start justify-between gap-2">
-                <div>
-                  <div className="flex items-center gap-2 mb-0.5">
-                    <span className="text-sm font-semibold">{parseFloat(order.amount_usdt ?? order.amountUsdt ?? 0).toFixed(2)} USDT</span>
-                    <Badge variant="outline" className="text-[10px] py-0">{isBuyer ? "Buying" : "Selling"}</Badge>
-                  </div>
-                  <div className="text-xs text-muted-foreground">
-                    Rate: {parseFloat(order.rate_htg ?? order.rateHtg ?? 0).toFixed(2)} {currency} · Total: {parseFloat(order.total_htg ?? order.totalHtg ?? 0).toFixed(2)} {currency}
-                  </div>
-                  <div className="text-xs text-muted-foreground">via {order.payment_method ?? order.paymentMethod}</div>
-                  {isPending && expiresAt && <ExpiryCountdown expiresAt={expiresAt} />}
-                  {!isPending && <TimeAgo date={order.created_at ?? order.createdAt} />}
-                </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  <StatusBadge status={order.status} />
-                  <ChevronRight className="w-4 h-4 text-muted-foreground" />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        );
-      })}
-    </div>
-  );
-}
-
-// ─── Post Ad Dialog ─────────────────────────────────────────────────────────
-function PostAdDialog({ open, onClose, paymentMethodsData, userBalance }: {
-  open: boolean; onClose: () => void;
-  paymentMethodsData: { methods: string[]; currency: string; group: string };
-  userBalance: number;
-}) {
-  const qc = useQueryClient();
-  const { toast } = useToast();
-  const [rateHtg, setRateHtg] = useState("139.50");
-  const [totalUsdt, setTotalUsdt] = useState("");
-  const [minOrder, setMinOrder] = useState("10");
-  const [maxOrder, setMaxOrder] = useState("500");
-  const [selectedMethods, setSelectedMethods] = useState<string[]>([]);
-  const [terms, setTerms] = useState("");
-
-  const methods = paymentMethodsData.methods.length ? paymentMethodsData.methods : ["MonCash", "NatCash"];
-  const currency = paymentMethodsData.currency ?? "HTG";
-  const group = paymentMethodsData.group ?? "HT";
-  const isHaiti = group === "HT";
-
-  const createMut = useMutation({
-    mutationFn: (body: any) => apiRequest("POST", "/api/p2p/ads", body),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["/api/p2p/ads"] });
-      qc.invalidateQueries({ queryKey: ["/api/p2p/ads/my"] });
-      toast({ title: "Ad posted!", description: "Funds locked in escrow until orders complete." });
-      onClose();
-    },
-    onError: (e: any) => toast({ title: "Error", description: e?.message ?? "Failed to post ad.", variant: "destructive" }),
-  });
-
-  const toggleMethod = (m: string) => {
-    setSelectedMethods(prev => prev.includes(m) ? prev.filter(x => x !== m) : [...prev, m]);
-  };
-
-  const submit = () => {
-    const amt = parseFloat(totalUsdt);
-    const rate = parseFloat(rateHtg);
-    const min = parseFloat(minOrder);
-    const max = parseFloat(maxOrder);
-    if (!amt || amt <= 0) return toast({ title: "Enter a valid amount.", variant: "destructive" });
-    if (amt > userBalance) return toast({ title: "Insufficient balance.", description: `You have ${userBalance.toFixed(2)} USDT.`, variant: "destructive" });
-    if (isHaiti && (!rate || rate < 130 || rate > 145)) return toast({ title: "Rate must be 130–145 HTG/USDT for Haiti.", variant: "destructive" });
-    if (!isHaiti && !rate) return toast({ title: "Enter a rate.", variant: "destructive" });
-    if (!selectedMethods.length) return toast({ title: "Select at least one payment method.", variant: "destructive" });
-    if (!min || !max || min >= max) return toast({ title: "Min must be less than max.", variant: "destructive" });
-    createMut.mutate({ rateHtg: rate, amountUsdt: amt, minOrderUsdt: min, maxOrderUsdt: max, paymentMethods: selectedMethods, termsNote: terms });
-  };
-
-  return (
-    <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-w-sm max-h-[90vh] overflow-y-auto" data-testid="dialog-post-ad">
-        <DialogHeader>
-          <DialogTitle>Post Sell Ad</DialogTitle>
-          <DialogDescription>Lock USDT and sell at your preferred rate. Currency: {currency}.</DialogDescription>
-        </DialogHeader>
-        <div className="space-y-4">
-          {isHaiti && (
-            <Alert className="border-yellow-500/30 bg-yellow-500/5">
-              <AlertCircle className="w-4 h-4 text-yellow-500" />
-              <AlertDescription className="text-xs">Rate must be between 130–145 HTG/USDT for Haiti market.</AlertDescription>
-            </Alert>
-          )}
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label className="text-xs">Rate ({currency}/USDT)</Label>
-              <Input type="number" value={rateHtg} onChange={e => setRateHtg(e.target.value)} step="0.01" data-testid="input-rate-htg" />
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs">Total USDT to sell</Label>
-              <Input type="number" value={totalUsdt} onChange={e => setTotalUsdt(e.target.value)} placeholder={`Max ${userBalance.toFixed(2)}`} data-testid="input-total-usdt" />
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs">Min order (USDT)</Label>
-              <Input type="number" value={minOrder} onChange={e => setMinOrder(e.target.value)} data-testid="input-min-order" />
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs">Max order (USDT)</Label>
-              <Input type="number" value={maxOrder} onChange={e => setMaxOrder(e.target.value)} data-testid="input-max-order" />
-            </div>
-          </div>
-          <div className="space-y-2">
-            <Label className="text-xs">Payment Methods <span className="text-muted-foreground font-normal">(for {currency} market)</span></Label>
-            <div className="flex flex-wrap gap-2">
-              {methods.map((m) => (
-                <button
-                  key={m}
-                  type="button"
-                  onClick={() => toggleMethod(m)}
-                  className={`px-2.5 py-1 rounded text-xs border transition-colors ${selectedMethods.includes(m) ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:border-muted-foreground"}`}
-                  data-testid={`method-${m.replace(/\s/g, "-").toLowerCase()}`}
-                >
-                  {m}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div className="space-y-1.5">
-            <Label className="text-xs">Trade Terms (optional)</Label>
-            <Textarea value={terms} onChange={e => setTerms(e.target.value)} placeholder="e.g. Payment within 15 minutes. No partial payments." rows={2} className="text-sm resize-none" data-testid="textarea-terms" />
-          </div>
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button onClick={submit} disabled={createMut.isPending} data-testid="button-submit-ad">
-            {createMut.isPending ? <><Loader2 className="w-4 h-4 animate-spin mr-1" /> Posting…</> : "Post Ad"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-// ─── Place Order Dialog ─────────────────────────────────────────────────────
-function PlaceOrderDialog({ open, ad, onClose, onPlaced }: { open: boolean; ad: any; onClose: () => void; onPlaced: () => void }) {
-  const { toast } = useToast();
-  const qc = useQueryClient();
-  const methods: string[] = ad.payment_methods ?? ad.paymentMethods ?? [];
-  const rate = parseFloat(ad.rate_htg ?? ad.rateHtg ?? 0);
-  const minOrd = parseFloat(ad.min_order_usdt ?? ad.minOrderUsdt ?? 10);
-  const maxOrd = Math.min(parseFloat(ad.max_order_usdt ?? ad.maxOrderUsdt ?? 500), parseFloat(ad.available_usdt ?? ad.availableUsdt ?? 0));
-  const sellerName = ad.seller_name ?? ad.sellerName ?? "Seller";
-  const termsNote = ad.terms_note ?? ad.terms;
-
-  const [amount, setAmount] = useState(String(minOrd));
-  const [method, setMethod] = useState(methods[0] ?? "");
-
-  const currency = ad.currency ?? "HTG";
-  const amtNum = parseFloat(amount) || 0;
-  const totalHtg = (amtNum * rate).toFixed(2);
-  const min = minOrd;
-  const max = maxOrd;
-
-  const createMut = useMutation({
-    mutationFn: (body: any) => apiRequest("POST", "/api/p2p/orders", body),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["/api/p2p/orders"] });
-      qc.invalidateQueries({ queryKey: ["/api/p2p/ads"] });
-      toast({ title: "Order placed!", description: "Send payment and mark it paid in the trade chat." });
-      onPlaced();
-    },
-    onError: (e: any) => toast({ title: "Error", description: e?.message ?? "Failed to place order.", variant: "destructive" }),
-  });
-
-  const submit = () => {
-    if (amtNum < min || amtNum > max) return toast({ title: `Amount must be ${min}–${max} USDT.`, variant: "destructive" });
-    if (!method) return toast({ title: "Select a payment method.", variant: "destructive" });
-    createMut.mutate({ adId: ad.id, amountUsdt: amtNum, paymentMethod: method });
-  };
-
-  return (
-    <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-w-sm" data-testid="dialog-buy">
-        <DialogHeader>
-          <DialogTitle>Buy USDT</DialogTitle>
-          <DialogDescription>Rate: {rate.toFixed(2)} HTG/USDT from {sellerName}</DialogDescription>
-        </DialogHeader>
-        <div className="space-y-4">
-          <div className="space-y-1.5">
-            <Label className="text-xs">Amount (USDT)</Label>
-            <Input type="number" value={amount} onChange={e => setAmount(e.target.value)} min={min} max={max} step="0.01" data-testid="input-buy-amount" />
-            <p className="text-xs text-muted-foreground">Range: {min} – {max} USDT</p>
-          </div>
-          <div className="rounded-lg border border-border p-3 space-y-1.5">
-            <div className="flex justify-between text-sm"><span className="text-muted-foreground">You pay</span><span className="font-semibold text-primary">{totalHtg} {currency}</span></div>
-            <div className="flex justify-between text-sm"><span className="text-muted-foreground">You receive</span><span className="font-semibold">{amtNum.toFixed(2)} USDT</span></div>
-          </div>
-          <div className="space-y-1.5">
-            <Label className="text-xs">Payment Method</Label>
-            <Select value={method} onValueChange={setMethod}>
-              <SelectTrigger data-testid="select-payment-method"><SelectValue placeholder="Select method" /></SelectTrigger>
-              <SelectContent>
-                {methods.map((m) => <SelectItem key={m} value={m}>{m}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          </div>
-          {termsNote && (
-            <Alert className="border-blue-500/30 bg-blue-500/5">
-              <AlertCircle className="w-4 h-4 text-blue-400" />
-              <AlertDescription className="text-xs italic">"{termsNote}"</AlertDescription>
-            </Alert>
-          )}
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button onClick={submit} disabled={createMut.isPending} data-testid="button-confirm-buy">
-            {createMut.isPending ? <><Loader2 className="w-4 h-4 animate-spin mr-1" /> Placing…</> : "Place Order"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-// ─── Trade Dialog ──────────────────────────────────────────────────────────
-function TradeDialog({ open, order, currentUserId, onClose }: { open: boolean; order: any; currentUserId?: number; onClose: () => void }) {
-  const { toast } = useToast();
-  const qc = useQueryClient();
-  const [chatMsg, setChatMsg] = useState("");
-  const [releaseChecked, setReleaseChecked] = useState(false);
-  const [disputeReason, setDisputeReason] = useState("");
-  const [showDispute, setShowDispute] = useState(false);
-  // PIN modal state
-  const [showPinModal, setShowPinModal] = useState(false);
-  const [pin, setPin] = useState("");
-  const [pinError, setPinError] = useState("");
-  const [pinLocked, setPinLocked] = useState(false);
-  const [pinLockedUntil, setPinLockedUntil] = useState<Date | null>(null);
-  const [attemptsRemaining, setAttemptsRemaining] = useState(5);
-  const chatBottomRef = useRef<HTMLDivElement>(null);
-  const fileRef = useRef<HTMLInputElement>(null);
-  const pinInputRef = useRef<HTMLInputElement>(null);
-
-  const isBuyer = (order.buyer_id ?? order.buyerId) === currentUserId;
-  const isSeller = (order.seller_id ?? order.sellerId) === currentUserId;
-  const orderId = order.id;
-  const currency = order.currency ?? "HTG";
-  const expiresAt = order.expires_at ?? order.expiresAt;
-
-  const { data: chat, refetch: refetchChat } = useQuery<any[]>({
-    queryKey: ["/api/p2p/orders", orderId, "chat"],
-    queryFn: () => fetch(`/api/p2p/orders/${orderId}/chat`, { credentials: "include" }).then(r => r.json()),
-    refetchInterval: 4000,
-  });
-
-  useEffect(() => { chatBottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [chat]);
-
-  // Focus PIN input when modal opens
-  useEffect(() => {
-    if (showPinModal) { setTimeout(() => pinInputRef.current?.focus(), 100); }
-    if (!showPinModal) { setPin(""); setPinError(""); }
-  }, [showPinModal]);
-
-  const sendMsg = useMutation({
-    mutationFn: async (body: any) => {
-      const res = await apiRequest("POST", `/api/p2p/orders/${orderId}/chat`, body);
-      return res.json();
-    },
-    onSuccess: (data: any) => {
-      setChatMsg("");
-      if (data?.filtered) {
-        toast({
-          title: "🚫 Message bloqué",
-          description: data?.filter_warning || "Pour votre sécurité, le partage de contacts sociaux ou de liens externes est strictement interdit sur Izichanj.",
-          variant: "destructive",
-          duration: 6000,
-        });
-      }
-      refetchChat();
-    },
-    onError: () => toast({ title: "Failed to send message.", variant: "destructive" }),
-  });
-
-  const markPaidMut = useMutation({
-    mutationFn: () => apiRequest("POST", `/api/p2p/orders/${orderId}/pay`),
-    onSuccess: () => { toast({ title: "Marked as paid!" }); qc.invalidateQueries({ queryKey: ["/api/p2p/orders"] }); onClose(); },
-    onError: (e: any) => toast({ title: "Error", description: e?.message, variant: "destructive" }),
-  });
-
-  const releasePinMut = useMutation({
-    mutationFn: (body: any) => apiRequest("POST", `/api/p2p/orders/${orderId}/release-pin`, body),
-    onSuccess: () => {
-      toast({ title: "✅ Funds released!", description: "USDT sent to buyer. Trade complete." });
-      qc.invalidateQueries({ queryKey: ["/api/p2p/orders"] });
-      setShowPinModal(false);
-      onClose();
-    },
-    onError: (e: any) => {
-      // apiRequest throws Error("status: {json}") — parse the JSON payload
-      let data: any = {};
-      try {
-        const raw = e?.message ?? "";
-        const jsonStr = raw.replace(/^\d+:\s*/, "");
-        data = JSON.parse(jsonStr);
-      } catch {
-        data = { message: e?.message ?? "PIN verification failed." };
-      }
-      setPinError(data?.message ?? "PIN verification failed.");
-      if (data?.locked) {
-        setPinLocked(true);
-        if (data?.lockedUntil) setPinLockedUntil(new Date(data.lockedUntil));
-      } else if (data?.attemptsRemaining !== undefined) {
-        setAttemptsRemaining(data.attemptsRemaining);
-      }
-      setPin("");
-      pinInputRef.current?.focus();
-    },
-  });
-
-  const submitPin = () => {
-    if (pin.length !== 6) { setPinError("Enter your 6-digit withdrawal PIN."); return; }
-    setPinError("");
-    releasePinMut.mutate({ pin });
-  };
-
-  const [showCancelModal, setShowCancelModal] = useState(false);
-
-  const disputeMut = useMutation({
-    mutationFn: (body: any) => apiRequest("POST", `/api/p2p/orders/${orderId}/dispute`, body),
-    onSuccess: () => { toast({ title: "Dispute opened.", description: "Admin has been notified." }); qc.invalidateQueries({ queryKey: ["/api/p2p/orders"] }); onClose(); },
-    onError: (e: any) => toast({ title: "Error", description: e?.message, variant: "destructive" }),
-  });
-
-  const handleSend = () => {
-    const msg = chatMsg.trim();
-    if (!msg) return;
-    sendMsg.mutate({ message: msg });
-  };
-
-  const [uploading, setUploading] = useState(false);
-  const [pendingFile, setPendingFile] = useState<File | null>(null);
-  const [pendingPreview, setPendingPreview] = useState<string | null>(null);
-  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
-
-  const isImageFile = (nameOrUrl?: string | null) =>
-    !!nameOrUrl && /\.(png|jpe?g|gif|webp|bmp|svg|heic|heif)(\?.*)?$/i.test(nameOrUrl);
-
-  const handleFilePick = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    e.target.value = "";
-    if (!file) return;
-    setPendingFile(file);
-    if (file.type.startsWith("image/")) {
-      const url = URL.createObjectURL(file);
-      setPendingPreview(url);
-    } else {
-      setPendingPreview(null);
-    }
-  };
-
-  const cancelPendingFile = () => {
-    if (pendingPreview) URL.revokeObjectURL(pendingPreview);
-    setPendingFile(null);
-    setPendingPreview(null);
-  };
-
-  const sendPendingFile = async () => {
-    if (!pendingFile || uploading || sendMsg.isPending) return;
-    const file = pendingFile;
-    const caption = chatMsg.trim();
-    setUploading(true);
-    try {
-      const urlRes = await fetch("/api/p2p/upload-url", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ name: file.name, size: file.size, contentType: file.type }),
-      });
-      if (!urlRes.ok) throw new Error("Failed to get upload URL");
-      const { uploadURL, objectPath } = await urlRes.json();
-      const putRes = await fetch(uploadURL, {
-        method: "PUT",
-        headers: { "Content-Type": file.type },
-        body: file,
-      });
-      if (!putRes.ok) throw new Error("Upload failed");
-      sendMsg.mutate({ message: caption, fileUrl: objectPath, fileName: file.name });
-      setChatMsg("");
-      cancelPendingFile();
-    } catch (err: any) {
-      toast({ title: "Upload failed.", description: err?.message ?? "Please try again.", variant: "destructive" });
-    } finally {
-      setUploading(false);
-    }
-  };
-
-  useEffect(() => {
-    return () => { if (pendingPreview) URL.revokeObjectURL(pendingPreview); };
-  }, [pendingPreview]);
-
-  const isActive = ["pending", "paid"].includes(order.status);
-
-  return (
-    <Dialog open={open} onOpenChange={onClose}>
-      {/* Full-height dialog with proper flex column so chat area grows */}
-      <DialogContent
-        className="max-w-none w-screen h-screen max-h-screen sm:max-w-none rounded-none border-0 left-0 top-0 translate-x-0 translate-y-0 flex flex-col p-0 gap-0 overflow-hidden [&>button]:hidden"
-        data-testid="dialog-trade"
-      >
-        {/* Header — back arrow returns to market; default dialog X is hidden via [&>button]:hidden */}
-        <div className="flex items-center justify-between px-3 sm:px-4 pt-4 pb-3 border-b border-border shrink-0 gap-3 mx-auto w-full max-w-2xl">
-          <div className="flex items-center gap-2 min-w-0">
-            <button
-              onClick={onClose}
-              className="-ml-1 p-1.5 rounded-full hover:bg-muted transition-colors flex-shrink-0"
-              aria-label="Back"
-              data-testid="button-back-trade"
-            >
-              <ArrowLeft className="w-5 h-5" />
-            </button>
-            <div className="min-w-0">
-              <h3 className="font-semibold text-sm">Trade #{order.id}</h3>
-              <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                <StatusBadge status={order.status} />
-                <span className="text-xs text-muted-foreground">{isBuyer ? "Buying" : "Selling"}</span>
-              </div>
-            </div>
-          </div>
-          <div className="flex flex-col items-end min-w-0 max-w-[55%]">
-            <span className="text-xs font-semibold truncate w-full text-right" data-testid="text-counterparty-name">
-              {isBuyer ? (order.seller_name ?? order.sellerName ?? "Seller") : (order.buyer_name ?? order.buyerName ?? "Buyer")}
-            </span>
-            <PresenceIndicator
-              lastActivity={isBuyer ? (order.seller_last_activity ?? order.sellerLastActivity) : (order.buyer_last_activity ?? order.buyerLastActivity)}
-            />
-          </div>
-        </div>
-
-        {/* Trade summary — compact */}
-        <div className="px-4 py-3 bg-muted/20 border-b border-border shrink-0 mx-auto w-full max-w-2xl">
-          <div className="grid grid-cols-3 gap-2 text-center">
-            <div>
-              <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Amount</p>
-              <p className="font-semibold text-sm mt-0.5">{parseFloat(order.amount_usdt ?? order.amountUsdt ?? 0).toFixed(2)} USDT</p>
-            </div>
-            <div>
-              <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Rate</p>
-              <p className="font-semibold text-sm mt-0.5">{parseFloat(order.rate_htg ?? order.rateHtg ?? 0).toFixed(2)}</p>
-            </div>
-            <div>
-              <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Total</p>
-              <p className="font-semibold text-sm mt-0.5 text-primary">{parseFloat(order.total_htg ?? order.totalHtg ?? order.amount_local ?? 0).toFixed(2)} {currency}</p>
-            </div>
-          </div>
-          <div className="flex items-center justify-between mt-2">
-            <p className="text-xs text-muted-foreground">via {order.payment_method ?? order.paymentMethod}</p>
-            {order.status === "pending" && expiresAt && <ExpiryCountdown expiresAt={expiresAt} />}
-          </div>
-        </div>
-
-        {/* Chat area — flex-1 so it fills available space */}
-        <div className="flex-1 min-h-0 overflow-y-auto px-4 py-4 space-y-3 mx-auto w-full max-w-2xl">
-          {(!chat || chat.length === 0) && (
-            <p className="text-xs text-center text-muted-foreground py-6">No messages yet. Coordinate your payment here.</p>
-          )}
-          {chat?.map((msg: any) => {
-            const isMe = (msg.sender_id ?? msg.senderId) === currentUserId;
-            const fileUrl = msg.file_url ?? msg.fileUrl;
-            const msgDate = msg.created_at ?? msg.createdAt;
-            const readAt = msg.read_at ?? msg.readAt;
-            // System messages start with status emojis — render as compact centered pills
-            const statusEmojis = ["💰", "✅", "❌", "⏰", "⚠️", "🔒"];
-            const isSystemMsg = !msg.sender_id && !msg.senderId ||
-              (msg.message && statusEmojis.some((e) => msg.message.startsWith(e)));
-            if (isSystemMsg) {
-              return (
-                <div key={msg.id} className="flex justify-center my-1">
-                  <span className="text-[10px] text-muted-foreground bg-muted/40 border border-border/50 rounded-full px-3 py-1 max-w-[90%] text-center leading-relaxed">{msg.message}</span>
-                </div>
-              );
-            }
-            return (
-              <div key={msg.id} className={`flex ${isMe ? "justify-end" : "justify-start"}`}>
-                <div className={`max-w-[78%] rounded-2xl px-3 py-2 text-sm ${isMe ? "bg-primary text-primary-foreground rounded-br-sm" : "bg-muted rounded-bl-sm"}`}>
-                  {msg.message && <p className="break-words leading-relaxed">{msg.message}</p>}
-                  {fileUrl && (isImageFile(msg.file_name ?? msg.fileName) || isImageFile(fileUrl)) ? (
-                    <button
-                      type="button"
-                      onClick={() => setLightboxUrl(fileUrl)}
-                      className="block mt-1.5 rounded-lg overflow-hidden focus:outline-none focus:ring-2 focus:ring-ring"
-                      data-testid={`button-chat-image-${msg.id}`}
-                    >
-                      <img
-                        src={fileUrl}
-                        alt={msg.file_name ?? msg.fileName ?? "Attachment"}
-                        loading="lazy"
-                        className="max-w-[200px] max-h-[200px] w-auto h-auto rounded-lg object-cover cursor-zoom-in hover:opacity-90 transition-opacity"
-                      />
-                    </button>
-                  ) : fileUrl ? (
-                    <a href={fileUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-xs underline mt-1.5 opacity-80 hover:opacity-100">
-                      <ImageIcon className="w-3 h-3 shrink-0" /> {msg.file_name ?? msg.fileName ?? "View attachment"}
-                    </a>
-                  ) : null}
-                  <div className={`flex items-center gap-0.5 mt-1 ${isMe ? "justify-end" : "justify-start"}`}>
-                    <span
-                      className={`text-[10px] ${isMe ? "text-primary-foreground/60" : "text-muted-foreground"}`}
-                      title={msgDate ? (parseTs(msgDate)?.toLocaleString() ?? "") : ""}
-                      data-testid={`text-msg-time-${msg.id}`}
-                    >
-                      {msgDate ? formatTime(msgDate) : ""}
-                    </span>
-                    {isMe && (
-                      readAt
-                        ? <span className="inline-flex ml-0.5 text-primary-foreground/80" title="Read">
-                            <Check className="w-2.5 h-2.5" /><Check className="w-2.5 h-2.5 -ml-1.5" />
-                          </span>
-                        : <Check className="w-2.5 h-2.5 ml-0.5 text-primary-foreground/40" />
-                    )}
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-          <div ref={chatBottomRef} />
-        </div>
-
-        {/* Chat input */}
-        {isActive && (
-          <div className="border-t border-border shrink-0 bg-background mx-auto w-full max-w-2xl">
-            {pendingFile && (
-              <div className="flex items-center gap-3 px-3 pt-2.5 pb-1">
-                <div className="relative">
-                  {pendingPreview ? (
-                    <img
-                      src={pendingPreview}
-                      alt="Preview"
-                      className="w-14 h-14 rounded-lg object-cover border border-border"
-                      data-testid="img-attach-preview"
-                    />
-                  ) : (
-                    <div className="w-14 h-14 rounded-lg border border-border bg-muted flex items-center justify-center">
-                      <Paperclip className="w-5 h-5 text-muted-foreground" />
-                    </div>
-                  )}
-                  <button
-                    type="button"
-                    onClick={cancelPendingFile}
-                    disabled={uploading}
-                    className="absolute -top-1.5 -right-1.5 bg-background border border-border rounded-full p-0.5 shadow-sm hover:bg-muted disabled:opacity-50"
-                    aria-label="Remove attachment"
-                    data-testid="button-cancel-attachment"
-                  >
-                    <X className="w-3 h-3" />
-                  </button>
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs font-medium truncate" data-testid="text-attach-name">{pendingFile.name}</p>
-                  <p className="text-[10px] text-muted-foreground">
-                    {(pendingFile.size / 1024).toFixed(1)} KB · ready to send
-                  </p>
-                </div>
-              </div>
-            )}
-            <div className="flex items-center gap-2 px-3 py-2.5">
-              <input type="file" ref={fileRef} accept="image/*,application/pdf" className="hidden" onChange={handleFilePick} />
-              <Button
-                variant="ghost" size="icon" className="shrink-0 h-9 w-9 text-muted-foreground hover:text-foreground"
-                onClick={() => fileRef.current?.click()}
-                disabled={uploading || !!pendingFile}
-                data-testid="button-attach-file"
-                title="Attach image"
-              >
-                <Paperclip className="w-4 h-4" />
-              </Button>
-              <Input
-                value={chatMsg}
-                onChange={e => setChatMsg(e.target.value)}
-                onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); pendingFile ? sendPendingFile() : handleSend(); } }}
-                placeholder={pendingFile ? "Add a caption (optional)…" : "Type a message…"}
-                className="h-9 text-sm flex-1"
-                data-testid="input-chat-message"
-              />
-              <Button
-                size="icon" className="h-9 w-9 shrink-0"
-                onClick={() => pendingFile ? sendPendingFile() : handleSend()}
-                disabled={sendMsg.isPending || uploading || (!pendingFile && !chatMsg.trim())}
-                data-testid="button-send-message"
-              >
-                {(sendMsg.isPending || uploading) ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
-              </Button>
-            </div>
-          </div>
-        )}
-
-        {/* Image lightbox */}
-        {lightboxUrl && (
-          <div
-            className="fixed inset-0 z-[100] bg-black/90 backdrop-blur-sm flex items-center justify-center p-4"
-            onClick={() => setLightboxUrl(null)}
-            data-testid="overlay-image-lightbox"
-          >
-            <button
-              type="button"
-              onClick={(e) => { e.stopPropagation(); setLightboxUrl(null); }}
-              className="absolute top-4 right-4 text-white/80 hover:text-white bg-black/40 rounded-full p-2"
-              aria-label="Close"
-              data-testid="button-close-lightbox"
-            >
-              <X className="w-5 h-5" />
-            </button>
-            <img
-              src={lightboxUrl}
-              alt="Full size"
-              onClick={(e) => e.stopPropagation()}
-              className="max-w-full max-h-full object-contain rounded-lg shadow-2xl"
-            />
-          </div>
-        )}
-
-        {/* Action footer */}
-        <div className="px-4 py-3 border-t border-border space-y-2.5 shrink-0 bg-background mx-auto w-full max-w-2xl">
-          {/* Buyer: pending */}
-          {isBuyer && order.status === "pending" && (
-            <Button className="w-full" onClick={() => markPaidMut.mutate()} disabled={markPaidMut.isPending} data-testid="button-mark-paid">
-              {markPaidMut.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-1.5" /> : <CheckCircle2 className="w-4 h-4 mr-1.5" />}
-              I've Sent Payment
-            </Button>
-          )}
-          {isBuyer && order.status === "paid" && (
-            <p className="text-xs text-center text-muted-foreground py-1">Waiting for seller to verify and release funds…</p>
-          )}
-
-          {/* Seller: pending */}
-          {isSeller && order.status === "pending" && (
-            <p className="text-xs text-center text-muted-foreground py-1">Waiting for buyer to send payment…</p>
-          )}
-          {/* Seller: paid — release flow with PIN */}
-          {isSeller && order.status === "paid" && (
-            <div className="space-y-2">
-              <div className="flex items-start gap-2.5 bg-muted/30 rounded-lg p-2.5">
-                <Checkbox id="release-confirm" checked={releaseChecked} onCheckedChange={(v) => setReleaseChecked(!!v)} className="mt-0.5" data-testid="checkbox-release" />
-                <label htmlFor="release-confirm" className="text-xs text-muted-foreground cursor-pointer leading-relaxed">
-                  I confirm that I have manually verified the receipt of{" "}
-                  <strong className="text-foreground">{parseFloat(order.total_htg ?? order.totalHtg ?? order.amount_local ?? 0).toFixed(2)} {currency}</strong>{" "}
-                  in my <strong className="text-foreground">{order.payment_method ?? order.paymentMethod}</strong> account.
-                </label>
-              </div>
-              <Button
-                className="w-full gap-2"
-                onClick={() => setShowPinModal(true)}
-                disabled={!releaseChecked}
-                data-testid="button-release-funds"
-              >
-                <Lock className="w-4 h-4" />
-                Release USDT to Buyer
-              </Button>
-            </div>
-          )}
-
-          {/* Cancel + Dispute */}
-          {isActive && (
-            <div className="flex gap-2">
-              <Button variant="outline" size="sm" className="flex-1 h-8 text-xs" onClick={() => setShowCancelModal(true)} data-testid="button-cancel-order">
-                Cancel Order
-              </Button>
-              <Button variant="outline" size="sm" className="flex-1 h-8 text-xs border-red-500/30 text-red-400 hover:bg-red-500/10" onClick={() => setShowDispute(true)} data-testid="button-dispute-order">
-                <AlertTriangle className="w-3 h-3 mr-1" /> Dispute
-              </Button>
-            </div>
-          )}
-
-          {order.status === "released" && (
-            <div className="flex items-center justify-center gap-2 text-emerald-400 text-sm py-1">
-              <CheckCircle2 className="w-4 h-4" /> Trade completed
-            </div>
-          )}
-          {order.status === "disputed" && (
-            <div className="flex items-center justify-center gap-2 text-red-400 text-sm py-1">
-              <AlertTriangle className="w-4 h-4" /> Under dispute – admin reviewing
-            </div>
-          )}
-          {order.status === "cancelled" && (
-            <div className="flex items-center justify-center gap-2 text-muted-foreground text-sm py-1">
-              <X className="w-4 h-4" /> Order cancelled
-            </div>
-          )}
-        </div>
-
-        {/* PIN verification overlay */}
-        {showPinModal && (
-          <div className="absolute inset-0 bg-background/98 backdrop-blur-sm rounded-lg flex flex-col items-center justify-center p-6 gap-5 z-20">
-            <div className="flex flex-col items-center gap-2 text-center">
-              {pinLocked ? (
-                <>
-                  <div className="w-14 h-14 rounded-full bg-red-500/10 flex items-center justify-center mb-1">
-                    <Lock className="w-7 h-7 text-red-400" />
-                  </div>
-                  <h4 className="font-semibold text-base">Release Locked</h4>
-                  <p className="text-xs text-muted-foreground max-w-[240px]">
-                    Too many failed attempts. Release is locked for 30 minutes for security.
-                    {pinLockedUntil && (
-                      <span className="block mt-1 text-red-400">
-                        Unlocks at {new Date(pinLockedUntil).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                      </span>
-                    )}
-                  </p>
-                  <Button variant="outline" className="mt-2" onClick={() => setShowPinModal(false)}>Close</Button>
-                </>
-              ) : (
-                <>
-                  <div className="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center mb-1">
-                    <KeyRound className="w-7 h-7 text-primary" />
-                  </div>
-                  <h4 className="font-semibold text-base">Enter Withdrawal PIN</h4>
-                  <p className="text-xs text-muted-foreground max-w-[240px]">
-                    Enter your 6-digit withdrawal PIN to release <strong>{parseFloat(order.amount_usdt ?? 0).toFixed(2)} USDT</strong> to the buyer.
-                  </p>
-                  <div className="w-full mt-1">
-                    <Input
-                      ref={pinInputRef}
-                      type="password"
-                      inputMode="numeric"
-                      maxLength={6}
-                      value={pin}
-                      onChange={e => { setPin(e.target.value.replace(/\D/g, "").slice(0, 6)); setPinError(""); }}
-                      onKeyDown={e => { if (e.key === "Enter") submitPin(); }}
-                      placeholder="••••••"
-                      className="text-center text-2xl tracking-[0.5em] h-12 font-mono"
-                      data-testid="input-release-pin"
-                    />
-                    {pinError && (
-                      <p className="text-xs text-red-400 mt-1.5 text-center">{pinError}</p>
-                    )}
-                    {attemptsRemaining < 5 && !pinLocked && (
-                      <p className="text-[10px] text-yellow-500 mt-1 text-center">
-                        {attemptsRemaining} attempt{attemptsRemaining !== 1 ? "s" : ""} remaining before lockout
-                      </p>
-                    )}
-                  </div>
-                  <div className="flex gap-3 w-full mt-1">
-                    <Button variant="outline" className="flex-1" onClick={() => setShowPinModal(false)}>Cancel</Button>
-                    <Button
-                      className="flex-1 gap-2"
-                      onClick={submitPin}
-                      disabled={pin.length !== 6 || releasePinMut.isPending}
-                      data-testid="button-confirm-pin-release"
-                    >
-                      {releasePinMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
-                      Confirm Release
-                    </Button>
-                  </div>
-                </>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* Cancel order modal */}
-        {showCancelModal && (
-          <CancelOrderModal
-            orderId={orderId}
-            isBuyer={isBuyer}
-            onClose={() => setShowCancelModal(false)}
-            onSuccess={() => { qc.invalidateQueries({ queryKey: ["/api/p2p/orders"] }); onClose(); }}
-          />
-        )}
-
-        {/* Dispute overlay */}
-        {showDispute && (
-          <div className="absolute inset-0 bg-background/97 backdrop-blur-sm rounded-lg flex flex-col p-5 gap-4 z-20">
-            <div>
-              <h4 className="font-semibold text-sm">Open Dispute</h4>
-              <p className="text-xs text-muted-foreground mt-1">Describe the issue clearly. Admin will review and resolve.</p>
-            </div>
-            <Textarea
-              value={disputeReason}
-              onChange={e => setDisputeReason(e.target.value)}
-              placeholder="Explain what went wrong…"
-              rows={5}
-              className="text-sm resize-none flex-1"
-              data-testid="textarea-dispute-reason"
-            />
-            <div className="flex gap-2">
-              <Button variant="outline" className="flex-1" onClick={() => setShowDispute(false)}>Back</Button>
-              <Button
-                variant="destructive" className="flex-1"
-                onClick={() => disputeMut.mutate({ reason: disputeReason })}
-                disabled={!disputeReason.trim() || disputeMut.isPending}
-                data-testid="button-confirm-dispute"
-              >
-                {disputeMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "Submit Dispute"}
-              </Button>
-            </div>
-          </div>
-        )}
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-// ─── Cancel Order Modal ────────────────────────────────────────────────────
-const BUYER_CANCEL_REASONS = [
-  "I no longer want to buy.",
-  "Payment method unavailable / problem.",
-  "Seller is not responding.",
-  "Made a mistake in the amount.",
-];
-
-const SELLER_CANCEL_REASONS = [
-  "Payment not received.",
-  "Issue with my payment account (Full / Limit).",
-  "Suspicious buyer activity.",
-  "I am currently unavailable to trade.",
-];
-
-function CancelOrderModal({ orderId, isBuyer, onClose, onSuccess }: {
-  orderId: number;
-  isBuyer: boolean;
-  onClose: () => void;
-  onSuccess: () => void;
-}) {
-  const { toast } = useToast();
-  const [reason, setReason] = useState("");
-  const [confirmed, setConfirmed] = useState(false);
-
-  const reasons = isBuyer ? BUYER_CANCEL_REASONS : SELLER_CANCEL_REASONS;
-
-  const cancelMut = useMutation({
-    mutationFn: () => apiRequest("POST", `/api/p2p/orders/${orderId}/cancel`, {
-      reason,
-      buyerConfirmedNoPayment: isBuyer ? confirmed : undefined,
-    }),
-    onSuccess: () => {
-      toast({ title: "Order cancelled.", description: isBuyer ? "The seller has been notified." : "USDT returned to your ad — ad is live again." });
-      onSuccess();
-      onClose();
-    },
-    onError: (e: any) => toast({ title: "Error", description: e?.message ?? "Failed to cancel.", variant: "destructive" }),
-  });
-
-  const canConfirm = !!reason && (!isBuyer || confirmed);
-
-  return (
-    <div className="absolute inset-0 bg-background/98 backdrop-blur-sm rounded-lg flex flex-col p-5 gap-4 z-20 overflow-y-auto">
-      {/* Header */}
-      <div>
-        <h4 className="font-semibold text-sm flex items-center gap-2">
-          <X className="w-4 h-4 text-red-400" /> Cancel Order
-        </h4>
-        <p className="text-xs text-muted-foreground mt-1">
-          {isBuyer
-            ? "Select a reason. You cannot cancel without choosing one."
-            : "Select a reason. USDT will be returned to your ad automatically."}
-        </p>
-      </div>
-
-      {/* Reason selection */}
-      <div className="space-y-1.5">
-        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Reason for Cancellation *</p>
-        {reasons.map((r) => (
-          <button
-            key={r}
-            onClick={() => setReason(r)}
-            className={`w-full text-left text-xs px-3 py-2.5 rounded-lg border transition-all ${
-              reason === r
-                ? "border-primary bg-primary/10 text-foreground"
-                : "border-border text-muted-foreground hover:border-muted-foreground/40 hover:text-foreground"
-            }`}
-            data-testid={`reason-${r.slice(0, 20).replace(/\s/g, "-")}`}
-          >
-            {r}
-          </button>
-        ))}
-      </div>
-
-      {/* Buyer confirmation checkbox */}
-      {isBuyer && (
-        <div className="border border-amber-500/30 bg-amber-500/10 rounded-lg p-3 space-y-2.5">
-          <p className="text-[11px] font-semibold text-amber-300 flex items-center gap-1.5 uppercase tracking-wider">
-            <AlertTriangle className="w-3.5 h-3.5 shrink-0" /> Confirmation Required
-          </p>
-          <div className="flex items-start gap-2.5">
-            <Checkbox
-              id="no-payment-confirm"
-              checked={confirmed}
-              onCheckedChange={(v) => setConfirmed(!!v)}
-              className="mt-0.5 shrink-0 border-amber-400 data-[state=checked]:bg-amber-500 data-[state=checked]:border-amber-500"
-              data-testid="checkbox-buyer-cancel-confirm"
-            />
-            <label htmlFor="no-payment-confirm" className="text-xs text-amber-100/90 leading-relaxed cursor-pointer select-none">
-              I confirm that I have <strong>NOT</strong> sent any payment to the seller. I understand that falsely
-              canceling a trade after sending money is a violation of Izichanj terms and can lead to account suspension.
-            </label>
-          </div>
-        </div>
-      )}
-
-      {/* Seller info notice */}
-      {!isBuyer && reason && (
-        <div className="flex items-start gap-2 bg-blue-500/10 border border-blue-500/20 rounded-lg p-3">
-          <CheckCircle2 className="w-4 h-4 text-blue-400 shrink-0 mt-0.5" />
-          <p className="text-xs text-blue-300 leading-relaxed">
-            The locked USDT will automatically return to your ad balance and your ad will go live in the marketplace immediately.
-          </p>
-        </div>
-      )}
-
-      {/* Actions */}
-      <div className="flex gap-2 mt-auto pt-2">
-        <Button variant="outline" size="sm" className="flex-1" onClick={onClose} disabled={cancelMut.isPending} data-testid="button-keep-order">
-          Keep Order
-        </Button>
-        <Button
-          variant="destructive"
-          size="sm"
-          className="flex-1"
-          onClick={() => cancelMut.mutate()}
-          disabled={!canConfirm || cancelMut.isPending}
-          data-testid="button-confirm-cancel"
-        >
-          {cancelMut.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <X className="w-3 h-3 mr-1" />}
-          Confirm Cancellation
-        </Button>
-      </div>
-    </div>
-  );
-}
-
-// ─── Helpers ───────────────────────────────────────────────────────────────
-function EmptyState({ icon: Icon, message }: { icon: any; message: string }) {
-  return (
-    <div className="flex flex-col items-center justify-center py-16 gap-3 text-muted-foreground">
-      <Icon className="w-10 h-10 opacity-30" />
-      <p className="text-sm text-center max-w-xs">{message}</p>
-    </div>
   );
 }

@@ -1,59 +1,119 @@
 import type { Express } from "express";
+import https from "https";
 import { ObjectStorageService, ObjectNotFoundError } from "./objectStorage";
+import { URL } from "url";
 
-/**
- * Register object storage routes for file uploads.
- *
- * This provides example routes for the presigned URL upload flow:
- * 1. POST /api/uploads/request-url - Get a presigned URL for uploading
- * 2. The client then uploads directly to the presigned URL
- *
- * IMPORTANT: These are example routes. Customize based on your use case:
- * - Add authentication middleware for protected uploads
- * - Add file metadata storage (save to database after upload)
- * - Add ACL policies for access control
- */
+const ALLOWED_IMAGE_HOSTS = new Set(["i.ibb.co", "ibb.co", "imgbb.com", "www.imgbb.com"]);
+const MAX_PROXY_IMAGE_BYTES = 10 * 1024 * 1024;
+
+function isAllowedImageUrl(rawUrl: string): boolean {
+  try {
+    const url = new URL(rawUrl);
+    return url.protocol === "https:" && ALLOWED_IMAGE_HOSTS.has(url.hostname.toLowerCase());
+  } catch {
+    return false;
+  }
+}
+
+async function fetchImgBbImage(rawUrl: string): Promise<{ body: Buffer; contentType: string }> {
+  if (!isAllowedImageUrl(rawUrl)) {
+    throw new Error("Unsupported image host");
+  }
+
+  const response = await fetch(rawUrl, {
+    headers: { Accept: "image/*,text/html;q=0.9" },
+    redirect: "follow",
+  });
+
+  if (!response.ok) {
+    throw new Error(`ImgBB returned ${response.status}`);
+  }
+  if (response.url && !isAllowedImageUrl(response.url)) {
+    throw new Error("ImgBB redirected to an unsupported host");
+  }
+
+  const contentType = response.headers.get("content-type") || "";
+  const body = Buffer.from(await response.arrayBuffer());
+  if (body.byteLength > MAX_PROXY_IMAGE_BYTES) {
+    throw new Error("Image is too large");
+  }
+
+  if (contentType.toLowerCase().startsWith("image/")) {
+    return { body, contentType: contentType.split(";")[0] };
+  }
+
+  // ImgBB page URLs are not valid <img> sources. Resolve the image from the
+  // page's og:image metadata so old database rows continue to work.
+  const html = body.toString("utf8");
+  const ogImage =
+    html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i)?.[1] ||
+    html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i)?.[1];
+
+  if (!ogImage) {
+    throw new Error("ImgBB page has no image");
+  }
+
+  const resolvedUrl = new URL(ogImage, rawUrl).toString();
+  if (!isAllowedImageUrl(resolvedUrl)) {
+    throw new Error("Resolved image host is not allowed");
+  }
+
+  const imageResponse = await fetch(resolvedUrl, {
+    headers: { Accept: "image/*" },
+    redirect: "follow",
+  });
+  if (!imageResponse.ok) {
+    throw new Error(`ImgBB image returned ${imageResponse.status}`);
+  }
+  if (imageResponse.url && !isAllowedImageUrl(imageResponse.url)) {
+    throw new Error("ImgBB image redirected to an unsupported host");
+  }
+
+  const imageType = imageResponse.headers.get("content-type") || "";
+  if (!imageType.toLowerCase().startsWith("image/")) {
+    throw new Error("ImgBB did not return an image");
+  }
+
+  const imageBody = Buffer.from(await imageResponse.arrayBuffer());
+  if (imageBody.byteLength > MAX_PROXY_IMAGE_BYTES) {
+    throw new Error("Image is too large");
+  }
+
+  return { body: imageBody, contentType: imageType.split(";")[0] };
+}
+
+// ImgBB returns several URLs; only some point at the raw image file. Prefer
+// the direct i.ibb.co file links over the viewer page URL, which 404s in <img>.
+function pickDirectImageUrl(data: any): string | null {
+  const candidates = [
+    data?.image?.url,
+    data?.display_url,
+    data?.url,
+    data?.medium?.url,
+    data?.thumb?.url,
+  ].filter((value): value is string => typeof value === "string" && value.length > 0);
+
+  const direct = candidates.find((value) => /^https:\/\/i\.ibb\.co\//i.test(value));
+  return direct || candidates[0] || null;
+}
+
 export function registerObjectStorageRoutes(app: Express): void {
   const objectStorageService = new ObjectStorageService();
 
-  /**
-   * Request a presigned URL for file upload.
-   *
-   * Request body (JSON):
-   * {
-   *   "name": "filename.jpg",
-   *   "size": 12345,
-   *   "contentType": "image/jpeg"
-   * }
-   *
-   * Response:
-   * {
-   *   "uploadURL": "https://storage.googleapis.com/...",
-   *   "objectPath": "/objects/uploads/uuid"
-   * }
-   *
-   * IMPORTANT: The client should NOT send the file to this endpoint.
-   * Send JSON metadata only, then upload the file directly to uploadURL.
-   */
   app.post("/api/uploads/request-url", async (req, res) => {
     try {
-      const { name, size, contentType } = req.body;
+      const { name, size, contentType } = req.body || {};
 
       if (!name) {
-        return res.status(400).json({
-          error: "Missing required field: name",
-        });
+        return res.status(400).json({ error: "Missing required field: name" });
       }
 
       const uploadURL = await objectStorageService.getObjectEntityUploadURL();
-
-      // Extract object path from the presigned URL for later reference
       const objectPath = objectStorageService.normalizeObjectEntityPath(uploadURL);
 
       res.json({
         uploadURL,
         objectPath,
-        // Echo back the metadata for client convenience
         metadata: { name, size, contentType },
       });
     } catch (error) {
@@ -62,32 +122,149 @@ export function registerObjectStorageRoutes(app: Express): void {
     }
   });
 
-  /**
-   * Serve uploaded objects.
-   *
-   * GET /objects/:objectPath(*)
-   *
-   * This serves files from object storage. For public files, no auth needed.
-   * For protected files, add authentication middleware and ACL checks.
-   */
+  app.post("/api/upload-image", (req, res) => {
+    try {
+      const apiKey = process.env.IMGBB_API_KEY;
+      if (!apiKey) {
+        return res.status(503).json({ error: "Image upload is temporarily unavailable" });
+      }
+      if (!req.body) {
+        return res.status(400).json({ error: "Empty request body" });
+      }
+
+      let imagePayload = req.body.image || req.body.file || req.body.base64;
+      if (!imagePayload) {
+        return res.status(400).json({ error: "No image file provided" });
+      }
+
+      if (typeof imagePayload === "object" && imagePayload.url) {
+        imagePayload = imagePayload.url;
+      }
+
+      const cleanBase64 = (typeof imagePayload === "string"
+        ? imagePayload.replace(/^data:[^;,]*;base64,/i, "")
+        : String(imagePayload)
+      ).trim();
+
+      const postData = new URLSearchParams({ image: cleanBase64 }).toString();
+
+      const options = {
+        hostname: "api.imgbb.com",
+        path: `/1/upload?key=${apiKey}`,
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          "Content-Length": Buffer.byteLength(postData),
+        },
+      };
+
+      const request = https.request(options, (response) => {
+        let body = "";
+        response.on("data", (chunk) => (body += chunk));
+        response.on("end", () => {
+          try {
+            const data = JSON.parse(body);
+            if (data && data.success && data.data) {
+              const directImageUrl = pickDirectImageUrl(data.data);
+              if (!directImageUrl) {
+                console.error("ImgBB response had no usable image URL:", data);
+                return res.status(502).json({ error: "ImgBB returned no image URL" });
+              }
+              return res.json({
+                url: directImageUrl,
+                path: directImageUrl,
+                uploadURL: directImageUrl,
+                imageUrl: directImageUrl,
+                fileUrl: directImageUrl
+              });
+            } else {
+              console.error("ImgBB API Response Error:", data);
+              return res.status(400).json({ error: "ImgBB upload failed" });
+            }
+          } catch (e) {
+            console.error("JSON parse error:", e);
+            return res.status(500).json({ error: "Invalid response from ImgBB" });
+          }
+        });
+      });
+
+      request.on("error", (err) => {
+        console.error("HTTPS Request Error:", err);
+        if (!res.headersSent) {
+          res.status(500).json({ error: "Upload request failed" });
+        }
+      });
+
+      request.write(postData);
+      request.end();
+    } catch (err) {
+      console.error("Image Proxy Upload Error:", err);
+      if (!res.headersSent) {
+        res.status(500).json({ error: "Internal upload server error" });
+      }
+    }
+  });
+
+  // Serve ImgBB KYC images through the authenticated admin session. This
+  // supports old ImgBB page URLs as well as direct image URLs and avoids
+  // browser hotlink/CSP problems after the application domain changes.
+  app.get("/api/admin/kyc-image", async (req: any, res) => {
+    if (!req.session?.profileId) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    try {
+      const profile = await (await import("../../storage")).storage.getProfile(req.session.profileId);
+      if (!profile || profile.role !== "admin") {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+
+      const rawUrl = typeof req.query.url === "string" ? req.query.url.trim() : "";
+      if (!rawUrl) {
+        return res.status(400).json({ message: "Missing url parameter" });
+      }
+
+      // New DB-stored files (/api/files/:id) — redirect within the same session
+      if (/^\/api\/files\/\d+$/.test(rawUrl)) {
+        return res.redirect(307, rawUrl);
+      }
+
+      // Replit / Supabase object storage (/objects/uploads/...) — serve directly
+      if (rawUrl.startsWith("/objects/")) {
+        try {
+          await objectStorageService.downloadObject(rawUrl, res);
+          return;
+        } catch (objErr) {
+          console.error("[KYC image proxy] Object storage error:", objErr);
+          return res.status(404).json({ message: "KYC image not found in object storage" });
+        }
+      }
+
+      // External ImgBB URLs — proxy to avoid CORS / hotlink issues
+      if (!isAllowedImageUrl(rawUrl)) {
+        return res.status(400).json({ message: "Invalid image URL" });
+      }
+
+      const image = await fetchImgBbImage(rawUrl);
+      res.setHeader("Cache-Control", "private, max-age=300");
+      res.setHeader("Content-Type", image.contentType);
+      return res.send(image.body);
+    } catch (error) {
+      console.error("[KYC image proxy] Failed to load image:", error);
+      return res.status(404).json({ message: "Image is unavailable" });
+    }
+  });
+
   app.get(/^\/objects\/(.+)$/, async (req, res) => {
     try {
       const objectPath = req.params[0];
-      // Prepend /objects/ to match the expected format if needed, 
-      // but getObjectEntityFile likely expects full path or relative?
-      // normalizeObjectEntityPath returns /objects/uuid.
-      // req.params[0] will be 'uploads/uuid'.
-      // So let's reconstruct it.
       const fullPath = "/objects/" + objectPath;
-      const objectFile = await objectStorageService.getObjectEntityFile(fullPath);
-      await objectStorageService.downloadObject(objectFile, res);
+      await objectStorageService.downloadObject(fullPath, res);
     } catch (error) {
       console.error("Error serving object:", error);
-      if (error instanceof ObjectNotFoundError) {
-        return res.status(404).json({ error: "Object not found" });
+      if (!res.headersSent) {
+        return res.status(500).json({ error: "Failed to serve object" });
       }
-      return res.status(500).json({ error: "Failed to serve object" });
     }
   });
 }
-

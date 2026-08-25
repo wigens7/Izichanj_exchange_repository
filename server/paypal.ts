@@ -7,9 +7,6 @@ import {
 
 const { PAYPAL_CLIENT_ID, PAYPAL_CLIENT_SECRET } = process.env;
 
-if (!PAYPAL_CLIENT_ID) throw new Error("Missing PAYPAL_CLIENT_ID");
-if (!PAYPAL_CLIENT_SECRET) throw new Error("Missing PAYPAL_CLIENT_SECRET");
-
 export const PAYPAL_MIN_DEPOSIT_USD = 20.0;
 export const PAYPAL_FLAT_FEE_USD = 10.0;
 export const PAYPAL_MAX_DEPOSIT_USD = 10000.0;
@@ -23,7 +20,7 @@ export const PAYPAL_MAX_DEPOSIT_USD = 10000.0;
 export const PAYPAL_ENVIRONMENT: "sandbox" | "live" =
   process.env.PAYPAL_ENVIRONMENT === "live" ? "live" : "sandbox";
 
-const paypalClient = new Client({
+const paypalClient = PAYPAL_CLIENT_ID && PAYPAL_CLIENT_SECRET ? new Client({
   clientCredentialsAuthCredentials: {
     oAuthClientId: PAYPAL_CLIENT_ID,
     oAuthClientSecret: PAYPAL_CLIENT_SECRET,
@@ -35,9 +32,9 @@ const paypalClient = new Client({
     logRequest: { logBody: false },
     logResponse: { logHeaders: false },
   },
-});
+}) : null;
 
-const ordersController = new OrdersController(paypalClient);
+const ordersController = paypalClient ? new OrdersController(paypalClient) : null;
 
 export interface CreateOrderResult {
   id: string;
@@ -51,6 +48,7 @@ export async function createPayPalDepositOrder(params: {
   depositAmount: number;
   userLabel: string;
 }): Promise<CreateOrderResult> {
+  if (!ordersController) throw new Error("PayPal is not configured");
   const { depositAmount, userLabel } = params;
   const fee = PAYPAL_FLAT_FEE_USD;
   const totalToCharge = depositAmount + fee;
@@ -95,6 +93,7 @@ export interface CapturedOrder {
 }
 
 export async function capturePayPalOrder(orderId: string): Promise<CapturedOrder> {
+  if (!ordersController) throw new Error("PayPal is not configured");
   const { body } = await ordersController.captureOrder({
     id: orderId,
     prefer: "return=representation",

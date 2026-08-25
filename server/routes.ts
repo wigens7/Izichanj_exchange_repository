@@ -21,6 +21,23 @@ import {
 import { getDepositRate, getWithdrawalRate, setRates, rateUsdtToHtg, rateHtgToUsdt, rateUsdtToHtgWithdrawal } from "./rates";
 import { getCardPricing, saveCardPricing } from "./cardPricing";
 
+function createProxyDispatcher() {
+  const proxyUrl = process.env.PROXY_URL;
+  if (!proxyUrl) return undefined;
+  const url = new URL(proxyUrl);
+  const auth = url.username && url.password
+    ? `Basic ${Buffer.from(`${url.username}:${url.password}`).toString("base64")}`
+    : undefined;
+  // Remove credentials from the URL so undici doesn't try to encode them.
+  const cleanUrl = new URL(url);
+  cleanUrl.username = "";
+  cleanUrl.password = "";
+  return new ProxyAgent({
+    uri: cleanUrl.toString(),
+    token: auth, // undici v7: proxy auth header uses `token`, not `auth`
+  });
+}
+
 /**
  * Compute the network fee and the net USDT amount to credit for a deposit.
  * Crypto deposits (TRC20/BEP20) deduct the per-network fee. Manual MonCash
@@ -55,6 +72,10 @@ import {
 import type { AuthenticatorTransportFuture } from "@simplewebauthn/types";
 import sgMail from "@sendgrid/mail";
 import { sendVerificationEmail, sendPasswordResetEmail, sendNotificationEmail, sendMediaNotificationEmail, sendNewsletterEmail } from "./email";
+import { PUBLIC_APP_URL } from "./public-url";
+import { registerP2pRoutes } from "./p2p-routes";
+import { registerP2pChatRoutes } from "./p2p-chat";
+import { registerFileStorageRoutes } from "./file-storage-routes";
 
 if (process.env.SENDGRID_API_KEY) {
   sgMail.setApiKey(process.env.SENDGRID_API_KEY);
@@ -370,6 +391,7 @@ function absolutePublicUrl(req: any, objectPath: string): string | null {
 
   const envBase =
     process.env.PUBLIC_BASE_URL?.replace(/\/+$/, "") ||
+    PUBLIC_APP_URL ||
     (process.env.REPLIT_DOMAINS?.split(",")[0]
       ? `https://${process.env.REPLIT_DOMAINS.split(",")[0]}`
       : "");
@@ -522,6 +544,9 @@ export async function registerRoutes(
   setupAuth(app);
   registerObjectStorageRoutes(app);
   registerMerchantRoutes(app);
+  await registerFileStorageRoutes(app);
+  await registerP2pRoutes(app);
+  registerP2pChatRoutes(app);
 
   // --- MonCash Payment Integration ---
   const MONCASH_CLIENT_ID = process.env.MONCASH_CLIENT_ID;
@@ -2100,12 +2125,14 @@ export async function registerRoutes(
 
   app.get(api.admin.users.path, isAuthenticated, isAdmin, async (req: any, res) => {
     const search = req.query.search as string | undefined;
+    // Never expose password hashes or 2FA secrets to the frontend
+    const stripSensitive = ({ passwordHash, twoFactorSecret, pinHash, withdrawalPinHash, ...safe }: any) => safe;
     if (search && search.trim()) {
       const results = await storage.searchProfiles(search.trim());
-      return res.json(results);
+      return res.json(results.map(stripSensitive));
     }
     const allProfiles = await storage.getAllProfiles();
-    res.json(allProfiles);
+    res.json(allProfiles.map(stripSensitive));
   });
 
   // ── Exchange Rates (public read, admin write) ──
@@ -3324,7 +3351,7 @@ export async function registerRoutes(
         let stroRes: Response;
         if (proxyUrl) {
           const { fetch: undiciFetch } = await import("undici");
-          const dispatcher = new ProxyAgent(proxyUrl);
+          const dispatcher = createProxyDispatcher()!;
           stroRes = await undiciFetch(`${_stroBase}/create-user/`, {
             method: "POST",
             headers: { "Content-Type": "application/json", "Accept": "application/json" },
@@ -3793,6 +3820,14 @@ export async function registerRoutes(
       const fundAmount = Number.isFinite(snapshotLoad) && snapshotLoad >= 5 ? snapshotLoad : getCardPricing().virtual.loadAmount;
       const nameOnCard = card.nameOnCard || profile.fullName;
 
+      // Strowallet's new card creation API requires the user's ID document image
+      // and the desired card brand. Fetch the KYC record to get the ID image URL.
+      const kycForRetry = await storage.getKyc(profile.id);
+      if (!kycForRetry?.idDocumentUrl) {
+        return res.status(400).json({ message: "This user's ID document could not be found on file. They must resubmit KYC verification before the card can be retried." });
+      }
+      const retryCardBrand = (card as any).brand === "MasterCard" ? "MasterCard" : "Visa";
+
       const createCardPayload: Record<string, string> = {
         name_on_card: nameOnCard,
         card_type: "visa",
@@ -3800,6 +3835,8 @@ export async function registerRoutes(
         amount: fundAmount.toString(),
         customerEmail: profile.email,
         customer_id: profile.strowalletCustomerId,
+        id_image: kycForRetry.idDocumentUrl,
+        brand: retryCardBrand,
       };
 
       console.log(`[ADMIN RETRY CARD] Retrying card creation for user ${profile.id} (${profile.email}), card DB id ${cardDbId}`);
@@ -5522,7 +5559,7 @@ export async function registerRoutes(
         let response: Response;
         if (proxyUrl) {
           const { fetch: undiciFetch } = await import("undici");
-          const dispatcher = new ProxyAgent(proxyUrl);
+          const dispatcher = createProxyDispatcher()!;
           response = await (undiciFetch(url, {
             ...options,
             dispatcher,
@@ -5810,6 +5847,15 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Please complete the card KYC registration first before applying for a virtual card." });
       }
 
+      // Strowallet's new card creation API requires the user's ID document image
+      // and the desired card brand. Fetch the KYC record to get the ID image URL.
+      const kycForCard = await storage.getKyc(profile.id);
+      if (!kycForCard?.idDocumentUrl) {
+        return res.status(400).json({ message: "We couldn't find your ID document on file. Please resubmit your KYC verification before applying for a virtual card." });
+      }
+
+      const cardBrand = (req.body?.brand === "MasterCard" || req.body?.brand === "Visa") ? req.body.brand : "Visa";
+
       const createCardPayload: Record<string, string> = {
         name_on_card: nameOnCard,
         card_type: "visa",
@@ -5817,6 +5863,8 @@ export async function registerRoutes(
         amount: fundAmount.toString(),
         customerEmail: profile.email,
         customer_id: profile.strowalletCustomerId,
+        id_image: kycForCard.idDocumentUrl,
+        brand: cardBrand,
       };
 
       const response = await strowalletFetch(`${STROWALLET_BASE}/create-card/`, {
@@ -5959,10 +6007,19 @@ export async function registerRoutes(
 
       res.status(201).json(card);
     } catch (e: any) {
-      console.error("Create card error:", e);
-      res.status(500).json({ message: e.message || "Internal Error" });
-    }
-  });
+        console.error("Create card error:", e);
+        // Network / proxy failure — Strowallet was unreachable after all retries.
+        // isProxyOrNetworkFailure() already exists in this scope for exactly this case.
+        // The user's balance is NOT affected: deduction only happens AFTER a successful
+        // Strowallet response (further above), so no refund is needed.
+        if (isProxyOrNetworkFailure(e)) {
+          return res.status(503).json({
+            message: "We’re having trouble reaching our card provider right now. Please try again in a few minutes — no charge has been made to your account.",
+          });
+        }
+        res.status(500).json({ message: "Internal Error" });
+      }
+    });
 
   // POST /api/cards/:id/cancel — user cancels a pending card and gets an instant refund
   app.post("/api/cards/:id/cancel", isAuthenticated, async (req: any, res) => {
@@ -7617,7 +7674,7 @@ export async function registerRoutes(
       if (proxyUrl) {
         try {
           const { fetch: undiciFetch } = await import("undici");
-          const dispatcher = new ProxyAgent(proxyUrl);
+          const dispatcher = createProxyDispatcher()!;
           const proxyRes = await undiciFetch("https://api.ipify.org?format=json", { dispatcher });
           const proxyData = await proxyRes.json() as any;
           proxyIp = proxyData.ip;

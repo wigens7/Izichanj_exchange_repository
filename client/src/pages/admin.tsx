@@ -117,6 +117,7 @@ import { z } from "zod";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Textarea } from "@/components/ui/textarea";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { KycImage } from "@/components/kyc-image";
 import { api } from "@shared/routes";
 import { useToast } from "@/hooks/use-toast";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -1475,6 +1476,7 @@ function DepositsTab() {
   const [fraudModalDepositId, setFraudModalDepositId] = useState<number | null>(null);
   const [rejectReason, setRejectReason] = useState("");
   const [proofViewUrl, setProofViewUrl] = useState<string | null>(null);
+    const [rawProofUrl, setRawProofUrl] = useState<string | null>(null);
   const [txHashInputs, setTxHashInputs] = useState<Record<number, string>>({});
   const [savingTxHashId, setSavingTxHashId] = useState<number | null>(null);
   const [copiedTxId, setCopiedTxId] = useState<number | null>(null);
@@ -1645,7 +1647,7 @@ function DepositsTab() {
       {proofViewUrl && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
-          onClick={() => setProofViewUrl(null)}
+          onClick={() => { setProofViewUrl(null); setRawProofUrl(null); }}
           data-testid="modal-proof-viewer"
         >
           <div className="relative max-w-2xl w-full max-h-[80vh]" onClick={(e) => e.stopPropagation()}>
@@ -1653,13 +1655,13 @@ function DepositsTab() {
               variant="secondary"
               size="icon"
               className="absolute -top-10 right-0"
-              onClick={() => setProofViewUrl(null)}
+              onClick={() => { setProofViewUrl(null); setRawProofUrl(null); }}
             >
               <X className="w-4 h-4" />
             </Button>
             <img src={proofViewUrl} alt="Deposit proof" className="w-full rounded-lg object-contain max-h-[75vh]" />
             <a
-              href={proofViewUrl}
+              href={rawProofUrl || proofViewUrl || ""}
               target="_blank"
               rel="noopener noreferrer"
               className="absolute bottom-2 right-2 text-xs bg-background/90 rounded px-2 py-1 flex items-center gap-1"
@@ -1746,7 +1748,15 @@ function DepositsTab() {
                             {deposit.proofImageUrl && (
                               <button
                                 type="button"
-                                onClick={() => setProofViewUrl(deposit.proofImageUrl)}
+                                onClick={() => {
+                                    const raw = deposit.proofImageUrl;
+                                    setRawProofUrl(raw);
+                                    setProofViewUrl(
+                                      raw?.startsWith("https://")
+                                        ? `/api/admin/kyc-image?url=${encodeURIComponent(raw)}`
+                                        : raw
+                                    );
+                                  }}
                                 className="flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-800 underline"
                                 data-testid={`button-view-proof-${deposit.id}`}
                               >
@@ -2523,29 +2533,29 @@ function KycTab() {
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                     <div className="space-y-2">
                       <p className="text-sm font-medium">ID Card (Front)</p>
-                      <img
+                      <KycImage
                         src={docs.idDocumentUrl}
                         alt="ID Front"
                         className="w-full rounded-md border border-border object-contain max-h-64"
-                        data-testid="img-kyc-id-front"
+                        testId="img-kyc-id-front"
                       />
                     </div>
                     <div className="space-y-2">
                       <p className="text-sm font-medium">ID Card (Back)</p>
-                      <img
+                      <KycImage
                         src={docs.idDocumentBackUrl}
                         alt="ID Back"
                         className="w-full rounded-md border border-border object-contain max-h-64"
-                        data-testid="img-kyc-id-back"
+                        testId="img-kyc-id-back"
                       />
                     </div>
                     <div className="space-y-2">
                       <p className="text-sm font-medium">Selfie / User Photo</p>
-                      <img
+                      <KycImage
                         src={docs.selfieUrl}
                         alt="Selfie"
                         className="w-full rounded-md border border-border object-contain max-h-64"
-                        data-testid="img-kyc-selfie"
+                        testId="img-kyc-selfie"
                       />
                     </div>
                   </div>
@@ -6431,6 +6441,7 @@ function CanalplusTab() {
 const PAYOUT_METHOD_DISPLAY: Record<string, { label: string; colorName: string; hex: string }> = {
   moncash: { label: "MonCash", colorName: "Red", hex: "#EF4444" },
   natcash: { label: "NatCash", colorName: "Lemon Yellow", hex: "#E3FF00" },
+  usdt: { label: "USDT", colorName: "Crypto", hex: "#26A17B" },
   zelle: { label: "Zelle", colorName: "Navy Blue", hex: "#1A237E" },
   cashapp: { label: "CashApp", colorName: "Green", hex: "#22C55E" },
 };
@@ -6438,7 +6449,7 @@ const PAYOUT_METHOD_DISPLAY: Record<string, { label: string; colorName: string; 
 type AdminPayout = {
   id: number; userId: number; merchantId: number | null;
   amount: string; method: keyof typeof PAYOUT_METHOD_DISPLAY;
-  details: any; status: "pending" | "approved" | "rejected";
+  details: any; status: "pending" | "processing" | "approved" | "paid" | "failed" | "cancelled" | "rejected";
   adminNote: string | null; createdAt: string; processedAt: string | null;
   user: { id: number; fullName: string; email: string } | null;
   merchant: { id: number; businessName: string } | null;
@@ -6517,7 +6528,7 @@ function MerchantPayoutsTab() {
           <div className="space-y-3">
             {filtered.map((p) => {
               const meta = PAYOUT_METHOD_DISPLAY[p.method];
-              const detail = p.details?.phoneNumber || p.details?.email || p.details?.cashtag || "—";
+               const detail = p.details?.masked || p.details?.phoneNumber || p.details?.walletAddress || p.details?.email || p.details?.cashtag || "—";
               return (
                 <div key={p.id} className="border rounded-lg p-4 space-y-3" data-testid={`row-admin-payout-${p.id}`}>
                   <div className="flex items-start justify-between gap-3 flex-wrap">
@@ -6533,7 +6544,7 @@ function MerchantPayoutsTab() {
                     <div className="text-right shrink-0">
                       <p className="text-2xl font-bold" data-testid={`text-amount-${p.id}`}>{Number(p.amount).toFixed(2)} <span className="text-sm font-normal">USDT</span></p>
                       <Badge
-                        variant={p.status === "approved" ? "default" : p.status === "rejected" ? "destructive" : "secondary"}
+                         variant={p.status === "approved" || p.status === "paid" ? "default" : p.status === "rejected" || p.status === "failed" ? "destructive" : "secondary"}
                         data-testid={`badge-status-${p.id}`}
                       >{p.status}</Badge>
                       <p className="text-[11px] text-muted-foreground mt-1">{new Date(p.createdAt).toLocaleString()}</p>
@@ -6877,11 +6888,11 @@ function BlacklistTab() {
                     <p className="text-sm font-medium">{doc.label}</p>
                     {doc.url ? (
                       <a href={doc.url} target="_blank" rel="noopener noreferrer">
-                        <img
+                        <KycImage
                           src={doc.url}
                           alt={doc.label}
                           className="w-full rounded-md border border-border object-contain max-h-64 hover:opacity-90 transition-opacity"
-                          data-testid={doc.testid}
+                          testId={doc.testid}
                         />
                       </a>
                     ) : (

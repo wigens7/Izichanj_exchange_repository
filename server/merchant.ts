@@ -1,17 +1,50 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import { storage } from "./storage";
 import { db } from "./db";
-import { profiles, merchants, merchantTransactions, type Merchant, type MerchantTransaction } from "@shared/schema";
+import { profiles, merchants, merchantPayoutMethods, merchantLedgerEntries, payoutRequests, type Merchant } from "@shared/schema";
 import { eq, sql, and } from "drizzle-orm";
 import { isAuthenticated } from "./auth";
 import { getDepositRate } from "./rates";
 import { checkoutApiSchema, updateMerchantSchema, payoutRequestSchema, PAYOUT_METHOD_META } from "@shared/schema";
 import { MERCHANT_API_FEE_PCT } from "@shared/constants";
+import { PUBLIC_APP_URL } from "./public-url";
 import crypto from "crypto";
+import { z } from "zod";
 
 const FEE_PCT = MERCHANT_API_FEE_PCT; // 0% — Izichanj Pay is FREE for merchants
 const CHECKOUT_TTL_MS = 30 * 60 * 1000; // 30 minutes
-const PUBLIC_BASE_URL = (process.env.PUBLIC_APP_URL || "https://izichanj.com").replace(/\/$/, "");
+const PUBLIC_BASE_URL = PUBLIC_APP_URL;
+const PAYOUT_FEE_USDT = 0;
+
+function encryptionKey(): Buffer {
+  return crypto.createHash("sha256").update(process.env.SESSION_SECRET || "izichanj-payout-key").digest();
+}
+
+function encryptPayoutDetails(details: Record<string, string>): string {
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv("aes-256-gcm", encryptionKey(), iv);
+  const encrypted = Buffer.concat([cipher.update(JSON.stringify(details), "utf8"), cipher.final()]);
+  return `${iv.toString("base64url")}.${cipher.getAuthTag().toString("base64url")}.${encrypted.toString("base64url")}`;
+}
+
+function maskPayoutDetails(method: string, details: Record<string, string>): string {
+  const mask = (value: string) => value.length <= 4 ? "••••" : `${value.slice(0, 3)}••••${value.slice(-4)}`;
+  if (method === "usdt") return `${details.network || "USDT"} · ${mask(details.walletAddress || "")}`;
+  if (method === "zelle") return mask(details.email || "");
+  if (method === "cashapp") return details.cashtag ? `$${mask(details.cashtag.replace(/^\$/, ""))}` : "Cash App";
+  return mask(details.phoneNumber || "");
+}
+
+function publicPayoutMethod(method: any) {
+  return {
+    id: method.id,
+    method: method.method,
+    label: method.label,
+    maskedDetails: method.maskedDetails,
+    isDefault: method.isDefault,
+    createdAt: method.createdAt,
+  };
+}
 
 /** Send a HTML-formatted message to the admin Telegram channel. Fire-and-forget. */
 async function sendAdminTelegram(text: string): Promise<void> {
@@ -107,6 +140,105 @@ export function registerMerchantRoutes(app: Express) {
     res.json({ merchant: merchant || null });
   });
 
+  // Merchant account and balance views are session-scoped; ownership is always
+  // resolved from the authenticated profile rather than a client-supplied id.
+  app.get("/api/merchant/account", isAuthenticated, async (req: any, res) => {
+    const profile = await storage.getProfile(req.session.profileId);
+    const merchant = profile ? await storage.getMerchantByProfile(profile.id) : undefined;
+    if (!merchant) return res.status(404).json({ message: "Merchant account not found" });
+    res.json({
+      merchant: {
+        id: merchant.id,
+        merchantId: merchant.merchantId || `mch_${String(merchant.id).padStart(8, "0")}`,
+        userId: merchant.profileId,
+        businessName: merchant.businessName,
+        email: merchant.email || profile?.email,
+        phone: merchant.phone || profile?.phone,
+        country: merchant.country || profile?.country,
+        accountStatus: merchant.accountStatus,
+        kycStatus: profile?.kycStatus === "verified" ? "verified" : merchant.kycStatus,
+        paymentEnabled: merchant.paymentEnabled,
+        payoutEnabled: merchant.payoutEnabled,
+        createdAt: merchant.createdAt,
+        updatedAt: merchant.updatedAt,
+      },
+    });
+  });
+
+  app.get("/api/merchant/balance", isAuthenticated, async (req: any, res) => {
+    const merchant = await storage.getMerchantByProfile(req.session.profileId);
+    if (!merchant) return res.status(404).json({ message: "Merchant account not found" });
+    const result = await db.execute(sql`
+      SELECT
+        COALESCE(SUM(CASE WHEN status = 'completed' THEN net_usdt ELSE 0 END), 0)::numeric AS total_received,
+        COALESCE(SUM(CASE WHEN status = 'completed' THEN fee_usdt ELSE 0 END), 0)::numeric AS total_fees,
+        COALESCE(SUM(CASE WHEN status IN ('pending') THEN net_usdt ELSE 0 END), 0)::numeric AS pending_balance,
+        COALESCE((SELECT SUM(amount) FROM payout_requests WHERE merchant_id = ${merchant.id} AND status IN ('pending','processing','approved')), 0)::numeric AS total_payouts
+      FROM merchant_transactions WHERE merchant_id = ${merchant.id}
+    `);
+    const row = (result.rows[0] || {}) as any;
+    res.json({
+      availableBalance: Number(merchant.balance),
+      pendingBalance: Number(row.pending_balance || 0),
+      totalReceived: Number(row.total_received || 0),
+      totalFees: Number(row.total_fees || 0),
+      totalPayouts: Number(row.total_payouts || 0),
+      currency: "USDT",
+    });
+  });
+
+  app.get("/api/merchant/payout-methods", isAuthenticated, async (req: any, res) => {
+    const merchant = await storage.getMerchantByProfile(req.session.profileId);
+    if (!merchant) return res.status(404).json({ message: "Merchant account not found" });
+    const methods = await storage.getMerchantPayoutMethods(merchant.id);
+    res.json({ methods: methods.map(publicPayoutMethod) });
+  });
+
+  app.post("/api/merchant/payout-methods", isAuthenticated, async (req: any, res) => {
+    try {
+      const merchant = await storage.getMerchantByProfile(req.session.profileId);
+      if (!merchant) return res.status(404).json({ message: "Merchant account not found" });
+      const method = z.enum(["moncash", "natcash", "usdt", "zelle", "cashapp"]).parse(req.body?.method);
+      const details = Object.fromEntries(Object.entries(req.body?.details || {}).map(([key, value]) => [key, String(value).trim()]).filter(([, value]) => value));
+      if (method === "usdt" && (!details.walletAddress || !details.network)) throw new Error("Wallet address and network are required");
+      if ((method === "moncash" || method === "natcash") && !details.phoneNumber) throw new Error("Phone number is required");
+      if (method === "zelle" && !details.email) throw new Error("Email or phone is required");
+      if (method === "cashapp" && !details.cashtag) throw new Error("Cash App cashtag is required");
+      const created = await storage.createMerchantPayoutMethod({
+        merchantId: merchant.id,
+        method,
+        label: typeof req.body?.label === "string" ? req.body.label.trim().slice(0, 80) : undefined,
+        encryptedDetails: encryptPayoutDetails(details),
+        maskedDetails: maskPayoutDetails(method, details),
+        isDefault: Boolean(req.body?.isDefault),
+      });
+      res.status(201).json({ method: publicPayoutMethod(created) });
+    } catch (e: any) {
+      res.status(400).json({ message: e?.message || "Invalid payout method" });
+    }
+  });
+
+  app.delete("/api/merchant/payout-methods/:id", isAuthenticated, async (req: any, res) => {
+    const merchant = await storage.getMerchantByProfile(req.session.profileId);
+    if (!merchant) return res.status(404).json({ message: "Merchant account not found" });
+    const deleted = await storage.deleteMerchantPayoutMethod(Number(req.params.id), merchant.id);
+    if (!deleted) return res.status(404).json({ message: "Payout method not found" });
+    res.json({ ok: true });
+  });
+
+  app.patch("/api/merchant/payout-methods/:id/default", isAuthenticated, async (req: any, res) => {
+    const merchant = await storage.getMerchantByProfile(req.session.profileId);
+    if (!merchant) return res.status(404).json({ message: "Merchant account not found" });
+    const id = Number(req.params.id);
+    const updated = await db.transaction(async (tx) => {
+      await tx.update(merchantPayoutMethods).set({ isDefault: false, updatedAt: new Date() }).where(eq(merchantPayoutMethods.merchantId, merchant.id));
+      const [row] = await tx.update(merchantPayoutMethods).set({ isDefault: true, updatedAt: new Date() }).where(and(eq(merchantPayoutMethods.id, id), eq(merchantPayoutMethods.merchantId, merchant.id))).returning();
+      return row;
+    });
+    if (!updated) return res.status(404).json({ message: "Payout method not found" });
+    res.json({ method: publicPayoutMethod(updated) });
+  });
+
   app.post("/api/merchant/enroll", isAuthenticated, async (req: any, res) => {
     try {
       const existing = await storage.getMerchantByProfile(req.session.profileId);
@@ -195,6 +327,27 @@ export function registerMerchantRoutes(app: Express) {
       if (!profile) return res.status(404).json({ message: "Profile not found" });
       const merchant = await storage.getMerchantByProfile(profile.id);
       if (!merchant) return res.status(403).json({ message: "Merchant account required to request a payout" });
+      if (merchant.accountStatus !== "active") return res.status(403).json({ message: "Merchant account must be active before requesting a payout" });
+      if (profile.kycStatus !== "verified" || merchant.kycStatus !== "verified") return res.status(403).json({ message: "Verified KYC is required before requesting a payout" });
+      if (!merchant.payoutEnabled) return res.status(403).json({ message: "Payouts are not enabled for this merchant account" });
+
+      if (parsed.idempotencyKey) {
+        const [existing] = await db.select().from(payoutRequests).where(and(
+          eq(payoutRequests.userId, profile.id),
+          eq(payoutRequests.idempotencyKey, parsed.idempotencyKey),
+        ));
+        if (existing) return res.json({ ok: true, payout: existing, idempotent: true });
+      }
+
+      let selectedMethod: any = null;
+      if (parsed.payoutMethodId) {
+        [selectedMethod] = await db.select().from(merchantPayoutMethods).where(and(
+          eq(merchantPayoutMethods.id, parsed.payoutMethodId),
+          eq(merchantPayoutMethods.merchantId, merchant.id),
+        ));
+        if (!selectedMethod) return res.status(400).json({ message: "Invalid payout method" });
+        if (selectedMethod.method !== parsed.method) return res.status(400).json({ message: "Payout method mismatch" });
+      }
 
       const merchantBalance = Number(merchant.balance);
       if (merchantBalance < parsed.amount) {
@@ -203,12 +356,18 @@ export function registerMerchantRoutes(app: Express) {
 
       // Build details object based on method
       const details: Record<string, string> = { method: parsed.method };
-      if (parsed.method === "moncash" || parsed.method === "natcash") {
-        details.phoneNumber = parsed.phoneNumber!.trim();
+      if (selectedMethod) {
+        details.masked = selectedMethod.maskedDetails;
+        details.payoutMethodId = String(selectedMethod.id);
+      } else if (parsed.method === "moncash" || parsed.method === "natcash") {
+        details.phoneNumber = maskPayoutDetails(parsed.method, { phoneNumber: parsed.phoneNumber!.trim() });
+      } else if (parsed.method === "usdt") {
+        details.walletAddress = maskPayoutDetails(parsed.method, { walletAddress: parsed.walletAddress!.trim(), network: parsed.network! });
+        details.network = parsed.network!.trim();
       } else if (parsed.method === "zelle") {
-        details.email = parsed.email!.trim();
+        details.email = maskPayoutDetails(parsed.method, { email: parsed.email!.trim() });
       } else if (parsed.method === "cashapp") {
-        details.cashtag = parsed.cashtag!.trim().startsWith("$") ? parsed.cashtag!.trim() : `$${parsed.cashtag!.trim()}`;
+        details.cashtag = maskPayoutDetails(parsed.method, { cashtag: parsed.cashtag!.trim() });
       }
 
       // Atomic: deduct MERCHANT balance + create payout request in one transaction
@@ -226,7 +385,21 @@ export function registerMerchantRoutes(app: Express) {
             amount: String(parsed.amount.toFixed(4)) as any,
             method: parsed.method,
             details: details as any,
+            idempotencyKey: parsed.idempotencyKey,
+            currency: "USDT",
+            fee: String(PAYOUT_FEE_USDT.toFixed(4)) as any,
+            netAmount: String((parsed.amount - PAYOUT_FEE_USDT).toFixed(4)) as any,
           }).returning();
+          await tx.insert(merchantLedgerEntries).values({
+            merchantId: merchant.id,
+            payoutId: r.id,
+            entryType: "payout_reservation",
+            balanceType: "available",
+            amount: String(-parsed.amount.toFixed(4)) as any,
+            currency: "USDT",
+            idempotencyKey: parsed.idempotencyKey ? `payout_reservation:${parsed.idempotencyKey}` : `payout_reservation:${r.id}`,
+            description: "Funds reserved for merchant payout",
+          });
           return r;
         });
       } catch (txErr: any) {
@@ -449,7 +622,8 @@ export function registerMerchantRoutes(app: Express) {
   });
 
   app.get("/api/v1/payment/:id", requireApiKey, async (req, res) => {
-    const t = await storage.getMerchantTransactionByPaymentId(String(req.params.id));
+    const paymentId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const t = await storage.getMerchantTransactionByPaymentId(paymentId);
     if (!t || t.merchantId !== req.merchant!.id) return res.status(404).json({ error: "Not found" });
     res.json({
       payment_id: t.paymentId,
@@ -528,37 +702,46 @@ export function registerMerchantRoutes(app: Express) {
         return res.status(400).json({ message: `Insufficient balance. Need ${amountUsdt.toFixed(2)} USDT, you have ${payerBal.toFixed(2)} USDT.` });
       }
 
-      // One transaction for the state transition and both balance changes.
-      // The balance predicate prevents concurrent requests from overdrawing.
-      let updated: MerchantTransaction;
-      try {
-        updated = await db.transaction(async (tx) => {
-          const [debited] = await tx.update(profiles)
-            .set({ balance: sql`${profiles.balance} - ${amountUsdt}` })
-            .where(and(eq(profiles.id, payer.id), sql`${profiles.balance} >= ${amountUsdt}`))
-            .returning();
-          if (!debited) throw new Error("INSUFFICIENT_BALANCE");
-
-          const [paid] = await tx.update(merchantTransactions)
-            .set({ status: "completed", paidAt: new Date(), payerProfileId: payer.id })
-            .where(and(eq(merchantTransactions.paymentId, t.paymentId), eq(merchantTransactions.status, "pending")))
-            .returning();
-          if (!paid) throw new Error("PAYMENT_ALREADY_PROCESSED");
-
-          await tx.update(merchants)
-            .set({ balance: sql`${merchants.balance} + ${netUsdt}` })
-            .where(eq(merchants.id, merchant.id));
-          return paid;
+      // Atomic transfer: debit payer profile, credit MERCHANT BALANCE (separate from personal account)
+      const updated = await db.transaction(async (tx) => {
+        const [claimed] = await tx.update((await import("@shared/schema")).merchantTransactions)
+          .set({ status: "completed", paidAt: new Date(), payerProfileId: payer.id })
+          .where(and(eq((await import("@shared/schema")).merchantTransactions.paymentId, t.paymentId), eq((await import("@shared/schema")).merchantTransactions.status, "pending")))
+          .returning();
+        if (!claimed) return null;
+        const [debited] = await tx.update(profiles)
+          .set({ balance: sql`${profiles.balance} - ${amountUsdt}` })
+          .where(and(eq(profiles.id, payer.id), sql`${profiles.balance} >= ${amountUsdt}`))
+          .returning();
+        if (!debited) throw new Error("INSUFFICIENT_PAYER_BALANCE");
+        await tx.update(merchants)
+          .set({ balance: sql`${merchants.balance} + ${netUsdt}`, updatedAt: new Date() })
+          .where(eq(merchants.id, merchant.id));
+        await tx.insert(merchantLedgerEntries).values({
+          merchantId: merchant.id,
+          paymentId: t.paymentId,
+          entryType: "payment",
+          balanceType: "available",
+          amount: String(netUsdt.toFixed(4)) as any,
+          currency: "USDT",
+          idempotencyKey: `payment:${t.paymentId}`,
+          description: `Payment received for order ${t.orderId}`,
         });
-      } catch (txErr: any) {
-        if (txErr?.message === "INSUFFICIENT_BALANCE") {
-          return res.status(400).json({ message: "Insufficient balance or payment was already processed." });
+        if (Number(t.feeUsdt) > 0) {
+          await tx.insert(merchantLedgerEntries).values({
+            merchantId: merchant.id,
+            paymentId: t.paymentId,
+            entryType: "fee",
+            balanceType: "available",
+            amount: String((-Number(t.feeUsdt)).toFixed(4)) as any,
+            currency: "USDT",
+            idempotencyKey: `fee:${t.paymentId}`,
+            description: "Izichanj payment fee",
+          });
         }
-        if (txErr?.message === "PAYMENT_ALREADY_PROCESSED") {
-          return res.status(409).json({ message: "Payment was concurrently processed" });
-        }
-        throw txErr;
-      }
+        return claimed;
+      });
+      if (!updated) return res.status(409).json({ message: "Payment was concurrently processed" });
 
       // In-app notifications for both parties
       storage.createNotification({

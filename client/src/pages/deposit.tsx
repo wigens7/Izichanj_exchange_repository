@@ -135,7 +135,7 @@ export default function DepositPage() {
     toast({ title: t.deposit.copied, description: t.deposit.copiedDescription });
   };
 
-  // Upload proof screenshot to object storage
+  // Upload proof screenshot to ImgBB via server proxy
   const handleProofFileChange = useCallback(async (file: File) => {
     if (!file) return;
     if (!file.type.startsWith("image/")) {
@@ -147,6 +147,7 @@ export default function DepositPage() {
       return;
     }
 
+    // Show local preview immediately
     const reader = new FileReader();
     reader.onload = (e) => setProofPreview(e.target?.result as string);
     reader.readAsDataURL(file);
@@ -155,21 +156,28 @@ export default function DepositPage() {
 
     setUploadingProof(true);
     try {
-      const urlRes = await apiRequest("POST", "/api/deposits/manual/upload-url", {
-        name: file.name,
-        contentType: file.type,
+      // Convert file to base64 for ImgBB upload (strip the data:…;base64, prefix)
+      const base64 = await new Promise<string>((resolve, reject) => {
+        const r = new FileReader();
+        r.onload = (e) => {
+          const dataUrl = (e.target?.result as string) || "";
+          resolve(dataUrl.replace(/^data:[^;,]*;base64,/i, ""));
+        };
+        r.onerror = reject;
+        r.readAsDataURL(file);
       });
-      if (!urlRes.ok) throw new Error("Failed to get upload URL");
-      const { uploadURL, objectPath } = await urlRes.json();
 
-      const uploadRes = await fetch(uploadURL, {
-        method: "PUT",
-        body: file,
-        headers: { "Content-Type": file.type },
-      });
-      if (!uploadRes.ok) throw new Error("Upload failed");
+      // POST to /api/files/upload — image stored directly in the database (no external service)
+      const uploadRes = await apiRequest("POST", "/api/files/upload", { image: base64, purpose: "deposit_proof" });
+      if (!uploadRes.ok) {
+        const errData = await uploadRes.json().catch(() => ({}));
+        throw new Error((errData as any).error || "Upload failed");
+      }
+      const data = await uploadRes.json() as { url?: string; imageUrl?: string; fileUrl?: string };
+      const imageUrl = data.url || data.imageUrl || data.fileUrl;
+      if (!imageUrl) throw new Error("No image URL returned from upload");
 
-      setProofObjectPath(objectPath);
+      setProofObjectPath(imageUrl);
       toast({ title: "Screenshot uploaded", description: "Proof image uploaded successfully" });
     } catch (e: any) {
       toast({ title: "Upload failed", description: e.message || "Failed to upload screenshot", variant: "destructive" });
