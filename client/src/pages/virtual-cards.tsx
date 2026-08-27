@@ -727,6 +727,8 @@ function CardItem({ card }: { card: VirtualCard }) {
   const cardDetails = rawDetail ? {
     card_number: rawDetail.card_number || rawDetail.cardNumber || rawDetail.card_pan || rawDetail.pan || null,
     cvv:         rawDetail.cvv       || rawDetail.cvv2      || rawDetail.card_cvv  || null,
+    card_number_url: rawDetail.card_number_url || rawDetail.cardNumberUrl || null,
+    cvv_url:         rawDetail.cvv_url || rawDetail.cvvUrl || null,
     expiry_month: rawDetail.expiry_month || rawDetail.expiryMonth || rawDetail.expiry?.split("/")?.[0] || null,
     expiry_year:  rawDetail.expiry_year  || rawDetail.expiryYear  || rawDetail.expiry?.split("/")?.[1] || null,
     balance:      rawDetail.balance ?? null,
@@ -738,7 +740,7 @@ function CardItem({ card }: { card: VirtualCard }) {
         <div className="relative overflow-hidden rounded-t-md" style={{ aspectRatio: "1.586" }}>
           <img
             src={cardTemplateBg}
-            alt="Virtual Card"
+            alt="Virtual Mastercard"
             className={`absolute inset-0 w-full h-full object-cover ${isFrozen ? "opacity-40 grayscale" : ""} ${isPending ? "opacity-50 grayscale" : ""}`}
           />
           {isPending && (
@@ -812,18 +814,40 @@ function CardItem({ card }: { card: VirtualCard }) {
           {showDetails && cardDetails && (
             <div className="bg-muted/30 rounded-md p-3 text-sm">
               <div className="flex items-center gap-2 flex-wrap">
-                {cardDetails.card_number && (
+                {cardDetails.card_number_url ? (
+                  <div className="w-full space-y-1">
+                    <p className="text-xs text-muted-foreground">Secure card number</p>
+                    <iframe
+                      src={cardDetails.card_number_url}
+                      title="Secure card number"
+                      className="w-full h-9 border rounded bg-background"
+                      frameBorder="0"
+                      scrolling="no"
+                    />
+                  </div>
+                ) : cardDetails.card_number ? (
                   <Button variant="outline" size="sm" onClick={() => copyToClipboard(cardDetails.card_number, "number")} data-testid={`button-copy-number-${card.id}`}>
                     {copied === "number" ? <CheckCircle className="w-3 h-3 text-emerald-500 mr-1.5" /> : <Copy className="w-3 h-3 mr-1.5" />}
                     {vc.cardNumber}
                   </Button>
-                )}
-                {cardDetails.cvv && (
+                ) : null}
+                {cardDetails.cvv_url ? (
+                  <div className="w-full space-y-1">
+                    <p className="text-xs text-muted-foreground">Secure CVV</p>
+                    <iframe
+                      src={cardDetails.cvv_url}
+                      title="Secure CVV"
+                      className="w-full h-9 border rounded bg-background"
+                      frameBorder="0"
+                      scrolling="no"
+                    />
+                  </div>
+                ) : cardDetails.cvv ? (
                   <Button variant="outline" size="sm" onClick={() => copyToClipboard(cardDetails.cvv, "cvv")} data-testid={`button-copy-cvv-${card.id}`}>
                     {copied === "cvv" ? <CheckCircle className="w-3 h-3 text-emerald-500 mr-1.5" /> : <Copy className="w-3 h-3 mr-1.5" />}
                     {vc.cvv}
                   </Button>
-                )}
+                ) : null}
               </div>
             </div>
           )}

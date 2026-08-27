@@ -2464,7 +2464,7 @@ export async function registerRoutes(
         `📧 <b>Email:</b> ${profile.email}\n` +
         `🆔 <b>User ID:</b> ${profile.referenceId || profile.id}\n` +
         `🏦 <b>Strowallet ID:</b> <code>${customerId}</code>\n\n` +
-        `💳 User can now create virtual Visa cards.`
+        `💳 User can now create virtual Mastercard cards.`
       ).catch(() => {});
 
       res.json({ success: true, strowalletCustomerId: customerId });
@@ -3383,7 +3383,7 @@ export async function registerRoutes(
             `📧 <b>Email:</b> ${kycProfile.email}\n` +
             `🆔 <b>User ID:</b> ${kycProfile.referenceId || kycProfile.id}\n` +
             `🏦 <b>Strowallet ID:</b> <code>${customerId}</code>\n\n` +
-            `💳 This user can now create a virtual Visa card.`
+            `💳 This user can now create a virtual Mastercard.`
           ).catch(() => {});
         }
       } catch (stroErr) {
@@ -3519,7 +3519,7 @@ export async function registerRoutes(
         `📧 <b>Email:</b> ${profile.email}\n` +
         `🆔 <b>User ID:</b> ${profile.referenceId || profile.id}\n` +
         `🏦 <b>Strowallet ID:</b> <code>${customerId}</code>\n\n` +
-        `💳 This user can now create a virtual Visa card.`
+        `💳 This user can now create a virtual Mastercard.`
       ).catch(() => {});
 
       res.json({ success: true, customerId });
@@ -3826,17 +3826,15 @@ export async function registerRoutes(
       if (!kycForRetry?.idDocumentUrl) {
         return res.status(400).json({ message: "This user's ID document could not be found on file. They must resubmit KYC verification before the card can be retried." });
       }
-      const retryCardBrand = (card as any).brand === "MasterCard" ? "MasterCard" : "Visa";
-
       const createCardPayload: Record<string, string> = {
         name_on_card: nameOnCard,
-        card_type: "visa",
+        card_type: "mastercard",
         public_key: strowalletPublicKey,
         amount: fundAmount.toString(),
         customerEmail: profile.email,
         customer_id: profile.strowalletCustomerId,
         id_image: kycForRetry.idDocumentUrl,
-        brand: retryCardBrand,
+        brand: "MasterCard",
       };
 
       console.log(`[ADMIN RETRY CARD] Retrying card creation for user ${profile.id} (${profile.email}), card DB id ${cardDbId}`);
@@ -3910,13 +3908,13 @@ export async function registerRoutes(
         profileId: profile.id,
         type: "custom_message",
         title: "Your Virtual Card is Ready! 💳",
-        message: "Your Visa virtual card has been issued successfully. You can now view your card details in the Virtual Cards section.",
+        message: "Your Mastercard has been issued successfully. You can now view your card details in the Virtual Cards section.",
       }).catch(() => {});
 
       if (profile.phone) {
         sendWhatsAppNotification(
           profile.phone,
-          `*Izichanj*\n\n💳 Your virtual card is ready!\n\nYour Visa virtual card has been issued. Log in to view your card details.\n\nhttps://izichanj.com`,
+          `*Izichanj*\n\n💳 Your Mastercard is ready!\n\nYour Mastercard has been issued. Log in to view your card details.\n\nhttps://izichanj.com`,
           profile.fullName
         );
       }
@@ -5756,7 +5754,7 @@ export async function registerRoutes(
         `📧 <b>Email:</b> ${profile.email}\n` +
         `🆔 <b>User ID:</b> ${profile.referenceId || profile.id}\n` +
         `🏦 <b>Strowallet ID:</b> <code>${customerId}</code>\n\n` +
-        `💳 This user can now create a virtual Visa card.`
+        `💳 This user can now create a virtual Mastercard.`
       ).catch(() => {});
 
       res.json({ success: true, customerId });
@@ -5794,7 +5792,7 @@ export async function registerRoutes(
         `📧 <b>Email:</b> ${profile.email}\n` +
         `🆔 <b>User ID:</b> ${profile.referenceId || profile.id}\n` +
         `🏦 <b>Strowallet ID:</b> <code>${customerId}</code>\n\n` +
-        `💳 This user can now create a virtual Visa card.`
+        `💳 This user can now create a virtual Mastercard.`
       ).catch(() => {});
 
       res.json({ success: true, customerId, source: "manual" });
@@ -5854,17 +5852,15 @@ export async function registerRoutes(
         return res.status(400).json({ message: "We couldn't find your ID document on file. Please resubmit your KYC verification before applying for a virtual card." });
       }
 
-      const cardBrand = (req.body?.brand === "MasterCard" || req.body?.brand === "Visa") ? req.body.brand : "Visa";
-
       const createCardPayload: Record<string, string> = {
         name_on_card: nameOnCard,
-        card_type: "visa",
+        card_type: "mastercard",
         public_key: strowalletPublicKey,
         amount: fundAmount.toString(),
         customerEmail: profile.email,
         customer_id: profile.strowalletCustomerId,
         id_image: kycForCard.idDocumentUrl,
-        brand: cardBrand,
+        brand: "MasterCard",
       };
 
       const response = await strowalletFetch(`${STROWALLET_BASE}/create-card/`, {
@@ -5916,10 +5912,10 @@ export async function registerRoutes(
           const pendingCard = await storage.createVirtualCard({
             profileId: profile.id,
             cardId: `pending_${Date.now()}`,
-            cardType: "visa",
+            cardType: "mastercard",
             nameOnCard,
             last4: null,
-            brand: "Visa",
+            brand: "MasterCard",
             status: "pending",
             balance: CARD_COST_USD.toString(),
             currency: "USD",
@@ -5995,10 +5991,10 @@ export async function registerRoutes(
       const card = await storage.createVirtualCard({
         profileId: profile.id,
         cardId: String(cardId),
-        cardType: "visa",
+        cardType: "mastercard",
         nameOnCard,
         last4,
-        brand: "Visa",
+        brand: "MasterCard",
         status: "active",
         balance: fundAmount.toString(), // $20 — the actual card loaded balance shown to user
         currency: "USD",
@@ -6165,11 +6161,13 @@ export async function registerRoutes(
 
       const payload: Record<string, string> = {
         name_on_card: card.nameOnCard || profile.fullName,
-        card_type: "visa",
+        card_type: "mastercard",
         public_key: _stroKey,
         amount: fundAmount.toString(),
         customerEmail: profile.email,
         customer_id: profile.strowalletCustomerId,
+        id_image: (await storage.getKyc(profile.id))?.idDocumentUrl || "",
+        brand: "MasterCard",
       };
 
       const response = await strowalletFetch(`${_stroBase}/create-card/`, {
@@ -6207,13 +6205,13 @@ export async function registerRoutes(
         profileId: profile.id,
         type: "custom_message",
         title: "Your Virtual Card is Ready! 💳",
-        message: "Your Visa virtual card has been issued. You can now view your card details.",
+        message: "Your Mastercard has been issued. You can now view your card details.",
       }).catch(() => {});
 
       if (profile.phone) {
         sendWhatsAppNotification(
           profile.phone,
-          `*Izichanj*\n\n💳 Your virtual card is ready!\n\nYour Visa virtual card has been successfully issued. Log in to view your card details.\n\nhttps://izichanj.com`,
+          `*Izichanj*\n\n💳 Your Mastercard is ready!\n\nYour Mastercard has been successfully issued. Log in to view your card details.\n\nhttps://izichanj.com`,
           profile.fullName
         );
       }
@@ -6304,7 +6302,7 @@ export async function registerRoutes(
           profileId: profile.id,
           type: "custom_message",
           title: "Your Virtual Card is Ready! 💳",
-          message: "Your Visa virtual card has been issued. You can now view your card details.",
+          message: "Your Mastercard has been issued. You can now view your card details.",
         }).catch(() => {});
 
         sendTelegramMessage(
@@ -7053,7 +7051,7 @@ export async function registerRoutes(
             profileId: profile.id,
             cardId: `pending_nfc_${Date.now()}`,
             nameOnCard,
-            brand: "Visa",
+            brand: "MasterCard",
             status: "pending",
             // Balance shown to user = the load amount that will arrive on the card ($5).
             // The full $19 we collected is recorded under cardDetail.amountHeld for refunds.
@@ -7124,7 +7122,7 @@ export async function registerRoutes(
         cardId: String(cardId),
         nameOnCard,
         last4,
-        brand: "Visa",
+        brand: "MasterCard",
         status: "active",
         balance: LOAD_USD.toString(),
         currency: "USD",
