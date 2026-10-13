@@ -873,6 +873,12 @@ app.use((req, res, next) => {
     console.warn("[startup migration] support_quick_replies skipped:", (e as Error).message);
   }
 
+  // Retired NFC virtual-card service: block customer API access while preserving
+  // historical records and admin refund tools for previously submitted requests.
+  app.use("/api/nfc-cards", (_req: Request, res: Response) => {
+    return res.status(410).json({ message: "NFC virtual card service has been discontinued." });
+  });
+
   await registerRoutes(httpServer, app);
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
