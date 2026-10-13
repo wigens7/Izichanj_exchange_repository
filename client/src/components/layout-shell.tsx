@@ -26,7 +26,6 @@ import {
   ChevronDown,
   ChevronRight,
   Share2,
-  Nfc,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
@@ -59,7 +58,6 @@ export function LayoutShell({ children }: LayoutShellProps) {
     { href: "/withdraw", label: t.nav.withdraw, icon: ArrowUpCircle },
     { href: "/send-funds", label: t.nav.sendFunds ?? "Send Funds", icon: Send },
     { href: "/virtual-cards", label: t.nav.virtualCard ?? "Virtual Card", icon: CreditCard },
-    { href: "/nfc-cards", label: "NFC Virtual Card", icon: Nfc },
     { href: "/top-up", label: "Mobile Top-Up", icon: Smartphone },
     { href: "/canal-plus", label: "Canal+", icon: Tv },
     { href: "/p2p", label: "P2P Market", icon: Store },

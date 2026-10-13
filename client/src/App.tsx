@@ -18,7 +18,6 @@ import ProfilePage from "@/pages/profile";
 import SecurityPage from "@/pages/security";
 import AdminPage from "@/pages/admin";
 import VirtualCardsPage from "@/pages/virtual-cards";
-import NfcCardsPage from "@/pages/nfc-cards";
 import P2PMarketPage from "@/pages/p2p-market";
 import SendFundsPage from "@/pages/send-funds";
 import TopUpPage from "@/pages/top-up";
@@ -132,9 +131,6 @@ function Router() {
       </Route>
       <Route path="/virtual-cards">
         <ProtectedRoute component={VirtualCardsPage} />
-      </Route>
-      <Route path="/nfc-cards">
-        <ProtectedRoute component={NfcCardsPage} />
       </Route>
       <Route path="/top-up">
         <ProtectedRoute component={TopUpPage} />

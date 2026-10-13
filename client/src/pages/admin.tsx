@@ -4355,19 +4355,6 @@ function CardPricingSection() {
               </div>
             </div>
 
-            <div className="space-y-3 border-t pt-4">
-              <p className="text-sm font-semibold flex items-center gap-1.5"><CreditCard className="w-4 h-4 text-fuchsia-500" /> NFC Card</p>
-              <div className="grid grid-cols-2 gap-3">
-                {field("Card price (user pays)", "nPrice", "input-nfc-price")}
-                {field("Loaded onto card", "nLoad", "input-nfc-load")}
-                {field("Top-up fixed fee", "nTopupFee", "input-nfc-topup-fee")}
-                {field("Top-up variable fee", "nTopupPct", "input-nfc-topup-pct", "%")}
-                {field("Minimum top-up", "nTopupMin", "input-nfc-topup-min")}
-                {field("Withdraw fee", "nWithdrawFee", "input-nfc-withdraw-fee")}
-                {field("Minimum withdrawal", "nWithdrawMin", "input-nfc-withdraw-min")}
-              </div>
-            </div>
-
             <div className="p-3 rounded-md bg-muted/50 border text-xs text-muted-foreground space-y-1">
               <p className="font-medium text-foreground text-sm">Safety rules</p>
               <p>• "Loaded onto card" must be at least $5 (card provider minimum) and LESS than the card price.</p>
