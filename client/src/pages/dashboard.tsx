@@ -3,11 +3,12 @@ import { useDeposits, useWithdrawals } from "@/hooks/use-transactions";
 import { useLanguage } from "@/lib/i18n";
 import { formatHtg, formatUsdt } from "@shared/constants";
 import { useRates } from "@/hooks/use-rates";
+import { useBalanceVisibility } from "@/hooks/use-balance-visibility";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ArrowUpRight, ArrowDownLeft, Wallet, TrendingUp, TrendingDown, ArrowRightLeft, FileText, Copy, CheckCheck, Store } from "lucide-react";
+import { ArrowUpRight, ArrowDownLeft, Wallet, TrendingUp, TrendingDown, ArrowRightLeft, FileText, Copy, CheckCheck, Store, Eye, EyeOff } from "lucide-react";
 import { useState } from "react";
 import { formatDateTime } from "@/lib/dateUtils";
 import { StatusBadge } from "@/components/status-badge";
@@ -21,6 +22,7 @@ export default function DashboardPage() {
   const { data: withdrawals, isLoading: isWithdrawalsLoading } = useWithdrawals();
   const { t } = useLanguage();
   const { depositRate } = useRates();
+  const { visible: balanceVisible, toggle: toggleBalanceVisibility, mask } = useBalanceVisibility();
 
   const totalDepositedUsdt = deposits 
     ?.filter(d => d.status === 'approved')
@@ -56,37 +58,42 @@ export default function DashboardPage() {
   if (!user) return null;
 
   return (
-    <div className="space-y-6 animate-in fade-in duration-300">
-      <div>
-        <h1 className="text-2xl font-display font-bold">{t.dashboard.title}</h1>
-        <p className="text-sm text-muted-foreground mt-0.5">{t.dashboard.welcomeBack} {user.fullName}</p>
+    <div className="dashboard-page space-y-6 animate-in fade-in duration-300">
+      <div className="dashboard-heading">
+        <h1 className="dashboard-page-title text-2xl font-display font-bold">{t.dashboard.title}</h1>
+        <p className="dashboard-page-subtitle text-sm text-muted-foreground mt-0.5">{t.dashboard.welcomeBack} {user.fullName}</p>
       </div>
 
-      <div className="p-3.5 rounded-md bg-muted/60 border border-border flex items-center gap-2 text-sm" data-testid="banner-exchange-rate">
+      <div className="dashboard-rate-banner p-3.5 rounded-md bg-muted/60 border border-border flex items-center gap-2 text-sm" data-testid="banner-exchange-rate">
         <ArrowRightLeft className="w-4 h-4 text-primary flex-shrink-0" />
         <span className="text-muted-foreground">{t.withdraw.exchangeRate}:</span>
         <span className="font-semibold">1 USDT = {depositRate.toFixed(2)} HTG</span>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <Card className="stat-card text-blue-600 dark:text-blue-400">
+      <div className="dashboard-stat-grid grid grid-cols-1 md:grid-cols-3 gap-4">
+        <Card className="stat-card dashboard-stat-card dashboard-balance-card text-blue-600 dark:text-blue-400">
           <CardContent className="p-5">
             <div className="flex items-center justify-between gap-2 mb-3">
               <p className="text-sm font-medium text-muted-foreground">{t.dashboard.currentBalance}</p>
-              <div className="w-9 h-9 rounded-md bg-blue-500/10 flex items-center justify-center">
-                <Wallet className="w-4 h-4" />
+              <div className="dashboard-balance-actions">
+                <button type="button" className="dashboard-balance-toggle" onClick={toggleBalanceVisibility} aria-label={balanceVisible ? "Hide balance" : "Show balance"} aria-pressed={balanceVisible} title={balanceVisible ? "Hide balance" : "Show balance"} data-testid="button-toggle-dashboard-balance">
+                  {balanceVisible ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+                <div className="w-9 h-9 rounded-md bg-blue-500/10 flex items-center justify-center">
+                  <Wallet className="w-4 h-4" />
+                </div>
               </div>
             </div>
-            <p className="text-2xl font-display font-bold text-foreground" data-testid="text-balance-htg">
-              {formatHtg(balanceHtg)} <span className="text-sm font-normal text-muted-foreground">HTG</span>
+            <p className="dashboard-metric-value text-2xl font-display font-bold text-foreground" data-testid="text-balance-htg">
+              {mask(formatHtg(balanceHtg))} <span className="text-sm font-normal text-muted-foreground">HTG</span>
             </p>
-            <p className="text-xs text-muted-foreground mt-1">
-              {formatUsdt(Number(user.balance))} USDT
+            <p className="dashboard-secondary-value text-xs text-muted-foreground mt-1">
+              {mask(formatUsdt(Number(user.balance)))} USDT
             </p>
           </CardContent>
         </Card>
 
-        <Card className="stat-card text-emerald-600 dark:text-emerald-400">
+        <Card className="stat-card dashboard-stat-card text-emerald-600 dark:text-emerald-400">
           <CardContent className="p-5">
             <div className="flex items-center justify-between gap-2 mb-3">
               <p className="text-sm font-medium text-muted-foreground">{t.dashboard.totalDeposited}</p>
@@ -94,12 +101,12 @@ export default function DashboardPage() {
                 <TrendingUp className="w-4 h-4" />
               </div>
             </div>
-            <p className="text-2xl font-display font-bold text-foreground" data-testid="text-deposited-usdt">{formatUsdt(totalDepositedUsdt)} <span className="text-sm font-normal text-muted-foreground">USDT</span></p>
-            <p className="text-xs text-muted-foreground mt-1">{formatHtg(totalDepositedHtg)} HTG</p>
+            <p className="dashboard-metric-value text-2xl font-display font-bold text-foreground" data-testid="text-deposited-usdt">{mask(formatUsdt(totalDepositedUsdt))} <span className="text-sm font-normal text-muted-foreground">USDT</span></p>
+            <p className="dashboard-secondary-value text-xs text-muted-foreground mt-1">{mask(formatHtg(totalDepositedHtg))} HTG</p>
           </CardContent>
         </Card>
 
-        <Card className="stat-card text-amber-600 dark:text-amber-400">
+        <Card className="stat-card dashboard-stat-card text-amber-600 dark:text-amber-400">
           <CardContent className="p-5">
             <div className="flex items-center justify-between gap-2 mb-3">
               <p className="text-sm font-medium text-muted-foreground">{t.dashboard.totalWithdrawn}</p>
@@ -107,13 +114,13 @@ export default function DashboardPage() {
                 <TrendingDown className="w-4 h-4" />
               </div>
             </div>
-            <p className="text-2xl font-display font-bold text-foreground" data-testid="text-withdrawn-htg">{formatHtg(totalWithdrawnHtg)} <span className="text-sm font-normal text-muted-foreground">HTG</span></p>
-            <p className="text-xs text-muted-foreground mt-1">{formatUsdt(totalWithdrawnUsdt)} USDT</p>
+            <p className="dashboard-metric-value text-2xl font-display font-bold text-foreground" data-testid="text-withdrawn-htg">{mask(formatHtg(totalWithdrawnHtg))} <span className="text-sm font-normal text-muted-foreground">HTG</span></p>
+            <p className="dashboard-secondary-value text-xs text-muted-foreground mt-1">{mask(formatUsdt(totalWithdrawnUsdt))} USDT</p>
           </CardContent>
         </Card>
       </div>
 
-      <Card>
+      <Card className="dashboard-transaction-card">
         <CardHeader className="pb-3">
           <CardTitle className="text-base">{t.dashboard.transactionHistory}</CardTitle>
         </CardHeader>
@@ -193,7 +200,7 @@ function TransactionRow({ txn }: { txn: any }) {
 
     if (isApiTxn) {
       return (
-        <div className="rounded-md border border-border bg-card hover:bg-muted/30 transition-colors" data-testid={`txn-${txn.type}-${txn.id}`}>
+        <div className="dashboard-transaction-row rounded-md border border-border bg-card hover:bg-muted/30 transition-colors" data-testid={`txn-${txn.type}-${txn.id}`}>
           <div className="flex items-center justify-between gap-4 p-3.5">
             <div className="flex items-center gap-3 min-w-0">
               <div className={`w-9 h-9 rounded-md flex items-center justify-center flex-shrink-0 ${isIncoming ? 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400' : 'bg-purple-500/10 text-purple-600 dark:text-purple-400'}`}>
@@ -257,7 +264,7 @@ function TransactionRow({ txn }: { txn: any }) {
 
     return (
         <>
-        <div className="rounded-md border border-border bg-card hover:bg-muted/30 transition-colors" data-testid={`txn-${txn.type}-${txn.id}`}>
+        <div className="dashboard-transaction-row rounded-md border border-border bg-card hover:bg-muted/30 transition-colors" data-testid={`txn-${txn.type}-${txn.id}`}>
             <div className="flex items-center justify-between gap-4 p-3.5">
             <div className="flex items-center gap-3 min-w-0">
                 <div className={`w-9 h-9 rounded-md flex items-center justify-center flex-shrink-0 ${isDeposit ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' : 'bg-amber-500/10 text-amber-600 dark:text-amber-400'}`}>
