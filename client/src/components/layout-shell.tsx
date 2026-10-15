@@ -4,6 +4,7 @@ import { useUser, useLogout } from "@/hooks/use-auth";
 import { useLanguage } from "@/lib/i18n";
 import { formatHtg } from "@shared/constants";
 import { useRates } from "@/hooks/use-rates";
+import { useBalanceVisibility } from "@/hooks/use-balance-visibility";
 import {
   LayoutDashboard,
   ArrowDownCircle,
@@ -26,6 +27,8 @@ import {
   ChevronDown,
   ChevronRight,
   Share2,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
@@ -80,6 +83,7 @@ export function LayoutShell({ children }: LayoutShellProps) {
 
   const { depositRate } = useRates();
   const balanceHtg = Number(user?.balance || 0) * depositRate;
+  const { visible: balanceVisible, toggle: toggleBalanceVisibility, mask } = useBalanceVisibility();
 
   const NavContent = () => (
     <div className="flex flex-col h-full bg-sidebar text-sidebar-foreground overflow-hidden">
@@ -95,12 +99,17 @@ export function LayoutShell({ children }: LayoutShellProps) {
           </div>
         </div>
 
-        <div className="mx-4 mb-4 p-3 rounded-md bg-sidebar-accent">
-          <p className="text-[11px] uppercase tracking-wider text-sidebar-foreground/40 font-medium mb-1">
-            {t.dashboard.currentBalance}
-          </p>
+        <div className="dashboard-sidebar-balance mx-4 mb-4 p-3 rounded-md bg-sidebar-accent">
+          <div className="flex items-center justify-between gap-2 mb-1">
+            <p className="text-[11px] uppercase tracking-wider text-sidebar-foreground/40 font-medium">
+              {t.dashboard.currentBalance}
+            </p>
+            <button type="button" className="dashboard-balance-toggle dashboard-sidebar-toggle" onClick={toggleBalanceVisibility} aria-label={balanceVisible ? "Hide balance" : "Show balance"} aria-pressed={balanceVisible} title={balanceVisible ? "Hide balance" : "Show balance"}>
+              {balanceVisible ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+            </button>
+          </div>
           <p className="text-xl font-display font-bold text-white" data-testid="text-sidebar-balance">
-            {formatHtg(balanceHtg)} <span className="text-sm font-normal text-sidebar-foreground/50">HTG</span>
+            {mask(formatHtg(balanceHtg))} <span className="text-sm font-normal text-sidebar-foreground/50">HTG</span>
           </p>
         </div>
       </div>
@@ -263,7 +272,7 @@ export function LayoutShell({ children }: LayoutShellProps) {
         <div className="hidden lg:flex items-center justify-end px-6 py-3 border-b border-border">
           <NotificationBell />
         </div>
-        <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-6 lg:py-8 pb-24">
+        <div className={(location === "/" ? "dashboard-content-width" : "max-w-5xl") + " mx-auto px-4 sm:px-6 lg:px-8 py-6 lg:py-8 pb-24"}>
           {children}
         </div>
       </main>
