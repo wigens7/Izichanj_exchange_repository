@@ -13,6 +13,7 @@ type CheckoutData = {
   payment_id: string;
   order_id: string;
   status: "pending" | "completed" | "expired" | "failed";
+  mode: "test" | "live";
   amount: number;
   currency: string;
   amount_usdt: number;
@@ -70,7 +71,8 @@ export default function CheckoutPage() {
   const isCompleted = data.status === "completed";
   const isExpired = data.status === "expired";
   const isPending = data.status === "pending";
-  const insufficient = data.payer.logged_in && (data.payer.balance_usdt ?? 0) < data.amount_usdt;
+  const isTestMode = data.mode === "test";
+  const insufficient = !isTestMode && data.payer.logged_in && (data.payer.balance_usdt ?? 0) < data.amount_usdt;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-indigo-950 via-slate-950 to-purple-950 flex items-center justify-center p-4">
@@ -85,6 +87,14 @@ export default function CheckoutPage() {
 
         <Card className="shadow-2xl">
           <CardContent className="p-6 space-y-5">
+            {isTestMode && (
+              <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2.5 text-center" role="status" data-testid="test-mode-notice">
+                <Badge variant="outline" className="mb-1 border-amber-500 text-amber-700 dark:text-amber-300">TEST MODE</Badge>
+                <p className="text-xs text-amber-900 dark:text-amber-200">
+                  This is a payment simulation. No customer or merchant balance will change, and no live webhook will be sent.
+                </p>
+              </div>
+            )}
             <div className="text-center pb-4 border-b">
               <p className="text-xs text-muted-foreground uppercase tracking-wider">Pay</p>
               <p className="text-3xl font-bold mt-1" data-testid="text-amount-htg">
@@ -126,8 +136,10 @@ export default function CheckoutPage() {
             {isCompleted && (
               <div className="text-center py-4 space-y-2" data-testid="status-completed">
                 <CheckCircle2 className="w-12 h-12 text-green-600 mx-auto" />
-                <p className="font-bold text-lg">Payment Successful</p>
-                <p className="text-sm text-muted-foreground">Paid at {new Date(data.paid_at!).toLocaleString()}</p>
+                <p className="font-bold text-lg">{isTestMode ? "Test payment simulated" : "Payment Successful"}</p>
+                <p className="text-sm text-muted-foreground">
+                  {isTestMode ? "No real funds were moved." : `Paid at ${new Date(data.paid_at!).toLocaleString()}`}
+                </p>
                 {data.success_url && (
                   <Button onClick={() => (window.location.href = data.success_url!)} className="w-full mt-2" data-testid="button-back-merchant">
                     Return to merchant <ArrowRight className="w-4 h-4 ml-2" />
@@ -153,17 +165,27 @@ export default function CheckoutPage() {
               <>
                 {!data.payer.logged_in ? (
                   <div className="space-y-3">
-                    <p className="text-sm text-center text-muted-foreground">Sign in to your Izichanj account to pay from your wallet balance.</p>
+                    <p className="text-sm text-center text-muted-foreground">
+                      {isTestMode
+                        ? "Sign in to your Izichanj account to simulate this test checkout."
+                        : "Sign in to your Izichanj account to pay from your wallet balance."}
+                    </p>
                     <Button asChild className="w-full" data-testid="button-login-to-pay">
                       <Link href={`/login?redirect=/checkout/${paymentId}`}>Sign in to pay</Link>
                     </Button>
                   </div>
                 ) : (
                   <div className="space-y-3">
-                    <div className="flex items-center justify-between text-sm bg-muted/40 px-3 py-2 rounded-md">
-                      <span className="flex items-center gap-1.5"><Wallet className="w-4 h-4" />Your balance</span>
-                      <span className="font-bold" data-testid="text-balance">{(data.payer.balance_usdt ?? 0).toFixed(2)} USDT</span>
-                    </div>
+                    {isTestMode ? (
+                      <div className="rounded-md bg-muted/40 px-3 py-2 text-center text-xs text-muted-foreground">
+                        Signed in to Izichanj. This test checkout does not use your balance.
+                      </div>
+                    ) : (
+                      <div className="flex items-center justify-between text-sm bg-muted/40 px-3 py-2 rounded-md">
+                        <span className="flex items-center gap-1.5"><Wallet className="w-4 h-4" />Your balance</span>
+                        <span className="font-bold" data-testid="text-balance">{(data.payer.balance_usdt ?? 0).toFixed(2)} USDT</span>
+                      </div>
+                    )}
                     {insufficient && (
                       <div className="text-xs text-destructive bg-destructive/10 px-3 py-2 rounded-md">
                         Insufficient balance. <Link href="/deposit" className="underline">Deposit funds</Link> first.
@@ -177,7 +199,7 @@ export default function CheckoutPage() {
                       data-testid="button-pay"
                     >
                       {pay.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-                      Pay {data.amount_usdt.toFixed(2)} USDT
+                      {isTestMode ? "Simulate test payment" : `Pay ${data.amount_usdt.toFixed(2)} USDT`}
                     </Button>
                   </div>
                 )}

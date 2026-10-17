@@ -1,7 +1,7 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import { storage } from "./storage";
 import { db } from "./db";
-import { profiles, merchants, merchantPayoutMethods, merchantLedgerEntries, payoutRequests, type Merchant } from "@shared/schema";
+import { profiles, merchants, merchantApiKeys, merchantTransactions, merchantPayoutMethods, merchantLedgerEntries, payoutRequests, type Merchant, type MerchantApiKey, type MerchantMode } from "@shared/schema";
 import { eq, sql, and } from "drizzle-orm";
 import { isAuthenticated } from "./auth";
 import { getDepositRate } from "./rates";
@@ -10,6 +10,7 @@ import { MERCHANT_API_FEE_PCT } from "@shared/constants";
 import { PUBLIC_APP_URL } from "./public-url";
 import crypto from "crypto";
 import { z } from "zod";
+import { isLiveMerchantApproved, merchantModeFromSecretKey, shouldSettleRealBalance } from "./merchant-mode";
 
 const FEE_PCT = MERCHANT_API_FEE_PCT; // 0% — Izichanj Pay is FREE for merchants
 const CHECKOUT_TTL_MS = 30 * 60 * 1000; // 30 minutes
@@ -64,11 +65,62 @@ async function sendAdminTelegram(text: string): Promise<void> {
 
 declare global {
   namespace Express {
-    interface Request { merchant?: Merchant }
+    interface Request {
+      merchant?: Merchant;
+      merchantMode?: MerchantMode;
+      merchantApiKeyId?: number;
+    }
   }
 }
 
-/** API auth middleware: verifies api_secret_key from Authorization header. */
+function safeMerchant(merchant: Merchant) {
+  const { apiSecretKey: _apiSecretKey, ...safe } = merchant;
+  return safe;
+}
+
+function apiKeyEncryptionKey(): Buffer {
+  if (!process.env.SESSION_SECRET) throw new Error("SESSION_SECRET is required to protect merchant API keys");
+  return crypto.createHash("sha256").update(process.env.SESSION_SECRET).digest();
+}
+
+function encryptApiKeySecret(secret: string): string {
+  const key = apiKeyEncryptionKey();
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv("aes-256-gcm", key, iv);
+  const encrypted = Buffer.concat([cipher.update(secret, "utf8"), cipher.final()]);
+  return `${iv.toString("base64url")}.${cipher.getAuthTag().toString("base64url")}.${encrypted.toString("base64url")}`;
+}
+
+function decryptApiKeySecret(value: string): string {
+  const [ivPart, tagPart, encryptedPart] = value.split(".");
+  const decipher = crypto.createDecipheriv("aes-256-gcm", apiKeyEncryptionKey(), Buffer.from(ivPart, "base64url"));
+  decipher.setAuthTag(Buffer.from(tagPart, "base64url"));
+  return Buffer.concat([
+    decipher.update(Buffer.from(encryptedPart, "base64url")),
+    decipher.final(),
+  ]).toString("utf8");
+}
+
+function publicApiKey(key: MerchantApiKey) {
+  return {
+    id: key.id,
+    name: key.name,
+    mode: key.mode,
+    public_key: key.publicKey,
+    prefix: key.keyPrefix,
+    revoked_at: key.revokedAt,
+    last_used_at: key.lastUsedAt,
+    created_at: key.createdAt,
+  };
+}
+
+async function merchantCanAcceptLivePayments(merchant: Merchant): Promise<boolean> {
+  if (!isLiveMerchantApproved(merchant)) return false;
+  const owner = await storage.getProfile(merchant.profileId);
+  return owner?.kycStatus === "verified";
+}
+
+/** API auth: test keys are isolated; legacy keys remain live-only. */
 async function requireApiKey(req: Request, res: Response, next: NextFunction) {
   try {
     const auth = req.headers.authorization || "";
@@ -77,12 +129,33 @@ async function requireApiKey(req: Request, res: Response, next: NextFunction) {
     if (auth.toLowerCase().startsWith("bearer ")) key = auth.slice(7).trim();
     else if (headerKey) key = headerKey.trim();
 
-    if (!key || !key.startsWith("izi_sk_")) {
-      return res.status(401).json({ error: "Missing or invalid API key. Send Authorization: Bearer izi_sk_..." });
+    const mode = key ? merchantModeFromSecretKey(key) : null;
+    if (!mode) return res.status(401).json({ error: "Missing or invalid API key. Use a test or live secret key from Merchant Tools." });
+
+    let merchant: Merchant | undefined;
+    let apiKey: MerchantApiKey | undefined;
+    if (key.startsWith("izi_sk_")) {
+      merchant = await storage.getMerchantBySecretKey(key);
+    } else {
+      const secretKeyHash = crypto.createHash("sha256").update(key).digest("hex");
+      const [storedKey] = await db.select().from(merchantApiKeys)
+        .where(eq(merchantApiKeys.secretKeyHash, secretKeyHash))
+        .limit(1);
+      apiKey = storedKey;
+      if (!apiKey || apiKey.revokedAt || apiKey.mode !== mode) {
+        return res.status(401).json({ error: "Invalid or revoked API key" });
+      }
+      merchant = await storage.getMerchantById(apiKey.merchantId);
+      void db.update(merchantApiKeys).set({ lastUsedAt: new Date() })
+        .where(eq(merchantApiKeys.id, apiKey.id)).catch(() => {});
     }
-    const merchant = await storage.getMerchantBySecretKey(key);
     if (!merchant) return res.status(401).json({ error: "Invalid API key" });
+    if (mode === "live" && !(await merchantCanAcceptLivePayments(merchant))) {
+      return res.status(403).json({ error: "Live payments are unavailable until your merchant account is approved and payments are enabled." });
+    }
     req.merchant = merchant;
+    req.merchantMode = mode;
+    req.merchantApiKeyId = apiKey?.id;
     next();
   } catch (e: any) {
     res.status(500).json({ error: "Auth error: " + (e.message || e) });
@@ -95,11 +168,11 @@ function signWebhook(secret: string, payloadJson: string): string {
 }
 
 /** Fire-and-forget webhook delivery with HMAC signature. */
-async function deliverWebhook(merchant: Merchant, paymentId: string, payload: any) {
+async function deliverWebhook(merchant: Merchant, paymentId: string, payload: any, signingSecret = merchant.apiSecretKey) {
   if (!merchant.webhookUrl) return;
   try {
     const body = JSON.stringify(payload);
-    const sig = signWebhook(merchant.apiSecretKey, body);
+    const sig = signWebhook(signingSecret, body);
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), 10000);
     const r = await fetch(merchant.webhookUrl, {
@@ -137,7 +210,7 @@ export function registerMerchantRoutes(app: Express) {
 
   app.get("/api/merchant/me", isAuthenticated, async (req: any, res) => {
     const merchant = await storage.getMerchantByProfile(req.session.profileId);
-    res.json({ merchant: merchant || null });
+    res.json({ merchant: merchant ? safeMerchant(merchant) : null });
   });
 
   // Merchant account and balance views are session-scoped; ownership is always
@@ -157,11 +230,106 @@ export function registerMerchantRoutes(app: Express) {
         country: merchant.country || profile?.country,
         accountStatus: merchant.accountStatus,
         kycStatus: profile?.kycStatus === "verified" ? "verified" : merchant.kycStatus,
+        isVerified: merchant.isVerified,
         paymentEnabled: merchant.paymentEnabled,
         payoutEnabled: merchant.payoutEnabled,
         createdAt: merchant.createdAt,
         updatedAt: merchant.updatedAt,
       },
+    });
+  });
+
+  app.get("/api/merchant/keys", isAuthenticated, async (req: any, res) => {
+    const merchant = await storage.getMerchantByProfile(req.session.profileId);
+    if (!merchant) return res.status(404).json({ message: "Merchant account not found" });
+    const rows = await db.select().from(merchantApiKeys)
+      .where(eq(merchantApiKeys.merchantId, merchant.id))
+      .orderBy(sql`${merchantApiKeys.createdAt} DESC`);
+    const liveEnabled = await merchantCanAcceptLivePayments(merchant);
+    const keys = rows.map((key) => ({
+      ...publicApiKey(key),
+      status: key.revokedAt ? "revoked" : key.mode === "live" && !liveEnabled ? "blocked" : "active",
+    }));
+    if (merchant.apiSecretKey.startsWith("izi_sk_")) {
+      keys.unshift({
+        id: "legacy-live",
+        name: "Existing live API key",
+        mode: "live",
+        public_key: merchant.apiPublicKey,
+        prefix: `${merchant.apiSecretKey.slice(0, 12)}••••`,
+        revoked_at: null,
+        last_used_at: null,
+        created_at: merchant.createdAt,
+        status: liveEnabled ? "active" : "blocked",
+      } as any);
+    }
+    res.json({
+      keys,
+      liveEnabled,
+      liveBlockReason: liveEnabled ? null : "Live keys require an approved merchant account with payments enabled.",
+    });
+  });
+
+  app.post("/api/merchant/keys", isAuthenticated, async (req: any, res) => {
+    try {
+      const parsed = z.object({
+        name: z.string().trim().min(1).max(60),
+        mode: z.enum(["test", "live"]),
+      }).parse(req.body);
+      const merchant = await storage.getMerchantByProfile(req.session.profileId);
+      if (!merchant) return res.status(404).json({ message: "Merchant account not found" });
+      if (parsed.mode === "live" && !(await merchantCanAcceptLivePayments(merchant))) {
+        return res.status(403).json({ message: "Live keys require an approved merchant account with payments enabled." });
+      }
+
+      const secret = `izk_${parsed.mode}_sk_${crypto.randomBytes(32).toString("hex")}`;
+      const publicKey = `izk_${parsed.mode}_pk_${crypto.randomBytes(18).toString("hex")}`;
+      const secretKeyHash = crypto.createHash("sha256").update(secret).digest("hex");
+      const [created] = await db.insert(merchantApiKeys).values({
+        merchantId: merchant.id,
+        name: parsed.name,
+        mode: parsed.mode,
+        publicKey,
+        secretKeyHash,
+        encryptedSecret: encryptApiKeySecret(secret),
+        keyPrefix: `${secret.slice(0, 16)}••••`,
+      }).returning();
+      res.status(201).json({
+        secret,
+        publicKey,
+        key: publicApiKey(created),
+      });
+    } catch (e: any) {
+      res.status(400).json({ message: e?.message || "Unable to create API key" });
+    }
+  });
+
+  app.delete("/api/merchant/keys/:id", isAuthenticated, async (req: any, res) => {
+    const merchant = await storage.getMerchantByProfile(req.session.profileId);
+    if (!merchant) return res.status(404).json({ message: "Merchant account not found" });
+    if (req.params.id === "legacy-live") {
+      if (!merchant.apiSecretKey.startsWith("izi_sk_")) return res.status(404).json({ message: "API key not found" });
+      await storage.rotateMerchantKeys(req.session.profileId);
+      return res.json({ ok: true });
+    }
+    const id = Number(req.params.id);
+    if (!Number.isSafeInteger(id) || id <= 0) return res.status(400).json({ message: "Invalid API key id" });
+    const [revoked] = await db.update(merchantApiKeys)
+      .set({ revokedAt: new Date() })
+      .where(and(eq(merchantApiKeys.id, id), eq(merchantApiKeys.merchantId, merchant.id)))
+      .returning({ id: merchantApiKeys.id });
+    if (!revoked) return res.status(404).json({ message: "API key not found" });
+    res.json({ ok: true });
+  });
+
+  app.get("/api/merchant/sandbox", isAuthenticated, async (req: any, res) => {
+    const merchant = await storage.getMerchantByProfile(req.session.profileId);
+    if (!merchant) return res.status(404).json({ message: "Merchant account not found" });
+    const transactions = await storage.getMerchantTransactions(merchant.id, 20, "test");
+    res.json({
+      mode: "test",
+      baseUrl: `${PUBLIC_BASE_URL.replace(/\/+$/, "")}/api/v1`,
+      transactions,
     });
   });
 
@@ -174,7 +342,7 @@ export function registerMerchantRoutes(app: Express) {
         COALESCE(SUM(CASE WHEN status = 'completed' THEN fee_usdt ELSE 0 END), 0)::numeric AS total_fees,
         COALESCE(SUM(CASE WHEN status IN ('pending') THEN net_usdt ELSE 0 END), 0)::numeric AS pending_balance,
         COALESCE((SELECT SUM(amount) FROM payout_requests WHERE merchant_id = ${merchant.id} AND status IN ('pending','processing','approved')), 0)::numeric AS total_payouts
-      FROM merchant_transactions WHERE merchant_id = ${merchant.id}
+      FROM merchant_transactions WHERE merchant_id = ${merchant.id} AND mode = 'live'
     `);
     const row = (result.rows[0] || {}) as any;
     res.json({
@@ -242,7 +410,7 @@ export function registerMerchantRoutes(app: Express) {
   app.post("/api/merchant/enroll", isAuthenticated, async (req: any, res) => {
     try {
       const existing = await storage.getMerchantByProfile(req.session.profileId);
-      if (existing) return res.json({ merchant: existing });
+      if (existing) return res.json({ merchant: safeMerchant(existing) });
       const businessName = String(req.body?.businessName || "").trim();
       if (businessName.length < 2) return res.status(400).json({ message: "Business name required (min 2 chars)" });
       const profile = await storage.getProfile(req.session.profileId);
@@ -251,7 +419,7 @@ export function registerMerchantRoutes(app: Express) {
         return res.status(403).json({ message: "KYC verification is required to enroll as a merchant" });
       }
       const merchant = await storage.createMerchant(req.session.profileId, businessName);
-      res.json({ merchant });
+      res.json({ merchant: safeMerchant(merchant) });
     } catch (e: any) {
       res.status(500).json({ message: e.message });
     }
@@ -265,7 +433,7 @@ export function registerMerchantRoutes(app: Express) {
         webhookUrl: parsed.webhookUrl ?? undefined,
       });
       if (!m) return res.status(404).json({ message: "Merchant account not found" });
-      res.json({ merchant: m });
+      res.json({ merchant: safeMerchant(m) });
     } catch (e: any) {
       res.status(400).json({ message: e.message });
     }
@@ -274,7 +442,7 @@ export function registerMerchantRoutes(app: Express) {
   app.post("/api/merchant/rotate-keys", isAuthenticated, async (req: any, res) => {
     const m = await storage.rotateMerchantKeys(req.session.profileId);
     if (!m) return res.status(404).json({ message: "Merchant account not found" });
-    res.json({ merchant: m });
+    res.json({ merchant: safeMerchant(m) });
   });
 
   // Returns ALL API/merchant payments touching this user — both as a buyer ("API Purchase") and as a merchant ("Merchant Payment")
@@ -283,7 +451,7 @@ export function registerMerchantRoutes(app: Express) {
       const profileId = req.session.profileId;
       const asBuyer = await storage.getMerchantPaymentsAsBuyer(profileId, 100);
       const myMerchant = await storage.getMerchantByProfile(profileId);
-      const asMerchant = myMerchant ? await storage.getMerchantTransactions(myMerchant.id, 100) : [];
+      const asMerchant = myMerchant ? await storage.getMerchantTransactions(myMerchant.id, 100, "live") : [];
       const merchantIds = new Set<number>([
         ...asBuyer.map(t => t.merchantId),
         ...asMerchant.map(t => t.merchantId),
@@ -555,7 +723,7 @@ export function registerMerchantRoutes(app: Express) {
   app.get("/api/merchant/transactions", isAuthenticated, async (req: any, res) => {
     const merchant = await storage.getMerchantByProfile(req.session.profileId);
     if (!merchant) return res.json({ transactions: [] });
-    const txns = await storage.getMerchantTransactions(merchant.id, 200);
+    const txns = await storage.getMerchantTransactions(merchant.id, 200, "live");
     res.json({ transactions: txns });
   });
 
@@ -586,6 +754,8 @@ export function registerMerchantRoutes(app: Express) {
       await storage.createMerchantTransaction({
         paymentId,
         merchantId: merchant.id,
+        apiKeyId: req.merchantApiKeyId || null,
+        mode: req.merchantMode || "live",
         orderId: parsed.order_id,
         amount: String(parsed.amount.toFixed(2)) as any,
         currency: parsed.currency,
@@ -613,6 +783,8 @@ export function registerMerchantRoutes(app: Express) {
         fee_usdt: feeUsdt.toFixed(4),
         net_usdt: netUsdt.toFixed(4),
         exchange_rate: rate,
+        mode: req.merchantMode || "live",
+        livemode: req.merchantMode === "live",
         order_id: parsed.order_id,
         expires_at: expiresAt.toISOString(),
       });
@@ -624,11 +796,13 @@ export function registerMerchantRoutes(app: Express) {
   app.get("/api/v1/payment/:id", requireApiKey, async (req, res) => {
     const paymentId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
     const t = await storage.getMerchantTransactionByPaymentId(paymentId);
-    if (!t || t.merchantId !== req.merchant!.id) return res.status(404).json({ error: "Not found" });
+    if (!t || t.merchantId !== req.merchant!.id || t.mode !== req.merchantMode) return res.status(404).json({ error: "Not found" });
     res.json({
       payment_id: t.paymentId,
       order_id: t.orderId,
       status: t.status,
+      mode: t.mode,
+      livemode: t.mode === "live",
       amount: t.amount,
       currency: t.currency,
       amount_usdt: t.amountUsdt,
@@ -650,7 +824,8 @@ export function registerMerchantRoutes(app: Express) {
     }
     const merchant = await storage.getMerchantById(t.merchantId);
     let payerBalance: number | null = null;
-    if (req.session?.profileId) {
+    const mode = t.mode || "live";
+    if (mode === "live" && req.session?.profileId) {
       const p = await storage.getProfile(req.session.profileId);
       payerBalance = p ? Number(p.balance) : null;
     }
@@ -658,6 +833,7 @@ export function registerMerchantRoutes(app: Express) {
       payment_id: t.paymentId,
       order_id: t.orderId,
       status: t.status,
+      mode,
       amount: Number(t.amount),
       currency: t.currency,
       amount_usdt: Number(t.amountUsdt),
@@ -692,56 +868,97 @@ export function registerMerchantRoutes(app: Express) {
       if (!merchant) return res.status(404).json({ message: "Merchant not found" });
       const payer = await storage.getProfile(req.session.profileId);
       if (!payer) return res.status(404).json({ message: "Payer not found" });
-      if (payer.id === merchant.profileId) {
+      const mode = t.mode || "live";
+      if (mode === "live" && !(await merchantCanAcceptLivePayments(merchant))) {
+        return res.status(403).json({ message: "This merchant is not currently approved to accept live payments." });
+      }
+      if (mode === "live" && payer.id === merchant.profileId) {
         return res.status(400).json({ message: "You cannot pay your own merchant order" });
+      }
+      let webhookSecret = merchant.apiSecretKey;
+      if (mode === "live" && t.apiKeyId) {
+        const [keyRecord] = await db.select({ encryptedSecret: merchantApiKeys.encryptedSecret })
+          .from(merchantApiKeys).where(eq(merchantApiKeys.id, t.apiKeyId)).limit(1);
+        if (keyRecord) webhookSecret = decryptApiKeySecret(keyRecord.encryptedSecret);
       }
       const amountUsdt = Number(t.amountUsdt);
       const netUsdt = Number(t.netUsdt);
-      const payerBal = Number(payer.balance);
-      if (payerBal < amountUsdt) {
-        return res.status(400).json({ message: `Insufficient balance. Need ${amountUsdt.toFixed(2)} USDT, you have ${payerBal.toFixed(2)} USDT.` });
-      }
+      let updated: any;
+      if (shouldSettleRealBalance(mode)) {
+        const payerBal = Number(payer.balance);
+        if (payerBal < amountUsdt) {
+          return res.status(400).json({ message: `Insufficient balance. Need ${amountUsdt.toFixed(2)} USDT, you have ${payerBal.toFixed(2)} USDT.` });
+        }
 
-      // Atomic transfer: debit payer profile, credit MERCHANT BALANCE (separate from personal account)
-      const updated = await db.transaction(async (tx) => {
-        const [claimed] = await tx.update((await import("@shared/schema")).merchantTransactions)
-          .set({ status: "completed", paidAt: new Date(), payerProfileId: payer.id })
-          .where(and(eq((await import("@shared/schema")).merchantTransactions.paymentId, t.paymentId), eq((await import("@shared/schema")).merchantTransactions.status, "pending")))
-          .returning();
-        if (!claimed) return null;
-        const [debited] = await tx.update(profiles)
-          .set({ balance: sql`${profiles.balance} - ${amountUsdt}` })
-          .where(and(eq(profiles.id, payer.id), sql`${profiles.balance} >= ${amountUsdt}`))
-          .returning();
-        if (!debited) throw new Error("INSUFFICIENT_PAYER_BALANCE");
-        await tx.update(merchants)
-          .set({ balance: sql`${merchants.balance} + ${netUsdt}`, updatedAt: new Date() })
-          .where(eq(merchants.id, merchant.id));
-        await tx.insert(merchantLedgerEntries).values({
-          merchantId: merchant.id,
-          paymentId: t.paymentId,
-          entryType: "payment",
-          balanceType: "available",
-          amount: String(netUsdt.toFixed(4)) as any,
-          currency: "USDT",
-          idempotencyKey: `payment:${t.paymentId}`,
-          description: `Payment received for order ${t.orderId}`,
-        });
-        if (Number(t.feeUsdt) > 0) {
+        // Live payments claim once, debit the payer, and credit the merchant in one DB transaction.
+        updated = await db.transaction(async (tx) => {
+          const [claimed] = await tx.update(merchantTransactions)
+            .set({ status: "completed", paidAt: new Date(), payerProfileId: payer.id })
+            .where(and(
+              eq(merchantTransactions.paymentId, t.paymentId),
+              eq(merchantTransactions.status, "pending"),
+              eq(merchantTransactions.mode, "live"),
+            ))
+            .returning();
+          if (!claimed) return null;
+          const [debited] = await tx.update(profiles)
+            .set({ balance: sql`${profiles.balance} - ${amountUsdt}` })
+            .where(and(eq(profiles.id, payer.id), sql`${profiles.balance} >= ${amountUsdt}`))
+            .returning();
+          if (!debited) throw new Error("INSUFFICIENT_PAYER_BALANCE");
+          await tx.update(merchants)
+            .set({ balance: sql`${merchants.balance} + ${netUsdt}`, updatedAt: new Date() })
+            .where(eq(merchants.id, merchant.id));
           await tx.insert(merchantLedgerEntries).values({
             merchantId: merchant.id,
             paymentId: t.paymentId,
-            entryType: "fee",
+            entryType: "payment",
             balanceType: "available",
-            amount: String((-Number(t.feeUsdt)).toFixed(4)) as any,
+            amount: String(netUsdt.toFixed(4)) as any,
             currency: "USDT",
-            idempotencyKey: `fee:${t.paymentId}`,
-            description: "Izichanj payment fee",
+            idempotencyKey: `payment:${t.paymentId}`,
+            description: `Payment received for order ${t.orderId}`,
           });
-        }
-        return claimed;
-      });
+          if (Number(t.feeUsdt) > 0) {
+            await tx.insert(merchantLedgerEntries).values({
+              merchantId: merchant.id,
+              paymentId: t.paymentId,
+              entryType: "fee",
+              balanceType: "available",
+              amount: String((-Number(t.feeUsdt)).toFixed(4)) as any,
+              currency: "USDT",
+              idempotencyKey: `fee:${t.paymentId}`,
+              description: "Izichanj payment fee",
+            });
+          }
+          return claimed;
+        });
+      } else {
+        // Sandbox completions are isolated records: they never touch balances, ledgers, or live webhooks.
+        updated = await db.transaction(async (tx) => {
+          const [claimed] = await tx.update(merchantTransactions)
+            .set({ status: "completed", paidAt: new Date(), payerProfileId: null })
+            .where(and(
+              eq(merchantTransactions.paymentId, t.paymentId),
+              eq(merchantTransactions.status, "pending"),
+              eq(merchantTransactions.mode, "test"),
+            ))
+            .returning();
+          return claimed;
+        });
+      }
       if (!updated) return res.status(409).json({ message: "Payment was concurrently processed" });
+
+      if (mode === "test") {
+        return res.json({
+          ok: true,
+          payment_id: t.paymentId,
+          status: "completed",
+          mode: "test",
+          livemode: false,
+          success_url: t.successUrl,
+        });
+      }
 
       // In-app notifications for both parties
       storage.createNotification({
@@ -778,6 +995,8 @@ export function registerMerchantRoutes(app: Express) {
         payment_id: t.paymentId,
         order_id: t.orderId,
         status: "completed",
+        mode: "live",
+        livemode: true,
         amount: Number(t.amount),
         currency: t.currency,
         amount_usdt: Number(t.amountUsdt),
@@ -788,12 +1007,14 @@ export function registerMerchantRoutes(app: Express) {
         paid_at: new Date().toISOString(),
         merchant_id: merchant.id,
       };
-      deliverWebhook(merchant, t.paymentId, webhookPayload).catch(() => {});
+      deliverWebhook(merchant, t.paymentId, webhookPayload, webhookSecret).catch(() => {});
 
       res.json({
         ok: true,
         payment_id: t.paymentId,
         status: "completed",
+        mode: "live",
+        livemode: true,
         success_url: t.successUrl,
       });
     } catch (e: any) {

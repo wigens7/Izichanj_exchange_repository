@@ -170,7 +170,7 @@ export interface IStorage {
   rotateMerchantKeys(profileId: number): Promise<Merchant | undefined>;
   createMerchantTransaction(data: Omit<MerchantTransaction, "id" | "createdAt" | "paidAt" | "webhookDelivered" | "webhookAttempts" | "status" | "payerProfileId">): Promise<MerchantTransaction>;
   getMerchantTransactionByPaymentId(paymentId: string): Promise<MerchantTransaction | undefined>;
-  getMerchantTransactions(merchantId: number, limit?: number): Promise<MerchantTransaction[]>;
+  getMerchantTransactions(merchantId: number, limit?: number, mode?: "test" | "live"): Promise<MerchantTransaction[]>;
   getMerchantPaymentsAsBuyer(profileId: number, limit?: number): Promise<MerchantTransaction[]>;
   createPayoutRequest(data: InsertPayoutRequest): Promise<PayoutRequest>;
   getPayoutRequestsByUser(userId: number): Promise<PayoutRequest[]>;
@@ -1405,9 +1405,11 @@ export class DatabaseStorage implements IStorage {
       .limit(limit);
   }
 
-  async getMerchantTransactions(merchantId: number, limit = 100): Promise<MerchantTransaction[]> {
+  async getMerchantTransactions(merchantId: number, limit = 100, mode?: "test" | "live"): Promise<MerchantTransaction[]> {
+    const conditions = [eq(merchantTransactions.merchantId, merchantId)];
+    if (mode) conditions.push(eq(merchantTransactions.mode, mode));
     return db.select().from(merchantTransactions)
-      .where(eq(merchantTransactions.merchantId, merchantId))
+      .where(and(...conditions))
       .orderBy(desc(merchantTransactions.createdAt))
       .limit(limit);
   }
