@@ -19,7 +19,7 @@ import {
 } from 'lucide-react';
 
 const checkoutCurl = `curl -X POST https://izichanj.com/api/v1/checkout \\
-  -H "Authorization: Bearer izi_sk_YOUR_SECRET_KEY" \\
+  -H "Authorization: Bearer izk_test_sk_YOUR_TEST_SECRET_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{"amount": 100, "currency": "USDT", "order_id": "order-123",
        "description": "Order #123",
@@ -46,7 +46,7 @@ const checkout = await response.json();
 // Send checkout.checkout_url to your customer from your server.`;
 
 const paymentCurl = `curl https://izichanj.com/api/v1/payment/pay_xxx \\
-  -H "Authorization: Bearer izi_sk_YOUR_SECRET_KEY"`;
+  -H "Authorization: Bearer izk_test_sk_YOUR_TEST_SECRET_KEY"`;
 
 const webhookNode = `const expected = crypto
   .createHmac("sha256", process.env.IZICHANJ_SECRET_KEY)
@@ -278,7 +278,7 @@ export default function DevelopersPage() {
                   Build payments into <span className="text-[#f2b943]">your flow.</span>
                 </h1>
                 <p className="mt-5 max-w-[640px] text-[14px] leading-7 text-[#a7aaa9] sm:text-[15px]">
-                  Accept HTG and USDT on your website with Izichanj Pay. Create checkout sessions from your server, then verify each payment before fulfilling an order.
+                  Accept HTG and USDT on your website with Izichanj Pay. Start with test keys, then use live keys after merchant approval. Verify each payment before fulfilling an order.
                 </p>
               </div>
               <div className="hidden border-l border-[#3a3c3d] pl-5 pb-1 lg:block">
@@ -308,13 +308,13 @@ export default function DevelopersPage() {
             <SectionHeading number="01" title="Quick start" subtitle="A small server-side flow to get your first checkout moving." />
             <div className="mb-5 grid gap-3 sm:grid-cols-3">
               <Step number="1" title="Activate a merchant account" description="Set up your merchant account in Merchant Tools." />
-              <Step number="2" title="Copy your secret key" description="Find the secret key in Merchant Tools. Keep it on your backend." />
+              <Step number="2" title="Create a test key" description="Use a test key first. Live keys require merchant approval and enabled payments." />
               <Step number="3" title="Create a checkout" description="Create the payment from your server and send the customer to checkout_url." />
             </div>
             <CodePanel id="quickstart-curl" title="Create a checkout" language="cURL" code={checkoutCurl} />
             <p className="mt-3 flex items-start gap-2 text-[12px] leading-6 text-[#9da1a0]">
               <ArrowDownRight size={15} className="mt-1 shrink-0 text-[#e2ae40]" />
-              The response contains <InlineCode>checkout_url</InlineCode>. Redirect your customer to that URL to complete payment.
+              The response contains <InlineCode>checkout_url</InlineCode>, <InlineCode>mode</InlineCode> and <InlineCode>livemode</InlineCode>. Test payments are simulations; they never debit balances or send live webhooks. Both modes use this same API host, and the key selects the mode.
             </p>
           </section>
 
@@ -325,7 +325,7 @@ export default function DevelopersPage() {
               <code className="break-all rounded-md border border-[#3a3d3e] bg-[#1a1c1e] px-3 py-1.5 font-code text-[12px] text-[#d8d6cf]" data-testid="text-checkout-endpoint">/api/v1/checkout</code>
             </div>
             <p className="mb-5 text-[13px] leading-6 text-[#a7aaa9]">
-              Send your secret key in the <InlineCode>Authorization</InlineCode> header. Amount is in HTG when <InlineCode>currency</InlineCode> is <InlineCode>HTG</InlineCode>, or USDT when it is <InlineCode>USDT</InlineCode>.
+              Send a test or live secret key in the <InlineCode>Authorization</InlineCode> header. Test keys start with <InlineCode>izk_test_sk_</InlineCode>; live keys start with <InlineCode>izk_live_sk_</InlineCode> and are available only after approval. Older <InlineCode>izi_sk_</InlineCode> keys remain live keys and follow the same approval checks. Amount is HTG or USDT as specified by <InlineCode>currency</InlineCode>. Both keys use <InlineCode>https://izichanj.com/api/v1</InlineCode>.
             </p>
             <div className="mb-6 overflow-hidden rounded-xl border border-[#36393a] bg-[#191c1e]">
               <div className="grid grid-cols-[minmax(85px,.7fr)_minmax(0,2fr)] border-b border-[#343738] bg-[#202325] px-4 py-2.5 text-[10px] font-semibold uppercase tracking-[.12em] text-[#858a8a]">
@@ -359,7 +359,7 @@ export default function DevelopersPage() {
                 <div className="mt-3 flex flex-wrap gap-2" data-testid="text-payment-statuses">
                   <StatusTag>pending</StatusTag><StatusTag>completed</StatusTag><StatusTag>expired</StatusTag><StatusTag>failed</StatusTag>
                 </div>
-                <p className="mt-4 border-t border-white/[0.08] pt-3 text-[11px] leading-5 text-[#969a99]">Do not rely on the customer redirect alone to confirm payment.</p>
+                <p className="mt-4 border-t border-white/[0.08] pt-3 text-[11px] leading-5 text-[#969a99]">Check both <InlineCode>status</InlineCode> and <InlineCode>livemode</InlineCode>. Test completions must never fulfill a real order; do not rely on the customer redirect alone.</p>
               </div>
             </div>
           </section>
@@ -367,7 +367,7 @@ export default function DevelopersPage() {
           <section id="webhooks" className="section-rule scroll-mt-28 py-12">
             <SectionHeading number="04" title="Webhooks" subtitle="Receive payment notifications directly on your server." />
             <p className="mb-5 text-[13px] leading-6 text-[#a7aaa9]">
-              Set your webhook URL in Merchant Tools. After a successful payment, Izichanj sends a <InlineCode>POST</InlineCode> request with JSON and these headers:
+              Live payments are sent to your webhook URL with <InlineCode>mode: live</InlineCode> and <InlineCode>livemode: true</InlineCode>. Test checkouts do not call the live webhook, so a test cannot accidentally trigger fulfillment:
             </p>
             <div className="mb-5 space-y-2">
               <div className="flex flex-col gap-1 rounded-lg border border-[#36393a] bg-[#191c1e] px-4 py-3 sm:flex-row sm:items-center sm:gap-4">
@@ -396,7 +396,8 @@ export default function DevelopersPage() {
                 </div>
               </div>
               <ul className="divide-y divide-white/[0.07] px-4">
-                <SecurityRule title="Keep secret keys private" detail={<>Keep <InlineCode>izi_sk_...</InlineCode> only on your backend. Do not put it in browser JavaScript.</>} />
+                <SecurityRule title="Keep secret keys private" detail={<>Keep <InlineCode>izk_test_sk_...</InlineCode> and <InlineCode>izk_live_sk_...</InlineCode> only on your backend. Never put a secret key in browser JavaScript.</>} />
+                <SecurityRule title="Keep test and live separate" detail="Test checkouts simulate completion but do not debit wallets, credit merchant balances, or send live webhooks. Never fulfill a real order from a test payment." />
                 <SecurityRule title="Use the right key" detail={<>Use the public key only where a public identifier is required; the checkout API requires the secret key.</>} />
                 <SecurityRule title="Verify before fulfilment" detail="Verify payment status server-to-server before delivering goods or services." />
                 <SecurityRule title="Rotate with care" detail="Rotating keys immediately invalidates the old keys." />

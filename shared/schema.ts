@@ -604,6 +604,8 @@ export const merchantTxnStatusEnum = pgEnum("merchant_txn_status", [
 
 export const merchantAccountStatusEnum = pgEnum("merchant_account_status", ["pending", "active", "restricted", "suspended", "closed"]);
 export const merchantKycStatusEnum = pgEnum("merchant_kyc_status", ["not_started", "pending", "under_review", "verified", "rejected"]);
+export const merchantModeEnum = pgEnum("merchant_mode", ["test", "live"]);
+export type MerchantMode = (typeof merchantModeEnum.enumValues)[number];
 
 export const merchants = pgTable("merchants", {
   id: serial("id").primaryKey(),
@@ -627,10 +629,27 @@ export const merchants = pgTable("merchants", {
 });
 export type Merchant = typeof merchants.$inferSelect;
 
+export const merchantApiKeys = pgTable("merchant_api_keys", {
+  id: serial("id").primaryKey(),
+  merchantId: integer("merchant_id").references(() => merchants.id, { onDelete: "cascade" }).notNull(),
+  name: text("name").notNull(),
+  mode: merchantModeEnum("mode").notNull(),
+  publicKey: text("public_key").notNull().unique(),
+  secretKeyHash: text("secret_key_hash").notNull().unique(),
+  encryptedSecret: text("encrypted_secret").notNull(),
+  keyPrefix: text("key_prefix").notNull(),
+  revokedAt: timestamp("revoked_at"),
+  lastUsedAt: timestamp("last_used_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+export type MerchantApiKey = typeof merchantApiKeys.$inferSelect;
+
 export const merchantTransactions = pgTable("merchant_transactions", {
   id: serial("id").primaryKey(),
   paymentId: text("payment_id").notNull().unique(),
   merchantId: integer("merchant_id").references(() => merchants.id).notNull(),
+  apiKeyId: integer("api_key_id").references(() => merchantApiKeys.id),
+  mode: merchantModeEnum("mode").default("live").notNull(),
   orderId: text("order_id").notNull(),
   amount: decimal("amount", { precision: 14, scale: 2 }).notNull(),
   currency: text("currency").notNull(),

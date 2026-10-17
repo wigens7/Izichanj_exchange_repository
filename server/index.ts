@@ -817,6 +817,34 @@ app.use((req, res, next) => {
   }
 
   try {
+    await db.execute(sql`DO $$ BEGIN
+      CREATE TYPE merchant_mode AS ENUM ('test','live');
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$;`);
+    await db.execute(sql`ALTER TABLE merchant_transactions ADD COLUMN IF NOT EXISTS mode merchant_mode NOT NULL DEFAULT 'live'`);
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS merchant_api_keys (
+        id SERIAL PRIMARY KEY,
+        merchant_id INTEGER NOT NULL REFERENCES merchants(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        mode merchant_mode NOT NULL,
+        public_key TEXT NOT NULL UNIQUE,
+        secret_key_hash TEXT NOT NULL UNIQUE,
+        encrypted_secret TEXT NOT NULL,
+        key_prefix TEXT NOT NULL,
+        revoked_at TIMESTAMP,
+        last_used_at TIMESTAMP,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    `);
+    await db.execute(sql`ALTER TABLE merchant_transactions ADD COLUMN IF NOT EXISTS api_key_id INTEGER REFERENCES merchant_api_keys(id)`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS merchant_api_keys_merchant_mode_idx ON merchant_api_keys(merchant_id, mode, created_at DESC)`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS merchant_transactions_merchant_mode_created_idx ON merchant_transactions(merchant_id, mode, created_at DESC)`);
+    console.log("[startup migration] merchant API modes and keys ensured");
+  } catch (e) {
+    console.warn("[startup migration] merchant API modes skipped:", (e as Error).message);
+  }
+
+  try {
     await db.execute(sql`ALTER TABLE profiles ADD COLUMN IF NOT EXISTS newsletter_subscribed BOOLEAN NOT NULL DEFAULT FALSE`);
     await db.execute(sql`ALTER TABLE profiles ADD COLUMN IF NOT EXISTS newsletter_subscribed_at TIMESTAMP`);
     console.log("[startup migration] newsletter columns ensured");

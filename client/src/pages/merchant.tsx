@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
-import { useUser } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -24,7 +23,9 @@ import { formatDistanceToNow } from "date-fns";
  * NOTE: the P2P Market lives in pages/p2p-market.tsx and is routed at /p2p-market.
  */
 export default function MerchantToolsPage() {
-  const { data: user } = useUser();
+  const { data: accountData } = useMerchantApi("/api/merchant/account");
+  const merchant = accountData?.merchant;
+  const liveEnabled = Boolean(merchant?.kycStatus === "verified" && merchant?.paymentEnabled && merchant?.accountStatus === "active");
   const [tab, setTab] = useState("keys");
 
   return (
@@ -49,12 +50,12 @@ export default function MerchantToolsPage() {
         monitor request volume.
       </p>
 
-      {!user?.merchantApproved && (
+      {!liveEnabled && (
         <Card className="border-amber-500/30 bg-amber-500/10">
           <CardContent className="py-3 px-4 flex items-center gap-3">
             <ShieldAlert className="w-5 h-5 text-amber-500 shrink-0" />
             <p className="text-sm text-amber-200 flex-1">
-              Live keys unlock after merchant approval. Sandbox keys work right now.
+              Test keys are available for simulation. Live keys require merchant approval and enabled payments.
             </p>
           </CardContent>
         </Card>
@@ -215,16 +216,22 @@ function CopyField({ label, value, masked }: { label: string; value: string; mas
 function ApiKeysTab() {
   const { toast } = useToast();
   const qc = useQueryClient();
-  const { data: keys, isLoading } = useQuery<any[]>({ queryKey: ["/api/merchant/keys"] });
+  const { data: keyData, isLoading } = useQuery<{ keys: any[]; liveEnabled: boolean; liveBlockReason?: string | null }>({ queryKey: ["/api/merchant/keys"] });
+  const keys = keyData?.keys || [];
   const [showCreate, setShowCreate] = useState(false);
   const [keyName, setKeyName] = useState("");
-  const [freshKey, setFreshKey] = useState<string | null>(null);
+  const [mode, setMode] = useState<"test" | "live">("test");
+  const [freshKey, setFreshKey] = useState<{ secret: string; publicKey: string } | null>(null);
 
   const createMut = useMutation({
-    mutationFn: () => apiRequest("POST", "/api/merchant/keys", { name: keyName.trim() }),
+    mutationFn: async () => {
+      const response = await apiRequest("POST", "/api/merchant/keys", { name: keyName.trim(), mode });
+      return response.json();
+    },
     onSuccess: (res: any) => {
-      setFreshKey(res?.secret ?? res?.key ?? null);
+      setFreshKey(res?.secret ? { secret: res.secret, publicKey: res.publicKey || "" } : null);
       setKeyName("");
+      setMode("test");
       setShowCreate(false);
       qc.invalidateQueries({ queryKey: ["/api/merchant/keys"] });
     },
@@ -252,11 +259,17 @@ function ApiKeysTab() {
         </Button>
       </div>
 
-      {keys?.length === 0 && (
+      {!keyData?.liveEnabled && (
+        <p className="text-xs text-amber-200/90 rounded border border-amber-500/30 bg-amber-500/10 px-3 py-2">
+          {keyData?.liveBlockReason || "Live keys are locked until merchant approval and payments are enabled."}
+        </p>
+      )}
+
+      {keys.length === 0 && (
         <p className="text-center text-sm text-gray-400 py-8">No API keys yet. Create one to start integrating.</p>
       )}
 
-      {keys?.map((k) => (
+      {keys.map((k) => (
         <Card key={k.id} className="bg-[#181c23] border-[#2b313a]">
           <CardContent className="p-4 flex items-center justify-between gap-3">
             <div className="min-w-0">
@@ -265,9 +278,13 @@ function ApiKeysTab() {
                 <Badge variant="outline" className={k.mode === "live" ? "border-emerald-500 text-emerald-400 text-[10px] py-0" : "border-amber-500 text-amber-400 text-[10px] py-0"}>
                   {k.mode || "live"}
                 </Badge>
+                {k.status === "blocked" && <Badge variant="outline" className="border-amber-500 text-amber-300 text-[10px] py-0">approval required</Badge>}
                 {k.revoked_at && <Badge variant="outline" className="border-red-500 text-red-400 text-[10px] py-0">revoked</Badge>}
               </div>
-              <code className="text-xs text-gray-400 font-mono">{k.prefix || k.masked_key || "izk_live_••••"}</code>
+              <div className="space-y-1">
+                <code className="block text-xs text-gray-400 font-mono">{k.prefix || k.masked_key || "izk_live_••••"}</code>
+                {k.public_key && <code className="block truncate text-[10px] text-gray-500 font-mono">Public: {k.public_key}</code>}
+              </div>
               <div className="text-[11px] text-muted-foreground mt-1">
                 {k.last_used_at
                   ? `Last used ${formatDistanceToNow(new Date(k.last_used_at), { addSuffix: true })}`
@@ -279,7 +296,12 @@ function ApiKeysTab() {
               <Button
                 size="sm"
                 variant="outline"
-                onClick={() => revokeMut.mutate(k.id)}
+                onClick={() => {
+                  const message = k.mode === "live"
+                    ? "Revoke this live key now? Any store still using it will stop working."
+                    : "Revoke this test key now? Any integration still using it will stop working.";
+                  if (window.confirm(message)) revokeMut.mutate(k.id);
+                }}
                 disabled={revokeMut.isPending}
                 className="border-red-500/40 text-red-400 hover:bg-red-500/10 gap-1.5 shrink-0"
               >
@@ -295,7 +317,7 @@ function ApiKeysTab() {
           <DialogHeader>
             <DialogTitle className="text-white">Create API key</DialogTitle>
             <DialogDescription className="text-gray-400">
-              Name it after the app or environment that will use it.
+              Test keys only simulate payments. Live keys debit real customer balances and are available only to approved merchants.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-2 py-2">
@@ -307,11 +329,22 @@ function ApiKeysTab() {
               className="bg-[#252b36] border-[#353d4c] text-white"
             />
           </div>
+          <div className="space-y-2">
+            <Label className="text-gray-300">Mode</Label>
+            <select
+              value={mode}
+              onChange={(event) => setMode(event.target.value as "test" | "live")}
+              className="h-10 w-full rounded-md border border-[#353d4c] bg-[#252b36] px-3 text-sm text-white"
+            >
+              <option value="test">Test — no real funds move</option>
+              <option value="live" disabled={!keyData?.liveEnabled}>Live — real customer funds</option>
+            </select>
+          </div>
           <DialogFooter className="gap-2 sm:gap-0">
             <Button variant="outline" onClick={() => setShowCreate(false)} className="border-[#353d4c] text-gray-300">Cancel</Button>
             <Button
               onClick={() => createMut.mutate()}
-              disabled={!keyName.trim() || createMut.isPending}
+              disabled={!keyName.trim() || createMut.isPending || (mode === "live" && !keyData?.liveEnabled)}
               className="bg-amber-500 hover:bg-amber-600 text-black font-bold"
             >
               {createMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "Create"}
@@ -330,7 +363,8 @@ function ApiKeysTab() {
               Copy it now — the full secret is shown only once.
             </DialogDescription>
           </DialogHeader>
-          {freshKey && <CopyField label="Secret key" value={freshKey} />}
+          {freshKey?.publicKey && <CopyField label="Public key" value={freshKey.publicKey} />}
+          {freshKey && <CopyField label="Secret key" value={freshKey.secret} />}
           <DialogFooter>
             <Button onClick={() => setFreshKey(null)} className="bg-amber-500 hover:bg-amber-600 text-black font-bold">
               Done
@@ -432,17 +466,30 @@ function SandboxTab() {
       <CardContent className="p-4 space-y-4">
         <div className="flex items-center gap-2">
           <FlaskConical className="w-4 h-4 text-amber-500" />
-          <span className="text-sm font-medium">Sandbox credentials</span>
+          <span className="text-sm font-medium">Test mode</span>
           <Badge variant="outline" className="border-amber-500 text-amber-400 text-[10px] py-0 ml-auto">test mode</Badge>
         </div>
 
         <p className="text-xs text-muted-foreground">
-          Sandbox requests never move real funds. Use them to build and test your integration.
+          Test checkouts simulate completion. They never debit a customer, credit your live merchant balance, or call your live webhook.
         </p>
 
-        <CopyField label="Publishable key" value={sandbox?.publishableKey || "izk_test_pk_••••"} />
-        <CopyField label="Secret key" value={sandbox?.secretKey || "izk_test_sk_••••"} masked />
-        <CopyField label="Base URL" value={sandbox?.baseUrl || "https://sandbox.izichanj.com/v1"} />
+        <CopyField label="API base URL" value={sandbox?.baseUrl || "https://izichanj.com/api/v1"} />
+        <p className="text-[11px] text-muted-foreground">
+          Create a test key in the API Keys tab. Its secret is shown only once. Use the same API URL for test and live; the key selects the mode.
+        </p>
+        <div className="space-y-2">
+          <span className="text-xs text-gray-300">Recent simulated checkouts</span>
+          {(sandbox?.transactions || []).slice(0, 8).map((t: any) => (
+            <div key={t.id} className="flex items-center justify-between gap-3 border-t border-[#2b313a] pt-2 text-xs">
+              <span className="truncate text-gray-300">{t.orderId || t.paymentId}</span>
+              <span className={t.status === "completed" ? "shrink-0 text-amber-300" : "shrink-0 text-gray-400"}>
+                {t.status} · {Number(t.amountUsdt || 0).toFixed(2)} USDT
+              </span>
+            </div>
+          ))}
+          {(sandbox?.transactions || []).length === 0 && <p className="text-[11px] text-gray-500">No test checkouts yet.</p>}
+        </div>
       </CardContent>
     </Card>
   );
