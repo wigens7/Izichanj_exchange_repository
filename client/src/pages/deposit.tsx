@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { useUser } from "@/hooks/use-auth";
 import { useLanguage } from "@/lib/i18n";
 import { useQuery } from "@tanstack/react-query";
@@ -265,14 +265,11 @@ export default function DepositPage() {
         <Button
           variant={depositMethod === "moncash" ? "default" : "outline"}
           onClick={() => setDepositMethod("moncash")}
-          className="w-full relative"
+          className="w-full"
           data-testid="button-method-moncash"
         >
           <Smartphone className="w-4 h-4 mr-2" />
           {t.deposit.methodMoncash}
-          <Badge variant="secondary" className="absolute -top-2 -right-2 text-[10px] px-1.5 h-5 flex items-center" data-testid="badge-manual-deposit">
-            Manual
-          </Badge>
         </Button>
         <Button
           variant={depositMethod === "paypal" ? "default" : "outline"}
@@ -541,27 +538,37 @@ export default function DepositPage() {
                       type="button"
                       onClick={() => setMobileWallet("moncash")}
                       data-testid="button-wallet-moncash"
-                      className={`flex flex-col items-center gap-1.5 py-3 px-4 rounded-lg border text-sm font-medium transition-all ${
+                      aria-label={`${t.deposit.manualWalletLabel}: MonCash`}
+                      aria-pressed={mobileWallet === "moncash"}
+                      className={`flex min-h-24 w-full items-center justify-center rounded-lg border p-3 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 ${
                         mobileWallet === "moncash"
-                          ? "border-primary bg-primary/10 text-primary"
-                          : "border-border bg-muted/30 text-muted-foreground hover:border-primary/40"
+                          ? "border-primary bg-primary/10"
+                          : "border-border bg-muted/30 hover:border-primary/40"
                       }`}
                     >
-                      <CreditCard className="w-5 h-5" />
-                      <span className="font-bold">MonCash</span>
+                      <img
+                        src="/moncash-logo.jpg"
+                        alt="MonCash"
+                        className="h-16 w-full max-w-[156px] object-contain"
+                      />
                     </button>
                     <button
                       type="button"
                       onClick={() => setMobileWallet("natcash")}
                       data-testid="button-wallet-natcash"
-                      className={`flex flex-col items-center gap-1.5 py-3 px-4 rounded-lg border text-sm font-medium transition-all ${
+                      aria-label={`${t.deposit.manualWalletLabel}: NatCash`}
+                      aria-pressed={mobileWallet === "natcash"}
+                      className={`flex min-h-24 w-full items-center justify-center rounded-lg border p-3 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 ${
                         mobileWallet === "natcash"
-                          ? "border-primary bg-primary/10 text-primary"
-                          : "border-border bg-muted/30 text-muted-foreground hover:border-primary/40"
+                          ? "border-primary bg-primary/10"
+                          : "border-border bg-muted/30 hover:border-primary/40"
                       }`}
                     >
-                      <CreditCard className="w-5 h-5" />
-                      <span className="font-bold">{t.deposit.methodNatcash}</span>
+                      <img
+                        src="/natcash-logo.jpg"
+                        alt="NatCash"
+                        className="h-16 w-full max-w-[156px] object-contain"
+                      />
                     </button>
                   </div>
                 </div>
