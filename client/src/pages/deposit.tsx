@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { useUser } from "@/hooks/use-auth";
 import { useLanguage } from "@/lib/i18n";
 import { useQuery } from "@tanstack/react-query";
