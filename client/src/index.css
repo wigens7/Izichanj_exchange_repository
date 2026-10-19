@@ -534,3 +534,38 @@
     transition-duration: .01ms !important;
   }
 }
+
+
+/* Highlight only the manual deposit destination card. */
+.deposit-payment-destination {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  border-color: rgba(74, 222, 128, 0.62) !important;
+  background: linear-gradient(125deg, #14532d 0%, #166534 55%, #14532d 100%) !important;
+  animation: deposit-payment-glow 3.4s ease-in-out infinite;
+}
+.deposit-payment-destination::before {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(110deg, transparent 24%, rgba(255, 255, 255, 0.12) 49%, transparent 72%);
+  transform: translateX(-125%);
+  animation: deposit-payment-sheen 5s ease-in-out infinite;
+}
+.deposit-payment-destination > * { position: relative; z-index: 1; }
+@keyframes deposit-payment-glow {
+  0%, 100% { box-shadow: 0 0 0 1px rgba(74, 222, 128, 0.12), 0 0 12px rgba(34, 197, 94, 0.12); }
+  50% { box-shadow: 0 0 0 2px rgba(74, 222, 128, 0.22), 0 0 22px rgba(34, 197, 94, 0.24); }
+}
+@keyframes deposit-payment-sheen {
+  0%, 56%, 100% { transform: translateX(-125%); opacity: 0; }
+  64% { opacity: 1; }
+  90% { transform: translateX(125%); opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .deposit-payment-destination,
+  .deposit-payment-destination::before { animation: none !important; }
+}
