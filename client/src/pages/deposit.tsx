@@ -604,7 +604,7 @@ export default function DepositPage() {
                 </div>
 
                 {/* Step 3: Company account to pay */}
-                <div className="rounded-lg border border-primary/20 bg-primary/5 p-4 space-y-2">
+                <div className="deposit-payment-destination rounded-lg border border-emerald-400/50 bg-emerald-900/40 p-4 space-y-2">
                   <p className="text-xs font-semibold text-primary uppercase tracking-wide">{t.deposit.manualSendTo}</p>
                   <div className="flex items-center gap-2">
                     <div className="flex-1 font-mono text-sm font-bold tracking-wide" data-testid="text-company-phone">{companyPhone}</div>
