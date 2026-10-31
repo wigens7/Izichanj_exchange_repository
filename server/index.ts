@@ -328,6 +328,30 @@ app.use((req, res, next) => {
     console.warn("[startup migration] webhook_dedup table skipped:", (e as Error).message);
   }
 
+  // Idempotency + audit log for ZiiroPay webhooks. UNIQUE on the provider event id and on
+  // (event, reference) guarantees a money-moving event can be processed only once.
+  try {
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS ziiropay_events (
+        id SERIAL PRIMARY KEY,
+        provider_event_id TEXT,
+        event TEXT NOT NULL,
+        reference TEXT,
+        card_id TEXT,
+        amount NUMERIC(12,2),
+        outcome TEXT NOT NULL DEFAULT 'processing',
+        details JSONB,
+        payload JSONB,
+        created_at TIMESTAMP DEFAULT NOW() NOT NULL
+      )
+    `);
+    await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS ziiropay_events_provider_event_id_uniq ON ziiropay_events (provider_event_id) WHERE provider_event_id IS NOT NULL`);
+    await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS ziiropay_events_event_reference_uniq ON ziiropay_events (event, reference) WHERE reference IS NOT NULL`);
+    console.log("[startup migration] ziiropay_events table ensured");
+  } catch (e) {
+    console.warn("[startup migration] ziiropay_events table skipped:", (e as Error).message);
+  }
+
   // Fix: reset any card marked "active" that still has a pending_ card_id (never really issued)
   try {
     const fixed = await db.execute(sql`
