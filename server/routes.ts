@@ -57,7 +57,14 @@ function computeDepositFeeAndNet(deposit: { amountUsdt: string | number; payCurr
 }
 import { generateAdjustmentReceiptPDF, generateCardStatementPDF, type CardStatementTxn } from "./receipt";
 import * as paypalModule from "./paypal";
-import { ensureKycImageSize } from "./image-compress";
+import { ensureKycImageSize, loadKycImageBase64 } from "./image-compress";
+import {
+  isZiiropayConfigured, submitCardKyc, getCardKycStatus, createDollarCard, getCardDetails, getCardHistory,
+  fundCard, withdrawCard, setCardStatus, buildCardKycInput, missingKycFields, extractCustomerId,
+  isProxyOrNetworkFailure,
+  type ZiiropayResponse, type CreatedCard,
+} from "./ziiropay";
+import { createZiiropayWebhookHandler, withCardLock } from "./ziiropay-webhook";
 import { deposits, profiles, virtualCards, nfcCards, nfcCardTransactions } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, sql } from "drizzle-orm";
@@ -436,7 +443,7 @@ function validateAttachment(input: { fileUrl?: any; fileName?: any; fileType?: a
 }
 
 // ────────────────────────────────────────────────────────────────────
-// Sanitises raw provider/Strowallet error payloads into a friendly,
+// Sanitises raw provider (ZiiroPay) error payloads into a friendly,
 // professional message. Never leaks JSON, status codes, stack traces,
 // or generic "Failed to ..." style strings to the user.
 // ────────────────────────────────────────────────────────────────────
@@ -1165,309 +1172,26 @@ export async function registerRoutes(
     }
   });
 
-  // POST /api/strowallet/webhook — handles all Strowallet card events (Card Issuing, Amucha, Bankly, Paga, Safe Haven)
-  app.post("/api/strowallet/webhook", async (req, res) => {
-    res.sendStatus(200); // Always respond immediately so Strowallet doesn't retry
-    try {
-      const event = req.body;
-      console.log("[STROWALLET WEBHOOK] Received:", JSON.stringify(event));
-
-      const eventType = String(event.event || event.type || event.status || "unknown");
-      const customerEmail = event.customer_email || event.email || "";
-      const cardId = event.card_id || event.cardId || "";
-      const amount = event.amount || event.debit_amount || event.debit || "";
-      const currency = event.currency || "USD";
-      const reason = event.reason || event.message || event.error || event.description || "";
-      const lowerEvent = eventType.toLowerCase();
-      const lowerReason = String(reason).toLowerCase();
-
-      // ── Merchant / spend details ─────────────────────────────────────────
-      const merchant     = event.merchant_name || event.merchant || event.narration || event.description || event.reference || "";
-      const mcc          = String(event.mcc || event.merchant_category_code || event.category || "");
-      const last4        = event.last4 || event.card_last4 || event.pan_last4 || "";
-      const lowerMerchant = merchant.toLowerCase();
-      const newCardBal   = event.available_balance ?? event.balance ?? event.card_balance ?? null;
-
-      // ── Suspicious merchant keyword lists ───────────────────────────────
-      const CRYPTO_KEYWORDS = [
-        "coinbase","binance","kraken","gemini","bitstamp","bitfinex","kucoin","bybit","okx",
-        "huobi","crypto.com","blockchain","bitcoin","ethereum","solana","usdt","tether",
-        "bitpay","moonpay","simplex","wyre","transak","ramp.network","onramper","localbitcoin",
-        "paxful","hodlnaut","nexo","celsius","blockfi","coinmama","changelly","shapeshift",
-        "cex.io","gate.io","mexc","bitmart","bkex","poloniex","bittrex","luno","coindcx",
-      ];
-      const ADULT_KEYWORDS = [
-        "pornhub","onlyfans","xvideos","xhamster","brazzers","bang bros","bangbros",
-        "naughtyamerica","naughty america","realitykings","reality kings","mofos",
-        "digitalplayground","digital playground","kink","fetlife","jerkmate","chaturbate",
-        "myfreecams","cam4","bongacams","stripchat","livejasmin","jasmin","imlive",
-        "adulttime","adult time","hentai","xxxblackbook","adultfriendfinder","ashley madison",
-        "fuckbook","sexplanet","fuckedhard","18eighteen","penthouse","playboy","hustler",
-        "escort","massage parlor","strip club","adult content","xxx","pornography",
-        "sexwork","sex work","webcam model","only fans","fansly","admireme",
-      ];
-
-      const isCryptoMerchant = CRYPTO_KEYWORDS.some(k => lowerMerchant.includes(k));
-      // MCC 7995 = gambling, 7273 = escort, 5912 = adult stores
-      const isAdultMcc    = ["7273","5912","7993","7995"].includes(mcc);
-      const isAdultMerchant = isAdultMcc || ADULT_KEYWORDS.some(k => lowerMerchant.includes(k));
-      const isSuspicious  = isCryptoMerchant || isAdultMerchant;
-
-      // ── Classify the event ──────────────────────────────────────────────
-      const isSuccess   = lowerEvent.includes("approved") || lowerEvent.includes("active") || lowerEvent.includes("created") || lowerEvent.includes("success");
-      const isFailure   = lowerEvent.includes("fail") || lowerEvent.includes("declined") || lowerEvent.includes("rejected") || lowerEvent.includes("error") || lowerEvent.includes("denied");
-      const isNoFunds   = lowerEvent.includes("insufficient") || lowerReason.includes("insufficient") || lowerReason.includes("no fund") || lowerReason.includes("not enough") || lowerReason.includes("balance") || lowerEvent.includes("low_balance") || lowerEvent.includes("no_fund");
-      const isDebit     = lowerEvent.includes("debit") || lowerEvent.includes("transaction") || lowerEvent.includes("charge") || lowerEvent.includes("purchase");
-      const isFreeze    = lowerEvent.includes("freeze") || lowerEvent.includes("blocked") || lowerEvent.includes("suspend");
-      const isKycEvent  = lowerEvent.includes("kyc") || lowerEvent.includes("verification");
-
-      // ── Idempotency guard ────────────────────────────────────────────────
-      // Strowallet delivers the same transaction more than once (authorization
-      // + settlement, plus delivery retries), which previously made admin get
-      // the same Telegram alert several times for a single spend. We record a
-      // stable key for each event and bail out on duplicates so every alert and
-      // user notification fires exactly once per transaction.
-      const providerEventId = String(
-        event.id || event.transaction_id || event.txn_id || event.trans_id ||
-        event.reference || event.ref || event.uuid || event.tx_ref || ""
-      ).trim();
-      // Collapse by transaction OUTCOME, not the raw provider event string, so
-      // that an authorization + settlement for the same spend (both "debit"
-      // events, often with different event strings) produce ONE alert — while a
-      // success and a failure stay distinct (one notification each).
-      const outcomeClass =
-        isNoFunds  ? "nofunds"  :
-        isFailure  ? "failure"  :
-        isDebit    ? "debit"    :
-        isSuccess  ? "success"  :
-        isFreeze   ? "freeze"   :
-        isKycEvent ? "kyc"      : `other:${lowerEvent}`;
-      let dedupKey: string;
-      if (providerEventId) {
-        // Scope by card so provider ids that aren't globally unique can't collide.
-        dedupKey = `${cardId || "?"}:${providerEventId}:${outcomeClass}`;
-      } else {
-        // No stable provider id — collapse rapid duplicate deliveries of the
-        // same logical transaction. Prefer the provider's own event timestamp
-        // (minute precision) and fall back to a coarse 5-minute receive bucket.
-        const evtTs = event.created_at || event.createdAt || event.date || event.timestamp || event.time;
-        const parsed = evtTs ? new Date(evtTs).getTime() : NaN;
-        const bucket = !isNaN(parsed)
-          ? Math.floor(parsed / (60 * 1000))            // minute bucket from provider time
-          : Math.floor(Date.now() / (5 * 60 * 1000));   // 5-min bucket from receive time
-        dedupKey = `${cardId}:${amount}:${merchant}:${outcomeClass}:${bucket}`;
+  // ZiiroPay card events (virtualcard.withdrawal.success, ...).
+  // Official URL: POST https://www.izichanj.com/api/webhooks/ziiropay
+  // (/api/ziiropay/webhook is kept as an alias so URLs already registered keep working.)
+  // Auth, idempotency, per-card locking and money rules live in ./ziiropay-webhook(-core).ts.
+  const ziiropayWebhookHandler = createZiiropayWebhookHandler({
+    calcWithdrawal: (amount) => {
+      const b = calcNfcCardWithdrawCost(amount, getCardPricing().nfc.withdrawFee);
+      return { fee: b.fee, netToWallet: b.netToWallet };
+    },
+    notifyAdmin: (text) => sendTelegramMessage(text),
+    notifyUser: async (profileId, title, message) => {
+      await storage.createNotification({ profileId, type: "custom_message", title, message });
+      const p = await storage.getProfile(profileId);
+      if (p?.phone) {
+        sendWhatsAppNotification(p.phone, `*Izichanj*\n\n💳 ${title}\n\n${message}\n\nhttps://izichanj.com`, p.fullName);
       }
-      try {
-        const dedupResult = await db.execute(sql`
-          INSERT INTO webhook_dedup (event_key, source)
-          VALUES (${dedupKey}, 'strowallet')
-          ON CONFLICT (event_key) DO NOTHING
-        `);
-        if ((dedupResult.rowCount ?? 0) === 0) {
-          console.log(`[STROWALLET WEBHOOK] Duplicate delivery ignored: ${dedupKey}`);
-          return; // already processed — don't re-notify
-        }
-      } catch (dedupErr) {
-        // Fail open: if the dedup store is unavailable we'd rather risk a
-        // duplicate alert than drop a real transaction notification entirely.
-        console.warn("[STROWALLET WEBHOOK] dedup check failed, proceeding:", (dedupErr as Error).message);
-      }
-
-      // ── Choose emoji & header label ──────────────────────────────────────
-      let emoji = "🔔";
-      let label = "Strowallet Event";
-      if (isNoFunds)          { emoji = "🚨"; label = "NO FUNDS — Card Creation Failed"; }
-      else if (isFailure)     { emoji = "❌"; label = "Card Event Failed"; }
-      else if (isSuccess)     { emoji = "✅"; label = "Card Activated"; }
-      else if (isDebit && isSuspicious) { emoji = "🚨"; label = isCryptoMerchant ? "BLOCKED CATEGORY — Crypto Site Spend" : "BLOCKED CATEGORY — Adult Site Spend"; }
-      else if (isDebit)       { emoji = "💳"; label = "Card Transaction — Spend Alert"; }
-      else if (isFreeze)      { emoji = "🔒"; label = "Card Frozen/Blocked"; }
-      else if (isKycEvent)    { emoji = "🪪"; label = "KYC Event"; }
-
-      // ── Telegram admin alert (always sent for every event) ───────────────
-      if (isDebit) {
-        // Rich spend alert for every transaction
-        const suspiciousWarning = isSuspicious
-          ? `\n⛔ <b>POLICY VIOLATION DETECTED!</b>\n` +
-            (isCryptoMerchant ? `   🪙 Crypto exchange / crypto site\n` : "") +
-            (isAdultMerchant  ? `   🔞 Adult / pornography site\n` : "") +
-            `   👉 Card has been automatically frozen.\n`
-          : "";
-
-        await sendTelegramMessage(
-          `${emoji} <b>${label}</b>\n\n` +
-          `👤 <b>User:</b> ${customerEmail || "—"}\n` +
-          `💳 <b>Card:</b> ${cardId || "—"}${last4 ? ` (••••${last4})` : ""}\n` +
-          `🏪 <b>Merchant:</b> ${merchant || "Unknown"}\n` +
-          (mcc ? `🏷 <b>MCC:</b> ${mcc}\n` : "") +
-          `💵 <b>Amount:</b> ${amount ? `$${amount} ${currency}` : "—"}\n` +
-          (newCardBal !== null ? `💰 <b>Card Balance After:</b> $${newCardBal}\n` : "") +
-          suspiciousWarning
-        ).catch(() => {});
-      } else {
-        // Generic alert for non-spend events
-        const rawPayload = JSON.stringify(event, null, 2).slice(0, 600);
-        await sendTelegramMessage(
-          `${emoji} <b>${label}</b>\n\n` +
-          `📌 <b>Event:</b> <code>${eventType}</code>\n` +
-          `📧 <b>Email:</b> ${customerEmail || "—"}\n` +
-          `💳 <b>Card ID:</b> ${cardId || "—"}\n` +
-          `💵 <b>Amount:</b> ${amount ? `${amount} ${currency}` : "—"}\n` +
-          (reason ? `⚠️ <b>Reason:</b> ${reason}\n` : "") +
-          `\n<pre>${rawPayload}</pre>`
-        ).catch(() => {});
-      }
-
-      // ── Extra urgent alert for no-funds situation ────────────────────────
-      if (isNoFunds) {
-        await sendTelegramMessage(
-          `🚨🚨 <b>URGENT — Strowallet Out of Funds!</b>\n\n` +
-          `A user tried to create a card but Strowallet reported insufficient funds in your provider account.\n\n` +
-          `📧 <b>User:</b> ${customerEmail || "—"}\n` +
-          `💵 <b>Amount requested:</b> ${amount ? `${amount} ${currency}` : "—"}\n\n` +
-          `👉 Please top up your Strowallet balance immediately to avoid losing user transactions.\n` +
-          `🔗 https://strowallet.com`
-        ).catch(() => {});
-      }
-
-      // ── Locate card & user in DB for in-app actions ──────────────────────
-      let dbCard: any = null;
-      let profile: any = null;
-      if (cardId) {
-        try {
-          const allCards = await db.select().from(virtualCards).where(eq(virtualCards.cardId, cardId));
-          dbCard = allCards[0] || null;
-        } catch {}
-      }
-      if (!profile && customerEmail) {
-        const allProfiles = await storage.getAllProfiles();
-        profile = allProfiles.find((p: any) => p.email === customerEmail) || null;
-      }
-      if (!profile && dbCard) {
-        try { profile = await storage.getProfile(dbCard.profileId); } catch {}
-      }
-
-      // ── Auto-sync card balance if Strowallet sent the new balance ─────────
-      if (dbCard && isDebit && newCardBal !== null) {
-        await storage.updateVirtualCard(dbCard.id, { balance: String(newCardBal) }).catch(() => {});
-        console.log(`[WEBHOOK] Card ${dbCard.id} balance synced → ${newCardBal}`);
-      }
-
-      // ── Auto-freeze card on policy violations ────────────────────────────
-      if (dbCard && isDebit && isSuspicious && dbCard.status === "active") {
-        try {
-          // Freeze on Strowallet side
-          await strowalletFetch(`${STROWALLET_BASE}/freeze-card/`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json", "Accept": "application/json" },
-            body: JSON.stringify({ card_id: dbCard.cardId, public_key: strowalletPublicKey, action: "freeze" }),
-          });
-          // Update status in our DB
-          await storage.updateVirtualCard(dbCard.id, { status: "frozen" });
-          console.log(`[WEBHOOK] Card ${dbCard.id} auto-frozen due to policy violation`);
-
-          // Extra admin alert confirming freeze
-          await sendTelegramMessage(
-            `🔒 <b>Auto-Freeze Applied</b>\n\n` +
-            `Card <code>${cardId}</code> has been automatically frozen due to the policy violation above.\n` +
-            `User: ${customerEmail || profile?.email || "—"}\n\n` +
-            `To unfreeze, go to Admin → Cards and toggle the freeze status.`
-          ).catch(() => {});
-        } catch (freezeErr) {
-          console.error("[WEBHOOK] Auto-freeze failed:", freezeErr);
-          await sendTelegramMessage(
-            `⚠️ <b>Auto-Freeze FAILED</b> for card <code>${cardId}</code>.\n` +
-            `Please freeze it manually in Strowallet dashboard immediately.`
-          ).catch(() => {});
-        }
-      }
-
-      // ── In-app notifications for the user ───────────────────────────────
-      if (profile) {
-          if (isSuccess) {
-            await storage.createNotification({
-              profileId: profile.id,
-              type: "custom_message",
-              title: "Virtual Card Ready",
-              message: "Your virtual card is now active and ready to use.",
-            });
-            if (profile.phone) {
-              sendWhatsAppNotification(
-                profile.phone,
-                `*Izichanj*\n\n💳 Virtual Card Ready\n\nYour virtual card has been activated and is ready to use.\n\nhttps://izichanj.com`,
-                profile.fullName
-              );
-            }
-          }
-
-          if (isDebit) {
-            const txMsg = isSuspicious
-              ? `A transaction of $${amount} ${currency} was detected on a restricted site (${merchant || "unknown"}). Your card has been frozen for security. Contact support if needed.`
-              : `You spent $${amount || "—"} ${currency}${merchant ? ` at ${merchant}` : ""} on your virtual card.${newCardBal !== null ? ` Remaining balance: $${newCardBal}.` : ""}`;
-
-            await storage.createNotification({
-              profileId: profile.id,
-              type: "custom_message",
-              title: isSuspicious ? "⛔ Card Frozen — Policy Violation" : "💳 Card Transaction",
-              message: txMsg,
-            });
-
-            // WhatsApp notification for every spend
-            if (profile.phone) {
-              sendWhatsAppNotification(
-                profile.phone,
-                isSuspicious
-                  ? `*Izichanj — Security Alert*\n\n⛔ Your virtual card was used on a restricted site (${merchant || "unknown"}) and has been automatically frozen.\n\nAmount: $${amount} ${currency}\n\nContact support if this was a mistake.\n\nhttps://izichanj.com`
-                  : `*Izichanj*\n\n💳 Card Transaction\n\nYou spent $${amount || "—"} ${currency}${merchant ? ` at ${merchant}` : ""}.${newCardBal !== null ? `\nRemaining balance: $${newCardBal}` : ""}\n\nhttps://izichanj.com`,
-                profile.fullName
-              );
-            }
-          }
-
-          if (isFreeze) {
-            await storage.createNotification({
-              profileId: profile.id,
-              type: "custom_message",
-              title: "Card Frozen",
-              message: "Your virtual card has been frozen. Contact support if you did not request this.",
-            });
-          }
-
-          if (isFailure && !isNoFunds) {
-            await storage.createNotification({
-              profileId: profile.id,
-              type: "custom_message",
-              title: "Card Request Failed",
-              message: `Your virtual card request could not be processed. ${reason ? `Reason: ${reason}` : "Please contact support."}`,
-            });
-          }
-
-          if (isKycEvent) {
-            await storage.createNotification({
-              profileId: profile.id,
-              type: "custom_message",
-              title: "KYC Status Update",
-              message: `Your card verification status has been updated: ${eventType}. ${reason || ""}`.trim(),
-            });
-          }
-      } else if (customerEmail) {
-        // Profile lookup via email (fallback path already handled above)
-        const allProfiles2 = await storage.getAllProfiles();
-        const profile2 = allProfiles2.find((p: any) => p.email === customerEmail);
-        if (profile2 && isSuccess) {
-          await storage.createNotification({
-            profileId: profile2.id,
-            type: "custom_message",
-            title: "Virtual Card Ready",
-            message: "Your virtual card is now active and ready to use.",
-          });
-        }
-      }
-
-    } catch (e: any) {
-      console.error("[STROWALLET WEBHOOK] Error:", e);
-    }
+    },
   });
+  app.post("/api/webhooks/ziiropay", ziiropayWebhookHandler);
+  app.post("/api/ziiropay/webhook", ziiropayWebhookHandler);
 
   app.post("/api/nowpayments/ipn", async (req, res) => {
     try {
@@ -2449,27 +2173,27 @@ export async function registerRoutes(
 
       const { strowalletCustomerId } = req.body;
       if (!strowalletCustomerId || typeof strowalletCustomerId !== "string" || !strowalletCustomerId.trim()) {
-        return res.status(400).json({ message: "Strowallet Customer ID is required" });
+        return res.status(400).json({ message: "Cardholder ID is required" });
       }
 
       const customerId = strowalletCustomerId.trim();
       await storage.updateProfile(profileId, { strowalletCustomerId: customerId });
 
-      console.log(`[ADMIN] Set Strowallet ID for ${profile.email}:`, customerId);
+      console.log(`[ADMIN] Set cardholder ID for ${profile.email}:`, customerId);
 
       // Telegram notification
       sendTelegramMessage(
-        `✅ <b>Strowallet ID Set by Admin</b>\n\n` +
+        `✅ <b>Cardholder ID Set by Admin</b>\n\n` +
         `👤 <b>Name:</b> ${profile.fullName}\n` +
         `📧 <b>Email:</b> ${profile.email}\n` +
         `🆔 <b>User ID:</b> ${profile.referenceId || profile.id}\n` +
-        `🏦 <b>Strowallet ID:</b> <code>${customerId}</code>\n\n` +
+        `🏦 <b>Cardholder ID:</b> <code>${customerId}</code>\n\n` +
         `💳 User can now create virtual Mastercard cards.`
       ).catch(() => {});
 
       res.json({ success: true, strowalletCustomerId: customerId });
     } catch (e: any) {
-      console.error("Admin set Strowallet ID error:", e);
+      console.error("Admin set cardholder ID error:", e);
       res.status(500).json({ message: e.message || "Internal Error" });
     }
   });
@@ -3311,83 +3035,21 @@ export async function registerRoutes(
       } catch { /* ignore */ }
     }
 
-    // Auto-register with Strowallet if not yet registered
-    const _stroKey = process.env.STROWALLET_PUBLIC_KEY || "";
-    const _stroBase = "https://strowallet.com/api/bitvcard";
-    if (kycProfile && !kycProfile.strowalletCustomerId && _stroKey) {
+    // Auto-submit card KYC to ZiiroPay if the user has no cardholder yet (non-fatal)
+    if (kycProfile && !kycProfile.strowalletCustomerId && isZiiropayConfigured()) {
       try {
-        const kyc = await storage.getKyc(profileId);
-
-        // Compress KYC images server-side — Strowallet rejects images > 2 MB
-        const [autoCompressedId, autoCompressedSelfie] = await Promise.all([
-          ensureKycImageSize(kyc?.idDocumentUrl || ""),
-          ensureKycImageSize(kyc?.selfieUrl || ""),
-        ]);
-
-        const firstName = kycProfile.firstName || kycProfile.fullName.split(" ")[0] || "";
-        const lastName = kycProfile.lastName || kycProfile.fullName.split(" ").slice(1).join(" ") || firstName;
-        // Strowallet expects camelCase field names (confirmed from API error response)
-        const payload = {
-          public_key: _stroKey,
-          firstName,
-          lastName,
-          customerEmail: kycProfile.email,
-          phoneNumber: kycProfile.phone || "",
-          dateOfBirth: kycProfile.dateOfBirth || "",
-          // Hardcoded US billing address — required by Strowallet for card issuance
-          country: "US",
-          line1: "3401 N Miami Ave Ste 230",
-          houseNumber: "3401",
-          city: "Miami",
-          state: "FL",
-          zipCode: "33127",
-          idType: kyc?.idType || "national_id",
-          idNumber: kyc?.idNumber || kycProfile.email,
-          userPhoto: autoCompressedSelfie,
-          idImage: autoCompressedId,
-        };
-        console.log("[STROWALLET][AUTO-KYC] Registering cardholder for profile:", profileId);
-        const proxyUrl = process.env.PROXY_URL;
-        let stroRes: Response;
-        if (proxyUrl) {
-          const { fetch: undiciFetch } = await import("undici");
-          const dispatcher = createProxyDispatcher()!;
-          stroRes = await undiciFetch(`${_stroBase}/create-user/`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json", "Accept": "application/json" },
-            body: JSON.stringify(payload),
-            dispatcher,
-          } as any) as unknown as Response;
-        } else {
-          stroRes = await fetch(`${_stroBase}/create-user/`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json", "Accept": "application/json" },
-            body: JSON.stringify(payload),
-          });
-        }
-        const stroData = await stroRes.json() as any;
-        console.log("[STROWALLET][AUTO-KYC] Response:", JSON.stringify(stroData));
-        // Must check success===false explicitly — Strowallet uses {success:false} not {status:"error"}
-        if (stroRes.ok && stroData.success !== false && stroData.status !== "error" && stroData.status !== false) {
-          const customerId = stroData.response?.customerId || stroData.response?.customer_id || stroData.customer_id || stroData.customerId || stroData.data?.customer_id;
-          if (!customerId) {
-            console.error("[STROWALLET][AUTO-KYC] Registration appeared to succeed but no customer_id in response:", JSON.stringify(stroData));
-            throw new Error("Strowallet registration returned no customer_id");
-          }
-          await storage.updateProfile(profileId, { strowalletCustomerId: customerId });
-          console.log("[STROWALLET][AUTO-KYC] Registered customer:", customerId);
-          // Telegram — user is now ready for virtual card
+        const reg = await submitCardholderForProfile(kycProfile);
+        if (reg.ok) {
           sendTelegramMessage(
-            `✅ <b>User Ready for Virtual Card</b>\n\n` +
-            `👤 <b>Name:</b> ${kycProfile.fullName}\n` +
-            `📧 <b>Email:</b> ${kycProfile.email}\n` +
-            `🆔 <b>User ID:</b> ${kycProfile.referenceId || kycProfile.id}\n` +
-            `🏦 <b>Strowallet ID:</b> <code>${customerId}</code>\n\n` +
-            `💳 This user can now create a virtual Mastercard.`
+            reg.customerId
+              ? `✅ <b>User Ready for Virtual Card</b>\n\n👤 <b>Name:</b> ${kycProfile.fullName}\n📧 <b>Email:</b> ${kycProfile.email}\n🆔 <b>User ID:</b> ${kycProfile.referenceId || kycProfile.id}\n🏦 <b>Cardholder ID:</b> <code>${reg.customerId}</code>`
+              : `🪪 <b>Card KYC submitted to ZiiroPay</b>\n\n👤 <b>Name:</b> ${kycProfile.fullName}\n📧 <b>Email:</b> ${kycProfile.email}\n⏳ Awaiting ZiiroPay approval.`
           ).catch(() => {});
+        } else {
+          console.error("[ZIIROPAY][AUTO-KYC] not submitted:", reg.message);
         }
-      } catch (stroErr) {
-        console.error("[STROWALLET][AUTO-KYC] Error (non-fatal):", stroErr);
+      } catch (kycErr) {
+        console.error("[ZIIROPAY][AUTO-KYC] Error (non-fatal):", kycErr);
       }
     }
 
@@ -3444,87 +3106,37 @@ export async function registerRoutes(
     }
   });
 
-  // POST /api/admin/kyc/:id/strowallet-register — retry Strowallet registration for a verified user
+  // POST /api/admin/kyc/:id/strowallet-register — (re)submit card KYC to ZiiroPay for a verified user
+  // (route name kept so the existing admin UI keeps working)
   app.post("/api/admin/kyc/:id/strowallet-register", isAuthenticated, isAdmin, async (req: any, res) => {
     try {
       const profileId = Number(req.params.id);
       const profile = await storage.getProfile(profileId);
       if (!profile) return res.status(404).json({ message: "User not found" });
       if (profile.kycStatus !== "verified") return res.status(400).json({ message: "User KYC is not verified" });
+      if (!isZiiropayConfigured()) return res.status(500).json({ message: "Card service not configured" });
 
-      const kyc = await storage.getKyc(profileId);
-      const _stroKey = process.env.STROWALLET_PUBLIC_KEY || "";
-      if (!_stroKey) return res.status(500).json({ message: "Strowallet key not configured" });
-
-      // Compress KYC images server-side — Strowallet rejects images > 2 MB
-      const [compressedIdImage, compressedSelfie] = await Promise.all([
-        ensureKycImageSize(kyc?.idDocumentUrl || ""),
-        ensureKycImageSize(kyc?.selfieUrl || ""),
-      ]);
-
-      const firstName = profile.firstName || profile.fullName.split(" ")[0] || "";
-      const lastName = profile.lastName || profile.fullName.split(" ").slice(1).join(" ") || firstName;
-      // Strowallet expects camelCase field names (confirmed from API error response)
-      const payload = {
-        public_key: _stroKey,
-        firstName,
-        lastName,
-        customerEmail: profile.email,
-        phoneNumber: profile.phone || "",
-        dateOfBirth: profile.dateOfBirth || "",
-        // Hardcoded US billing address — required by Strowallet for card issuance
-        country: "US",
-        line1: "3401 N Miami Ave Ste 230",
-        houseNumber: "3401",
-        city: "Miami",
-        state: "FL",
-        zipCode: "33127",
-        idType: kyc?.idType || "",
-        idNumber: kyc?.idNumber || "",
-        userPhoto: compressedSelfie,
-        idImage: compressedIdImage,
-      };
-
-      console.log(`[STROWALLET][ADMIN-RETRY] Payload keys: ${Object.keys(payload).join(", ")}`);
-
-      const stroRes = await strowalletFetch(`${STROWALLET_BASE}/create-user/`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "Accept": "application/json" },
-        body: JSON.stringify(payload),
-      });
-
-      const data = await stroRes.json() as any;
-      console.log("[STROWALLET][ADMIN-RETRY] Response:", JSON.stringify(data));
-
-      // Check both status and success fields — Strowallet uses {success:false} not always {status:"error"}
-      if (!stroRes.ok || data.success === false || data.status === "error" || data.status === false) {
-        return res.status(400).json({
-          message: sanitizeProviderError(
-            data,
-            "We couldn't complete the cardholder registration with our card provider. Please review the customer's KYC details and try again."
-          ),
+      const result = await submitCardholderForProfile(profile);
+      if (!result.ok) {
+        return res.status(result.status === 503 ? 503 : 400).json({
+          message: result.status === 400
+            ? sanitizeProviderError(
+                result.raw ?? { message: result.message },
+                "We couldn't complete the cardholder registration with our card provider. Please review the customer's KYC details and try again."
+              )
+            : result.message,
         });
       }
 
-      const customerId = data.response?.customerId || data.response?.customer_id || data.customer_id || data.customerId || data.data?.customer_id;
-      if (!customerId) {
-        return res.status(500).json({ message: "We couldn't finalise the cardholder registration with our card provider. Please try again shortly." });
-      }
-      await storage.updateProfile(profileId, { strowalletCustomerId: customerId });
-
-      // Telegram — user is now ready for virtual card
       sendTelegramMessage(
-        `✅ <b>User Ready for Virtual Card</b>\n\n` +
-        `👤 <b>Name:</b> ${profile.fullName}\n` +
-        `📧 <b>Email:</b> ${profile.email}\n` +
-        `🆔 <b>User ID:</b> ${profile.referenceId || profile.id}\n` +
-        `🏦 <b>Strowallet ID:</b> <code>${customerId}</code>\n\n` +
-        `💳 This user can now create a virtual Mastercard.`
+        result.customerId
+          ? `✅ <b>User Ready for Virtual Card</b>\n\n👤 <b>Name:</b> ${profile.fullName}\n📧 <b>Email:</b> ${profile.email}\n🆔 <b>User ID:</b> ${profile.referenceId || profile.id}\n🏦 <b>Cardholder ID:</b> <code>${result.customerId}</code>`
+          : `🪪 <b>Card KYC submitted to ZiiroPay</b>\n\n👤 <b>Name:</b> ${profile.fullName}\n📧 <b>Email:</b> ${profile.email}\n⏳ Awaiting ZiiroPay approval.`
       ).catch(() => {});
 
-      res.json({ success: true, customerId });
+      res.json({ success: true, customerId: result.customerId, pending: result.pending });
     } catch (e: any) {
-      console.error("[STROWALLET][ADMIN-RETRY] Error:", e);
+      console.error("[ZIIROPAY][ADMIN-REGISTER] Error:", e);
       res.status(500).json({ message: e.message || "Internal error" });
     }
   });
@@ -3540,14 +3152,14 @@ export async function registerRoutes(
       const profile = await storage.getProfile(profileId);
       if (!profile) return res.status(404).json({ message: "User not found" });
       await storage.updateProfile(profileId, { strowalletCustomerId: customerId.trim() });
-      console.log(`[ADMIN] Manually set Strowallet customer ID for profile ${profileId}: ${customerId.trim()}`);
+      console.log(`[ADMIN] Manually set cardholder ID for profile ${profileId}: ${customerId.trim()}`);
       res.json({ success: true, customerId: customerId.trim() });
     } catch (e: any) {
       res.status(500).json({ message: e.message });
     }
   });
 
-  // GET /api/admin/virtual-card-ready — list users verified by Strowallet and ready to create a card
+  // GET /api/admin/virtual-card-ready — list users with an approved ZiiroPay cardholder and ready to create a card
   app.get("/api/admin/virtual-card-ready", isAuthenticated, isAdmin, async (req: any, res) => {
     const allProfiles = await storage.getAllProfiles();
     const ready = allProfiles.filter(p => p.kycStatus === "verified" && p.strowalletCustomerId && !p.deletedAt);
@@ -3666,7 +3278,7 @@ export async function registerRoutes(
       const pricing       = getCardPricing();
       const breakdown     = calcCardCreationCost(pricing.virtual.loadAmount, pricing.virtual.price);
       const CARD_PRICE    = breakdown.total;                 // user pays $19.00
-      const STRO_FIXED    = 4.40;                            // $2.50 + $1.90 Strowallet fixed
+      const STRO_FIXED    = 4.40;                            // $2.50 + $1.90 provider fixed (legacy pricing assumption)
       const STRO_VAR      = Number((breakdown.loadAmount * 0.034).toFixed(2)); // 3.4% of load (absorbed)
       const CARD_COST     = Number((breakdown.loadAmount + STRO_FIXED + STRO_VAR).toFixed(2));
       const PROFIT_PER    = Number((CARD_PRICE - CARD_COST).toFixed(2)); // $10.46
@@ -3747,7 +3359,7 @@ export async function registerRoutes(
     }
   });
 
-  // POST /api/admin/cards/:id/retry — retry Strowallet card creation for a pending card
+  // POST /api/admin/cards/:id/retry — retry card issuance for a pending card
   app.post("/api/admin/cards/:id/retry", isAuthenticated, isAdmin, async (req: any, res) => {
     try {
       const cardDbId = Number(req.params.id);
@@ -3757,164 +3369,68 @@ export async function registerRoutes(
 
       let profile = await storage.getProfile(card.profileId);
       if (!profile) return res.status(404).json({ message: "User not found" });
-      if (!strowalletPublicKey) return res.status(500).json({ message: "Card service not configured" });
+      if (!isZiiropayConfigured()) return res.status(500).json({ message: "Card service not configured" });
 
-      // Auto-register the cardholder with Strowallet if they don't have a customer ID yet
+      // Submit the cardholder KYC first if the user has no approved cardholder id yet
       if (!profile.strowalletCustomerId) {
         if (profile.kycStatus !== "verified") {
           return res.status(400).json({ message: "User KYC is not verified — cannot register cardholder" });
         }
-        const kyc = await storage.getKyc(profile.id);
-        const [compressedIdImage, compressedSelfie] = await Promise.all([
-          ensureKycImageSize(kyc?.idDocumentUrl || ""),
-          ensureKycImageSize(kyc?.selfieUrl || ""),
-        ]);
-        const firstName = profile.firstName || profile.fullName.split(" ")[0] || "";
-        const lastName  = profile.lastName  || profile.fullName.split(" ").slice(1).join(" ") || firstName;
-        const regPayload = {
-          public_key: strowalletPublicKey,
-          firstName, lastName,
-          customerEmail: profile.email,
-          phoneNumber: profile.phone || "",
-          dateOfBirth: profile.dateOfBirth || "",
-          country: "US", line1: "3401 N Miami Ave Ste 230", houseNumber: "3401",
-          city: "Miami", state: "FL", zipCode: "33127",
-          idType: kyc?.idType || "", idNumber: kyc?.idNumber || "",
-          userPhoto: compressedSelfie, idImage: compressedIdImage,
-        };
-        console.log(`[ADMIN RETRY CARD] Auto-registering cardholder for user ${profile.id} (${profile.email})`);
-        const regRes = await strowalletFetch(`${STROWALLET_BASE}/create-user/`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "Accept": "application/json" },
-          body: JSON.stringify(regPayload),
-        });
-        const regData = await regRes.json() as any;
-        console.log("[ADMIN RETRY CARD] Auto-register response:", JSON.stringify(regData));
-        if (!regRes.ok || regData.success === false || regData.status === "error" || regData.status === false) {
-          // "Email already taken" means user was previously registered in Strowallet successfully —
-          // we just don't have their customer_id saved. Admin must set it manually.
-          const rawMsg = regData.message || regData.error || "";
-          const msgStr = typeof rawMsg === "object" ? JSON.stringify(rawMsg) : String(rawMsg);
-          if (msgStr.toLowerCase().includes("already been taken") || msgStr.toLowerCase().includes("already taken") || msgStr.toLowerCase().includes("already exists")) {
-            return res.status(409).json({
-              alreadyRegistered: true,
-              message: "This user is already registered in Strowallet but the customer ID is missing from our records. Use the 'Set Customer ID' field to enter their Strowallet customer ID manually, then retry.",
-            });
-          }
-          return res.status(400).json({ message: `Auto-register failed: ${msgStr}` });
+        console.log(`[ADMIN RETRY CARD] Submitting card KYC for user ${profile.id} (${profile.email})`);
+        const reg = await submitCardholderForProfile(profile);
+        if (!reg.ok) {
+          return res.status(400).json({ message: `Cardholder registration failed: ${reg.message}` });
         }
-        const customerId = regData.response?.customerId || regData.response?.customer_id || regData.customer_id || regData.customerId || regData.data?.customer_id;
-        if (!customerId) {
-          return res.status(500).json({ message: "Auto-register returned no customer_id. Raw: " + JSON.stringify(regData) });
-        }
-        await storage.updateProfile(profile.id, { strowalletCustomerId: customerId });
         profile = (await storage.getProfile(profile.id))!;
-        console.log(`[ADMIN RETRY CARD] Cardholder registered — Strowallet ID: ${customerId}`);
+        if (!profile.strowalletCustomerId) {
+          return res.status(409).json({
+            alreadyRegistered: true,
+            message: "This user's card KYC is submitted to ZiiroPay and awaiting approval. Retry once it is approved, or enter the cardholder ID manually using the 'Set Customer ID' field.",
+          });
+        }
       }
 
-      // IMPORTANT: User's balance was already deducted (CARD_TOTAL_PRICE_USD) when the pending card was created.
-      // This retry only calls Strowallet's API — it does NOT touch the user's balance again.
-      // Strowallet receives the load amount SNAPSHOTTED when the user was charged
-      // (falls back to current pricing for legacy pending cards without a snapshot).
-      const snapshotLoad = Number((card.cardDetail as any)?.pricingSnapshot?.loadAmount);
-      const fundAmount = Number.isFinite(snapshotLoad) && snapshotLoad >= 5 ? snapshotLoad : getCardPricing().virtual.loadAmount;
-      const nameOnCard = card.nameOnCard || profile.fullName;
-
-      // Strowallet's new card creation API requires the user's ID document image
-      // and the desired card brand. Fetch the KYC record to get the ID image URL.
-      const kycForRetry = await storage.getKyc(profile.id);
-      if (!kycForRetry?.idDocumentUrl) {
-        return res.status(400).json({ message: "This user's ID document could not be found on file. They must resubmit KYC verification before the card can be retried." });
-      }
-      const createCardPayload: Record<string, string> = {
-        name_on_card: nameOnCard,
-        card_type: "mastercard",
-        public_key: strowalletPublicKey,
-        amount: fundAmount.toString(),
-        customerEmail: profile.email,
-        customer_id: profile.strowalletCustomerId,
-        id_image: kycForRetry.idDocumentUrl,
-        brand: "MasterCard",
-      };
-
-      console.log(`[ADMIN RETRY CARD] Retrying card creation for user ${profile.id} (${profile.email}), card DB id ${cardDbId}`);
-
-      // Notify admin that retry was triggered
+      // The user's balance was already charged when the pending card was created — this only issues the card.
       sendTelegramMessage(
         `🔄 <b>Retry Card Issuance — Initiated</b>\n\n` +
         `👤 <b>User:</b> ${profile.fullName}\n` +
         `📧 <b>Email:</b> ${profile.email}\n` +
         `📞 <b>Phone:</b> ${profile.phone || "—"}\n` +
-        `🪪 <b>Strowallet ID:</b> ${profile.strowalletCustomerId}\n` +
-        `💵 <b>Amount:</b> $${fundAmount.toFixed(2)} USDT\n` +
+        `🪪 <b>Cardholder ID:</b> ${profile.strowalletCustomerId}\n` +
         `🗂 <b>Pending card DB ID:</b> #${cardDbId}\n\n` +
-        `⏳ Calling Strowallet API now…`
+        `⏳ Calling ZiiroPay API now…`
       ).catch(() => {});
 
-      const response = await strowalletFetch(`${STROWALLET_BASE}/create-card/`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "Accept": "application/json" },
-        body: JSON.stringify(createCardPayload),
-      });
-
-      const data = await response.json();
-      console.log("================== [ADMIN RETRY CREATE-CARD] ==================");
-      console.log("[ADMIN RETRY] HTTP status:", response.status);
-      console.log("[ADMIN RETRY] Request payload:", JSON.stringify(createCardPayload, null, 2));
-      console.log("[ADMIN RETRY] Strowallet raw response:", JSON.stringify(data, null, 2));
-      console.log("================================================================");
-
-      if (!response.ok || data.status === "error" || data.status === false) {
-        // Safely extract error — Strowallet sometimes returns objects, not strings
-        const rawErr = data.message ?? data.error ?? data.errors ?? data;
-        const errMsg = typeof rawErr === "string"
-          ? rawErr
-          : JSON.stringify(rawErr);
-        const rawDump = JSON.stringify(data, null, 2);
-
+      const issued = await issuePendingCard(card, profile);
+      if (!issued.ok) {
         sendTelegramMessage(
           `❌ <b>Retry Card Issuance — Failed</b>\n\n` +
           `👤 <b>User:</b> ${profile.fullName}\n` +
           `📧 <b>Email:</b> ${profile.email}\n` +
-          `🪪 <b>Strowallet ID:</b> ${profile.strowalletCustomerId}\n` +
+          `🪪 <b>Cardholder ID:</b> ${profile.strowalletCustomerId}\n` +
           `🗂 <b>Pending card DB ID:</b> #${cardDbId}\n\n` +
-          `⚠️ <b>Error:</b> <code>${errMsg}</code>\n\n` +
-          `📋 <b>Full response:</b>\n<pre>${rawDump.slice(0, 800)}</pre>\n\n` +
+          `⚠️ <b>Error:</b> <code>${String(issued.message).slice(0, 300)}</code>\n\n` +
           `👉 Card remains pending. Fix the issue above and retry again.`
         ).catch(() => {});
-        return res.status(400).json({
+        return res.status(issued.status === 409 ? 409 : 400).json({
           success: false,
-          message: sanitizeProviderError(
-            data,
-            "We couldn't complete the card retry with our card provider. Please review the issue and try again shortly."
-          ),
+          message: issued.status === 400
+            ? sanitizeProviderError(issued.raw ?? { message: issued.message }, "We couldn't complete the card retry with our card provider. Please review the issue and try again shortly.")
+            : issued.message,
         });
       }
 
-      // Success — activate the card
-      const cardInfo = data.response || data.data || data;
-      const newCardId = cardInfo.card_id || cardInfo.id || `stro_${Date.now()}`;
-      const last4 = cardInfo.card_number ? String(cardInfo.card_number).slice(-4) : cardInfo.last4 || null;
-
-      await storage.updateVirtualCard(cardDbId, {
-        cardId: String(newCardId),
-        last4,
-        status: "active",
-        cardDetail: cardInfo,
-      });
-
-      // Notify user in-app + WhatsApp
       await storage.createNotification({
         profileId: profile.id,
         type: "custom_message",
         title: "Your Virtual Card is Ready! 💳",
-        message: "Your Mastercard has been issued successfully. You can now view your card details in the Virtual Cards section.",
+        message: "Your card has been issued successfully. You can now view your card details in the Virtual Cards section.",
       }).catch(() => {});
 
       if (profile.phone) {
         sendWhatsAppNotification(
           profile.phone,
-          `*Izichanj*\n\n💳 Your Mastercard is ready!\n\nYour Mastercard has been issued. Log in to view your card details.\n\nhttps://izichanj.com`,
+          `*Izichanj*\n\n💳 Your card is ready!\n\nYour card has been issued. Log in to view your card details.\n\nhttps://izichanj.com`,
           profile.fullName
         );
       }
@@ -3923,66 +3439,34 @@ export async function registerRoutes(
         `✅ <b>Pending Card Issued Successfully</b>\n\n` +
         `👤 <b>User:</b> ${profile.fullName}\n` +
         `📧 <b>Email:</b> ${profile.email}\n` +
-        `💳 <b>Card ID:</b> ${newCardId}\n` +
-        `🔢 <b>Last 4:</b> ${last4 || "N/A"}`
+        `💳 <b>Card ID:</b> ${issued.cardId}\n` +
+        `🔢 <b>Last 4:</b> ${issued.last4 || "N/A"}`
       ).catch(() => {});
 
-      res.json({ success: true, message: "Card issued successfully", cardId: newCardId, last4 });
+      res.json({ success: true, message: "Card issued successfully", cardId: issued.cardId, last4: issued.last4 });
     } catch (e: any) {
       console.error("[admin retry card]", e);
       res.status(500).json({ message: e.message });
     }
   });
 
-  // POST /api/admin/strowallet/check-all-cardholders — fetch Strowallet KYC/cardholder status for every registered user
+  // POST /api/admin/strowallet/check-all-cardholders — check ZiiroPay card-KYC status for every linked user
+  // (route name kept so the existing admin UI keeps working)
   app.post("/api/admin/strowallet/check-all-cardholders", isAuthenticated, isAdmin, async (req: any, res) => {
     try {
       const allProfiles = await storage.getAllProfiles();
       const registered = allProfiles.filter(p => p.strowalletCustomerId && !p.deletedAt);
 
       if (registered.length === 0) {
-        return res.json({ checked: 0, results: [], message: "No users registered with Strowallet yet." });
+        return res.json({ checked: 0, results: [], message: "No users registered with ZiiroPay yet." });
       }
 
       const results: any[] = [];
 
       for (const profile of registered) {
         try {
-          const _stroBase = "https://strowallet.com/api/bitvcard";
-          const _stroKey = process.env.STROWALLET_PUBLIC_KEY || "";
-          const params = new URLSearchParams({
-            public_key: _stroKey,
-            customer_id: profile.strowalletCustomerId!,
-          });
-          const response = await strowalletFetch(`${_stroBase}/get-user/?${params.toString()}`, {
-            method: "GET",
-            headers: { "Accept": "application/json" },
-          });
-          const data = await response.json();
-          const userData = data.response || data.data || data;
-          // Try every possible field name Strowallet might use
-          const status =
-            userData?.status ||
-            userData?.kyc_status ||
-            userData?.verification_status ||
-            userData?.account_status ||
-            userData?.user_status ||
-            userData?.approval_status ||
-            userData?.is_active ||
-            userData?.active ||
-            userData?.is_approved ||
-            data.status ||
-            data.message ||
-            "unknown";
-          const statusStr = String(status).toLowerCase();
-          const isApproved =
-            statusStr.includes("approved") ||
-            statusStr.includes("active") ||
-            statusStr.includes("verified") ||
-            statusStr.includes("success") ||
-            status === true ||
-            status === 1 ||
-            status === "1";
+          const s = await getCardKycStatus(profile.email);
+          const status = s.status || (s.response.ok ? "unknown" : (s.response.message || "error"));
           results.push({
             id: profile.id,
             name: profile.fullName,
@@ -3990,8 +3474,8 @@ export async function registerRoutes(
             phone: profile.phone,
             strowalletCustomerId: profile.strowalletCustomerId,
             status,
-            isApproved,
-            rawResponse: data,
+            isApproved: s.approved,
+            rawResponse: { success: s.response.ok, status: s.status, message: s.response.message },
           });
         } catch (err: any) {
           results.push({
@@ -4006,12 +3490,11 @@ export async function registerRoutes(
         }
       }
 
-      // Send summary to Telegram
       const approved = results.filter(r => r.isApproved);
       const pending  = results.filter(r => !r.isApproved && r.status !== "error");
       const errors   = results.filter(r => r.status === "error");
 
-      let telegramMsg = `🪪 <b>Strowallet Cardholder Status Check</b>\n\n` +
+      let telegramMsg = `🪪 <b>ZiiroPay Cardholder Status Check</b>\n\n` +
         `👥 <b>Total registered:</b> ${results.length}\n` +
         `✅ <b>Approved:</b> ${approved.length}\n` +
         `⏳ <b>Pending/Other:</b> ${pending.length}\n` +
@@ -4019,11 +3502,9 @@ export async function registerRoutes(
 
       results.forEach(r => {
         const icon = r.isApproved ? "✅" : r.status === "error" ? "❌" : "⏳";
-        const rawSnippet = JSON.stringify(r.rawResponse || r.error || {}).slice(0, 300);
         telegramMsg += `${icon} <b>${r.name}</b> (ID: ${r.strowalletCustomerId})\n` +
           `   📧 ${r.email}\n` +
-          `   📌 Status: <code>${r.status}</code>\n` +
-          `   🔍 Raw: <code>${rawSnippet}</code>\n\n`;
+          `   📌 Status: <code>${r.status}</code>\n\n`;
       });
 
       await sendTelegramMessage(telegramMsg.slice(0, 4096)).catch(() => {});
@@ -4790,11 +4271,11 @@ export async function registerRoutes(
 
   // ════════════════════════════════════════════════════════════════════════
   //  NFC SPEND POLLER
-  //  Strowallet doesn't push us a webhook for NFC card spend events, so we
+  //  ZiiroPay's documented webhooks don't include card spend events, so we
   //  poll their transactions endpoint every 30 seconds for each active card.
   //  Any new spend we discover is:
   //    1) inserted into our local nfc_card_transactions (so the user's
-  //       history dialog shows it within seconds, even if Strowallet is
+  //       history dialog shows it within seconds, even if ZiiroPay is
   //       briefly unreachable later);
   //    2) WhatsApp-pushed to the cardholder with the merchant + amount;
   //    3) Telegram-alerted to admin.
@@ -4828,24 +4309,15 @@ export async function registerRoutes(
   }
 
   async function pollSingleNfcCardSpend(card: any) {
-    const params = new URLSearchParams({
-      public_key: strowalletPublicKey,
-      card_id: card.cardId,
-    });
-    let response: Response;
+    let history;
     try {
-      response = await strowalletFetch(`${STROWALLET_BASE}/nfc-card-transactions/?${params.toString()}`, {
-        method: "GET",
-        headers: { "Accept": "application/json" },
-      });
+      history = await getCardHistory(card.cardId);
     } catch {
       return; // network blip — try again next tick
     }
-    if (!response.ok) return;
-    let data: any = {};
-    try { data = await response.json(); } catch { return; }
+    if (!history.response.ok) return;
 
-    const remoteList = pickRemoteList(data);
+    const remoteList = history.transactions;
     if (!Array.isArray(remoteList) || remoteList.length === 0) return;
 
     // Anything older than this is treated as historical backfill: still
@@ -4946,7 +4418,7 @@ export async function registerRoutes(
 
   setInterval(async () => {
     if (nfcPollerRunning) return; // skip if previous tick still running
-    if (!strowalletPublicKey) return;
+    if (!isZiiropayConfigured()) return;
     nfcPollerRunning = true;
     try {
       const cards = await storage.getAllActiveNfcCards();
@@ -5525,114 +4997,155 @@ export async function registerRoutes(
     }
   });
 
-  // ============ VIRTUAL CARD (STROWALLET) ============
+  // ============ VIRTUAL CARD (ZIIROPAY) ============
+  // Every provider call goes through ./ziiropay (the single service layer). The API key is read
+  // from the ZIIROPAY_API_KEY environment variable there and never leaves the server.
+  // NOTE: the DB column/field `strowalletCustomerId` is intentionally kept (renaming it would need a
+  // schema migration and frontend changes); it now stores the ZiiroPay cardholder `customer_id`.
 
-  const STROWALLET_BASE = "https://strowallet.com/api/bitvcard";
-  const strowalletPublicKey = process.env.STROWALLET_PUBLIC_KEY || "";
+  const CARD_KYC_PENDING_MESSAGE =
+    "Your card application is under review by our card provider. This process can take up to 48 hours after KYC approval. You will be notified once you can apply.";
 
-  // Proxied fetch — routes through static IP proxy when PROXY_URL is set.
-  //
-  // The upstream proxy occasionally returns HTTP 407 (Proxy Authentication
-  // Required) or aborts the tunnel mid-handshake when it's overloaded /
-  // throttled. Strowallet endpoints are slow too (5–15s on average), so we:
-  //   • Add a hard 30s timeout per attempt via AbortSignal so a stuck tunnel
-  //     can't hang the whole request indefinitely.
-  //   • Retry up to 3 times with exponential backoff (500ms → 1500ms → 4500ms)
-  //     on transient network errors, proxy 407/502/503/504, and aborted
-  //     fetches. We never retry on 4xx responses from Strowallet itself —
-  //     those are real validation errors that won't fix themselves.
-  //   • Build a fresh ProxyAgent per attempt so retries don't reuse a dead
-  //     keep-alive socket.
-  async function strowalletFetch(url: string, options: RequestInit = {}): Promise<Response> {
-    const proxyUrl = process.env.PROXY_URL;
-    const TIMEOUT_MS = 30_000;
-    const MAX_ATTEMPTS = 3;
-    const BACKOFFS_MS = [500, 1500, 4500];
+  /** Decide what a failed card-creation response means for our money handling. */
+  function classifyCreateFailure(r: ZiiropayResponse): "kyc_pending" | "no_funds" | "other" {
+    const m = (r.message || "").toLowerCase();
+    if (m.includes("kyc") && /not approved|pending|complete|process|review|incomplete/.test(m)) return "kyc_pending";
+    if (/insufficient|no fund|not enough|low balance/.test(m)) return "no_funds";
+    return "other";
+  }
 
-    let lastError: any = null;
-    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
-      try {
-        let response: Response;
-        if (proxyUrl) {
-          const { fetch: undiciFetch } = await import("undici");
-          const dispatcher = createProxyDispatcher()!;
-          response = await (undiciFetch(url, {
-            ...options,
-            dispatcher,
-            signal: controller.signal,
-          } as any) as unknown as Promise<Response>);
-        } else {
-          response = await fetch(url, { ...options, signal: controller.signal });
-        }
-        clearTimeout(timeout);
-
-        // Retry on transient proxy / upstream-gateway statuses only.
-        if ([407, 502, 503, 504].includes(response.status) && attempt < MAX_ATTEMPTS - 1) {
-          console.warn(`[strowalletFetch] HTTP ${response.status} (transient) — retry ${attempt + 1}/${MAX_ATTEMPTS - 1} for ${url}`);
-          await new Promise(r => setTimeout(r, BACKOFFS_MS[attempt]));
-          continue;
-        }
-        return response;
-      } catch (err: any) {
-        clearTimeout(timeout);
-        lastError = err;
-        const msg = (err?.message || "").toLowerCase();
-        const causeMsg = (err?.cause?.message || "").toLowerCase();
-        const code = err?.code || err?.cause?.code || "";
-        const isProxyAuth = msg.includes("407") || causeMsg.includes("407") || causeMsg.includes("proxy response");
-        const isAborted = code === "UND_ERR_ABORTED" || msg.includes("abort") || msg.includes("cancel");
-        const isNetwork = code === "UND_ERR_SOCKET" || code === "ECONNRESET" || code === "ETIMEDOUT" || msg.includes("fetch failed");
-        const isTransient = isProxyAuth || isAborted || isNetwork;
-        if (!isTransient || attempt >= MAX_ATTEMPTS - 1) throw err;
-        console.warn(`[strowalletFetch] transient error (${code || msg.slice(0, 60)}) — retry ${attempt + 1}/${MAX_ATTEMPTS - 1} for ${url}`);
-        await new Promise(r => setTimeout(r, BACKOFFS_MS[attempt]));
+  /**
+   * Find the user's approved ZiiroPay cardholder id. When it isn't stored yet, ask ZiiroPay
+   * (by email) and store it if the cardholder has been approved in the meantime.
+   */
+  async function resolveCardholder(profile: any): Promise<{ customerId: string | null; pending: boolean }> {
+    if (profile.strowalletCustomerId) return { customerId: profile.strowalletCustomerId, pending: false };
+    if (!isZiiropayConfigured() || !profile.email) return { customerId: null, pending: false };
+    try {
+      const s = await getCardKycStatus(profile.email);
+      if (s.approved && s.customerId) {
+        await storage.updateProfile(profile.id, { strowalletCustomerId: s.customerId });
+        return { customerId: s.customerId, pending: false };
       }
+      const pending = s.response.ok && !!s.status && !/reject|declin|fail/.test(s.status);
+      return { customerId: null, pending };
+    } catch (e: any) {
+      console.warn("[CARDHOLDER] status lookup failed:", e?.message || e);
+      return { customerId: null, pending: false };
     }
-    // Should never reach here, but if we do throw the last error.
-    throw lastError || new Error("strowalletFetch: exhausted retries");
   }
 
-  // Returns true when an error from strowalletFetch is a proxy/network blip
-  // (worth surfacing to the user as a "try again" message rather than a
-  // generic 500). Distinct from real Strowallet validation errors.
-  function isProxyOrNetworkFailure(err: any): boolean {
-    const msg = String(err?.message || "").toLowerCase();
-    const causeMsg = String(err?.cause?.message || "").toLowerCase();
-    const code = err?.code || err?.cause?.code || "";
-    return (
-      msg.includes("fetch failed") ||
-      msg.includes("407") ||
-      causeMsg.includes("407") ||
-      causeMsg.includes("proxy response") ||
-      code === "UND_ERR_ABORTED" ||
-      code === "UND_ERR_SOCKET" ||
-      code === "ECONNRESET" ||
-      code === "ETIMEDOUT"
-    );
+  /**
+   * Issue the card for a PENDING card row (user already paid). Serialised per row, and the status is
+   * re-checked inside the lock, so a double click / user+admin retry can never issue two cards.
+   */
+  async function issuePendingCard(card: any, profile: any): Promise<
+    | { ok: true; cardId: string; last4: string | null }
+    | { ok: false; status: number; message: string; raw?: any }
+  > {
+    if (!isZiiropayConfigured()) return { ok: false, status: 500, message: "Card service not configured" };
+    const holder = await resolveCardholder(profile);
+    if (!holder.customerId) {
+      return holder.pending
+        ? { ok: false, status: 422, message: CARD_KYC_PENDING_MESSAGE }
+        : { ok: false, status: 400, message: "No approved card cardholder is linked to this account. Complete the card KYC first." };
+    }
+    // Use the load amount SNAPSHOTTED when the user was charged (legacy rows fall back to live pricing).
+    const snapshotLoad = Number((card.cardDetail as any)?.pricingSnapshot?.loadAmount);
+    const fundAmount = Number.isFinite(snapshotLoad) && snapshotLoad >= 5 ? snapshotLoad : getCardPricing().virtual.loadAmount;
+
+    return withCardLock(`pending:${card.id}`, async () => {
+      const fresh = await storage.getVirtualCardById(card.id);
+      if (!fresh || fresh.status !== "pending") return { ok: false as const, status: 409, message: "Card is no longer pending." };
+      let created: CreatedCard;
+      try {
+        created = await createDollarCard({
+          name: fresh.nameOnCard || profile.fullName,
+          customerId: holder.customerId!,
+          amountUsd: fundAmount,
+        });
+      } catch (e: any) {
+        console.error("[ISSUE PENDING CARD] provider call failed:", e?.message || e);
+        return {
+          ok: false as const,
+          status: isProxyOrNetworkFailure(e) ? 503 : 500,
+          message: "We couldn't reach the card provider. Please try again in a moment.",
+        };
+      }
+      if (!created.response.ok) {
+        console.log("[ISSUE PENDING CARD] provider error: HTTP", created.response.httpStatus, created.response.message.slice(0, 300));
+        return { ok: false as const, status: 400, message: created.response.message, raw: created.response.body };
+      }
+      if (!created.cardId) {
+        return { ok: false as const, status: 502, message: "The provider did not return a card id. Check ZiiroPay before retrying." };
+      }
+      await storage.updateVirtualCard(fresh.id, {
+        cardId: created.cardId,
+        last4: created.last4,
+        brand: created.brand || "Visa",
+        status: "active",
+        cardDetail: created.detail,
+      });
+      return { ok: true as const, cardId: created.cardId, last4: created.last4 };
+    });
   }
 
-  // GET /api/cards/strowallet-status — check if user is registered as a Strowallet cardholder
+  /**
+   * Submit a verified user's card KYC to ZiiroPay using the data we already hold (profile + KYC record).
+   * Provider rejections are returned (not thrown) so callers can decide how to present them.
+   */
+  async function submitCardholderForProfile(profile: any): Promise<{
+    ok: boolean; status: number; customerId: string | null; pending: boolean; message: string; raw?: any;
+  }> {
+    const kycDoc = await storage.getKyc(profile.id);
+    const idImage = await loadKycImageBase64(kycDoc?.idDocumentUrl || "");
+    const input = buildCardKycInput({ profile, kyc: kycDoc, idFrontImageBase64: idImage });
+    const missing = missingKycFields(input);
+    if (missing.length > 0) {
+      return { ok: false, status: 400, customerId: null, pending: false, message: `Missing KYC data: ${missing.join(", ")}` };
+    }
+    let result: ZiiropayResponse;
+    try {
+      result = await submitCardKyc(input);
+    } catch (e: any) {
+      console.error("[ZIIROPAY][KYC] network error:", e?.message || e);
+      return { ok: false, status: 503, customerId: null, pending: false, message: "We couldn't reach the card provider. Please try again in a few minutes." };
+    }
+    if (!result.ok) {
+      if (/already|exists|taken|duplicate/i.test(result.message)) {
+        const holder = await resolveCardholder(profile);
+        return { ok: true, status: 200, customerId: holder.customerId, pending: !holder.customerId, message: "" };
+      }
+      return { ok: false, status: 400, customerId: null, pending: false, message: result.message || "Card KYC was rejected", raw: result.body };
+    }
+    const id = extractCustomerId(result.body) ?? (await resolveCardholder(profile)).customerId;
+    if (id) await storage.updateProfile(profile.id, { strowalletCustomerId: id });
+    return { ok: true, status: 200, customerId: id, pending: !id, message: "" };
+  }
+
+  // GET /api/cards/strowallet-status — is the user an approved cardholder? (route name kept for the existing UI)
+  // If a card KYC was submitted and has been approved since, this links the cardholder id automatically.
   app.get("/api/cards/strowallet-status", isAuthenticated, async (req: any, res) => {
     try {
       const profile = await getProfileFromReq(req);
       if (!profile) return res.status(401).json({ message: "Unauthorized" });
+      const holder = await resolveCardholder(profile);
       res.json({
-        registered: !!profile.strowalletCustomerId,
-        customerId: profile.strowalletCustomerId || null,
+        registered: !!holder.customerId,
+        customerId: holder.customerId || null,
       });
     } catch (e) {
       res.status(500).json({ message: "Internal Error" });
     }
   });
 
-  // POST /api/cards/register-cardholder — submit KYC to Strowallet
+  // POST /api/cards/register-cardholder — submit card KYC to ZiiroPay
   app.post("/api/cards/register-cardholder", isAuthenticated, notBanned, async (req: any, res) => {
     try {
       let profile = await getProfileFromReq(req);
       if (!profile) return res.status(401).json({ message: "Unauthorized" });
       if (profile.kycStatus !== "verified") return res.status(403).json({ message: "Complete your Izichanj KYC verification first" });
+      if (!isZiiropayConfigured()) return res.status(500).json({ message: "Card service not configured" });
 
       if (profile.strowalletCustomerId) {
         return res.json({ success: true, customerId: profile.strowalletCustomerId, alreadyRegistered: true });
@@ -5641,7 +5154,6 @@ export async function registerRoutes(
       const {
         idType,
         idNumber,
-        addressLine1: bodyAddressLine1,
         // Extra fields provided by the form when missing from profile
         firstName: bodyFirstName,
         lastName: bodyLastName,
@@ -5663,103 +5175,71 @@ export async function registerRoutes(
       }
 
       const kycDoc = await storage.getKyc(profile.id);
-
-      // Derive name from profile — fall back to splitting fullName
-      const nameParts = (profile.fullName || "").trim().split(/\s+/);
-      const firstName = profile.firstName || nameParts[0] || "";
-      const lastName  = profile.lastName  || nameParts.slice(1).join(" ") || firstName;
-      const dob = profile.dateOfBirth || "";
-      const phone = profile.phone || "";
-      const addressLine1 = bodyAddressLine1 || kycDoc?.addressLine1 || profile.city || "";
-
-      if (!firstName || !lastName) {
-        return res.status(400).json({ message: "First name and last name are required. Please complete your profile." });
-      }
-      if (!dob) {
-        return res.status(400).json({ message: "Date of birth is required for card verification." });
-      }
-      if (!phone) {
-        return res.status(400).json({ message: "Phone number is required for card verification." });
-      }
-
-      // Compress KYC images server-side — Strowallet rejects images > 2 MB
-      const [compressedIdImage, compressedSelfie] = await Promise.all([
-        ensureKycImageSize(kycDoc?.idDocumentUrl || ""),
-        ensureKycImageSize(kycDoc?.selfieUrl || ""),
-      ]);
-
-      // Strowallet expects camelCase field names (confirmed from API error response)
-      const payload = {
-        public_key: strowalletPublicKey,
-        firstName,
-        lastName,
-        customerEmail: profile.email,
-        phoneNumber: phone,
-        dateOfBirth: dob,
-        // Hardcoded US billing address — required by Strowallet for card issuance
-        country: "US",
-        line1: "3401 N Miami Ave Ste 230",
-        houseNumber: "3401",
-        city: "Miami",
-        state: "FL",
-        zipCode: "33127",
-        idType,
-        idNumber,
-        userPhoto: compressedSelfie,
-        idImage: compressedIdImage,
-      };
-
-      console.log("[STROWALLET][CARDHOLDER] Registering:", { email: profile.email, idType });
-
-      const response = await strowalletFetch(`${STROWALLET_BASE}/create-user/`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "Accept": "application/json" },
-        body: JSON.stringify(payload),
+      const idImage = await loadKycImageBase64(kycDoc?.idDocumentUrl || "");
+      const input = buildCardKycInput({
+        profile,
+        kyc: kycDoc,
+        idFrontImageBase64: idImage,
+        overrides: { idType: String(idType), idNumber: String(idNumber) },
       });
 
-      const data = await response.json() as any;
-      console.log("[STROWALLET][CARDHOLDER] Response:", JSON.stringify(data));
+      const missing = missingKycFields(input);
+      if (missing.length > 0) {
+        const friendly: Record<string, string> = {
+          first_name: "First name", last_name: "Last name", email: "Email", phone_number: "Phone number",
+          date_of_birth: "Date of birth", id_type: "ID type", id_number: "ID number", id_front_image: "ID document image",
+        };
+        return res.status(400).json({
+          message: `Please complete the following before card verification: ${missing.map((m) => friendly[m] || m).join(", ")}.`,
+        });
+      }
 
-      // Check both status and success fields — Strowallet uses {success:false} not always {status:"error"}
-      if (!response.ok || data.success === false || data.status === "error" || data.status === false) {
-        const rawMsg = data.message || data.error || "";
-        const msgStr = typeof rawMsg === "object" ? JSON.stringify(rawMsg) : String(rawMsg);
-        
-        // "Email already taken" means user was previously registered in Strowallet
-        // Give helpful guidance to use the manual entry feature
-        if (msgStr.toLowerCase().includes("already been taken") || msgStr.toLowerCase().includes("already taken") || msgStr.toLowerCase().includes("already exists")) {
-          return res.status(409).json({
-            alreadyRegistered: true,
-            message: "This email is already registered in Strowallet. Please use the 'Already Registered?' option below and enter your Strowallet Customer ID.",
-          });
+      console.log("[ZIIROPAY][CARDHOLDER] Submitting card KYC:", { email: profile.email, idType: input.id_type });
+
+      let result: ZiiropayResponse;
+      try {
+        result = await submitCardKyc(input);
+      } catch (netErr: any) {
+        console.error("[ZIIROPAY][CARDHOLDER] network error:", netErr?.message);
+        return res.status(503).json({ message: "We're having trouble reaching our card provider. Please try again in a few minutes." });
+      }
+
+      if (!result.ok) {
+        const lower = result.message.toLowerCase();
+        // Already submitted before → not an error: look the cardholder up instead.
+        if (/already|exists|taken|duplicate/.test(lower)) {
+          const holder = await resolveCardholder(profile);
+          if (holder.customerId) return res.json({ success: true, customerId: holder.customerId, alreadyRegistered: true });
+          return res.json({ success: true, pending: true, message: CARD_KYC_PENDING_MESSAGE });
         }
+        console.log("[ZIIROPAY][CARDHOLDER] rejected: HTTP", result.httpStatus, result.message.slice(0, 300));
         return res.status(400).json({
           message: sanitizeProviderError(
-            data,
+            result.body,
             "We couldn't complete your card identity verification right now. Please review your details and try again, or contact support."
           ),
         });
       }
 
-      const customerId = data.response?.customerId || data.response?.customer_id || data.customer_id || data.customerId || data.data?.customer_id;
-      if (!customerId) {
-        return res.status(500).json({ message: "We couldn't finalise your card identity verification. Please try again shortly." });
+      // Submitted. The id may be returned right away or only after ZiiroPay approves the KYC.
+      const immediateId = extractCustomerId(result.body);
+      const holder = immediateId
+        ? { customerId: immediateId, pending: false }
+        : await resolveCardholder(profile);
+      if (holder.customerId && !profile.strowalletCustomerId) {
+        await storage.updateProfile(profile.id, { strowalletCustomerId: holder.customerId });
       }
-      await storage.updateProfile(profile.id, { strowalletCustomerId: customerId });
 
-      // Telegram — user is now ready for virtual card
       sendTelegramMessage(
-        `✅ <b>User Ready for Virtual Card</b>\n\n` +
-        `👤 <b>Name:</b> ${profile.fullName}\n` +
-        `📧 <b>Email:</b> ${profile.email}\n` +
-        `🆔 <b>User ID:</b> ${profile.referenceId || profile.id}\n` +
-        `🏦 <b>Strowallet ID:</b> <code>${customerId}</code>\n\n` +
-        `💳 This user can now create a virtual Mastercard.`
+        holder.customerId
+          ? `✅ <b>User Ready for Virtual Card</b>\n\n👤 <b>Name:</b> ${profile.fullName}\n📧 <b>Email:</b> ${profile.email}\n🆔 <b>User ID:</b> ${profile.referenceId || profile.id}\n🏦 <b>Cardholder ID:</b> <code>${holder.customerId}</code>`
+          : `🪪 <b>Card KYC submitted to ZiiroPay</b>\n\n👤 <b>Name:</b> ${profile.fullName}\n📧 <b>Email:</b> ${profile.email}\n⏳ Awaiting ZiiroPay approval (the user is linked automatically once approved).`
       ).catch(() => {});
 
-      res.json({ success: true, customerId });
+      if (holder.customerId) return res.json({ success: true, customerId: holder.customerId });
+      res.json({ success: true, pending: true, message: CARD_KYC_PENDING_MESSAGE });
     } catch (e: any) {
-      console.error("[STROWALLET][CARDHOLDER] Error:", e);
+      console.error("[ZIIROPAY][CARDHOLDER] Error:", e);
       res.status(500).json({ message: e.message || "Internal Error" });
     }
   });
@@ -5777,27 +5257,27 @@ export async function registerRoutes(
 
       const { strowalletCustomerId } = req.body;
       if (!strowalletCustomerId || typeof strowalletCustomerId !== "string" || !strowalletCustomerId.trim()) {
-        return res.status(400).json({ message: "Strowallet Customer ID is required" });
+        return res.status(400).json({ message: "Cardholder ID is required" });
       }
 
       const customerId = strowalletCustomerId.trim();
       await storage.updateProfile(profile.id, { strowalletCustomerId: customerId });
 
-      console.log(`[CARDHOLDER] Set Strowallet ID for ${profile.email}:`, customerId);
+      console.log(`[CARDHOLDER] Set cardholder ID for ${profile.email}:`, customerId);
 
       // Telegram notification
       sendTelegramMessage(
-        `✅ <b>User Linked to Strowallet</b>\n\n` +
+        `✅ <b>User Linked to ZiiroPay</b>\n\n` +
         `👤 <b>Name:</b> ${profile.fullName}\n` +
         `📧 <b>Email:</b> ${profile.email}\n` +
         `🆔 <b>User ID:</b> ${profile.referenceId || profile.id}\n` +
-        `🏦 <b>Strowallet ID:</b> <code>${customerId}</code>\n\n` +
+        `🏦 <b>Cardholder ID:</b> <code>${customerId}</code>\n\n` +
         `💳 This user can now create a virtual Mastercard.`
       ).catch(() => {});
 
       res.json({ success: true, customerId, source: "manual" });
     } catch (e: any) {
-      console.error("[CARDHOLDER] Set Strowallet ID Error:", e);
+      console.error("[CARDHOLDER] Set cardholder ID Error:", e);
       res.status(500).json({ message: e.message || "Internal Error" });
     }
   });
@@ -5820,102 +5300,81 @@ export async function registerRoutes(
       if (!profile) return res.status(401).json({ message: "Unauthorized" });
       if (profile.kycStatus !== "verified") return res.status(403).json({ message: "KYC verification required before applying for a virtual card" });
 
-      if (!strowalletPublicKey) {
+      if (!isZiiropayConfigured()) {
         return res.status(500).json({ message: "Card service not configured" });
       }
 
-      // ── Flat pricing ──────────────────────────────────────────────────
-      // User pays exactly $19.00. $4.00 → card, rest covers Strowallet
-      // fixed/variable fees and Izichanj margin (variable absorbed internally).
+      // ── Flat pricing (admin-configurable) ─────────────────────────────
       const cardPricing = getCardPricing();
       const breakdown = calcCardCreationCost(cardPricing.virtual.loadAmount, cardPricing.virtual.price);
-      const CARD_COST_USD          = breakdown.total;       // flat $19.00
-      const STROWALLET_FUND_AMOUNT = breakdown.loadAmount;  // $4.00 → loaded on card
+      const CARD_COST_USD = breakdown.total;       // what the user pays
+      const CARD_LOAD_USD = breakdown.loadAmount;  // what is loaded on the card
 
       const balanceUsdt = parseFloat(profile.balance || "0");
       if (balanceUsdt < CARD_COST_USD) {
         return res.status(400).json({ message: `Insufficient balance. You need $${CARD_COST_USD.toFixed(2)} USDT to apply for a virtual card. Your current balance is $${balanceUsdt.toFixed(2)} USDT.` });
       }
 
-      const fundAmount = STROWALLET_FUND_AMOUNT; // What Strowallet loads onto the card
-
       const nameOnCard = `${profile.firstName || ""} ${profile.lastName || ""}`.trim() || profile.fullName;
 
-      if (!profile.strowalletCustomerId) {
+      // ZiiroPay issues cards to an approved cardholder (card KYC). Auto-link if it was approved meanwhile.
+      const holder = await resolveCardholder(profile);
+      if (!holder.customerId) {
+        if (holder.pending) {
+          return res.status(422).json({ code: "STROWALLET_KYC_PENDING", message: CARD_KYC_PENDING_MESSAGE });
+        }
         return res.status(400).json({ message: "Please complete the card KYC registration first before applying for a virtual card." });
       }
 
-      // Strowallet's new card creation API requires the user's ID document image
-      // and the desired card brand. Fetch the KYC record to get the ID image URL.
-      const kycForCard = await storage.getKyc(profile.id);
-      if (!kycForCard?.idDocumentUrl) {
-        return res.status(400).json({ message: "We couldn't find your ID document on file. Please resubmit your KYC verification before applying for a virtual card." });
+      let created: CreatedCard;
+      try {
+        created = await createDollarCard({ name: nameOnCard, customerId: holder.customerId, amountUsd: CARD_LOAD_USD });
+      } catch (netErr: any) {
+        console.error("Create card error (provider call):", netErr);
+        if (isProxyOrNetworkFailure(netErr)) {
+          // The POST is never retried; a timeout can be ambiguous, so tell the admin. The user is NOT charged.
+          sendTelegramMessage(
+            `⚠️ <b>Card creation — provider unreachable</b>\n\n` +
+            `👤 ${profile.fullName} (${profile.email})\n` +
+            `<code>${String(netErr?.message || "").slice(0, 200)}</code>\n\n` +
+            `The user was NOT charged. If a card shows up for this cardholder in ZiiroPay, link or refund it manually.`
+          ).catch(() => {});
+          return res.status(503).json({
+            message: "We’re having trouble reaching our card provider right now. Please try again in a few minutes — no charge has been made to your account.",
+          });
+        }
+        throw netErr;
       }
 
-      const createCardPayload: Record<string, string> = {
-        name_on_card: nameOnCard,
-        card_type: "mastercard",
-        public_key: strowalletPublicKey,
-        amount: fundAmount.toString(),
-        customerEmail: profile.email,
-        customer_id: profile.strowalletCustomerId,
-        id_image: kycForCard.idDocumentUrl,
-        brand: "MasterCard",
-      };
+      if (!created.response.ok) {
+        const kind = classifyCreateFailure(created.response);
+        const errMsg = created.response.message || "Unknown error from card provider";
+        console.log("[CARD CREATE] provider error: HTTP", created.response.httpStatus, "|", errMsg.slice(0, 300));
 
-      const response = await strowalletFetch(`${STROWALLET_BASE}/create-card/`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "Accept": "application/json" },
-        body: JSON.stringify(createCardPayload),
-      });
-
-      const data = await response.json();
-      console.log("==================== [STROWALLET CREATE-CARD] ====================");
-      console.log("[STROWALLET] HTTP status:", response.status);
-      console.log("[STROWALLET] Request payload:", JSON.stringify(createCardPayload, null, 2));
-      console.log("[STROWALLET] Raw response:", JSON.stringify(data, null, 2));
-      console.log("==================================================================");
-
-      if (!response.ok || data.status === "error" || data.status === false) {
-        // Safely convert to string — Strowallet sometimes returns objects instead of strings
-        const rawErr = data.message ?? data.error ?? data.errors ?? "";
-        const rawMsg = String(typeof rawErr === "object" ? JSON.stringify(rawErr) : rawErr).toLowerCase();
-
-        console.log("[STROWALLET] Create card error rawMsg:", rawMsg);
-
-        const isProviderNoFunds =
-          rawMsg.includes("insufficient") || rawMsg.includes("no fund") ||
-          rawMsg.includes("not enough") || rawMsg.includes("low balance") ||
-          rawMsg.includes("balance") || rawMsg.includes("wallet");
-
-        // ── KYC not yet approved by Strowallet ───────────────────────────────
-        if (rawMsg.includes("kyc") && (rawMsg.includes("not approved") || rawMsg.includes("complete") || rawMsg.includes("process"))) {
+        // ── Cardholder KYC not yet approved by the provider ──────────────────
+        if (kind === "kyc_pending") {
           sendTelegramMessage(
             `❌ <b>Card Creation Failed — KYC Pending</b>\n\n` +
             `👤 <b>User:</b> ${profile.fullName}\n` +
             `📧 <b>Email:</b> ${profile.email}\n` +
-            `⚠️ <b>Reason:</b> Strowallet KYC not yet approved`
+            `⚠️ <b>Reason:</b> ZiiroPay card KYC not yet approved`
           ).catch(() => {});
-          return res.status(422).json({
-            code: "STROWALLET_KYC_PENDING",
-            message: "Your card application is under review by our card provider. This process can take up to 48 hours after KYC approval. You will be notified once you can apply.",
-          });
+          return res.status(422).json({ code: "STROWALLET_KYC_PENDING", message: CARD_KYC_PENDING_MESSAGE });
         }
 
-        // ── Strowallet master account has insufficient funds ──────────────────
-        if (isProviderNoFunds) {
-          // Deduct the full $30 user charge from their balance (funds are held pending card issuance)
+        // ── Provider master account has insufficient funds → hold the charge, mark pending ──
+        if (kind === "no_funds") {
           const newBalance = balanceUsdt - CARD_COST_USD;
           await storage.updateProfileBalance(profile.id, newBalance);
 
-          // Store CARD_COST_USD ($30) in balance so refund returns the full amount user paid
+          // Store CARD_COST_USD in balance so a refund returns the full amount the user paid
           const pendingCard = await storage.createVirtualCard({
             profileId: profile.id,
             cardId: `pending_${Date.now()}`,
-            cardType: "mastercard",
+            cardType: "visa",
             nameOnCard,
             last4: null,
-            brand: "MasterCard",
+            brand: "Visa",
             status: "pending",
             balance: CARD_COST_USD.toString(),
             currency: "USD",
@@ -5924,11 +5383,10 @@ export async function registerRoutes(
               requestedAt: new Date().toISOString(),
               // Pricing snapshot at charge time — retries MUST use these values,
               // not live pricing, so an admin price change can't misprice this card.
-              pricingSnapshot: { loadAmount: STROWALLET_FUND_AMOUNT, total: CARD_COST_USD },
+              pricingSnapshot: { loadAmount: CARD_LOAD_USD, total: CARD_COST_USD },
             },
           });
 
-          // In-app notification for the user
           await storage.createNotification({
             profileId: profile.id,
             type: "custom_message",
@@ -5936,19 +5394,18 @@ export async function registerRoutes(
             message: "Your card request has been received and is currently being processed. Please check back in 24 hours for your card details. Thank you for choosing Izichanj!",
           }).catch(() => {});
 
-          // Urgent Telegram alert to admin
           sendTelegramMessage(
-            `🚨🚨 <b>ACTION REQUIRED — Low Master Balance</b>\n\n` +
-            `A user is waiting for card issuance but your Strowallet account has insufficient funds.\n\n` +
+            `🚨🚨 <b>ACTION REQUIRED — Low ZiiroPay Balance</b>\n\n` +
+            `A user is waiting for card issuance but your ZiiroPay account has insufficient funds.\n\n` +
             `👤 <b>User:</b> ${profile.fullName}\n` +
             `📧 <b>Email:</b> ${profile.email}\n` +
             `📞 <b>Phone:</b> ${profile.phone || "—"}\n` +
-            `🪪 <b>Strowallet ID:</b> ${profile.strowalletCustomerId}\n` +
-            `💵 <b>User charged:</b> $${CARD_COST_USD.toFixed(2)} USDT (card loaded with $${fundAmount.toFixed(2)})\n` +
+            `🪪 <b>Cardholder ID:</b> ${holder.customerId}\n` +
+            `💵 <b>User charged:</b> $${CARD_COST_USD.toFixed(2)} USDT (card loaded with $${CARD_LOAD_USD.toFixed(2)})\n` +
             `💰 <b>Remaining balance:</b> $${newBalance.toFixed(2)} USDT\n` +
             `🗂 <b>Pending card ID:</b> ${pendingCard.id}\n\n` +
-            `👉 <b>Fund your Strowallet account, then issue the card manually or re-trigger card creation.</b>\n` +
-            `🔗 https://strowallet.com`
+            `👉 <b>Fund your ZiiroPay account, then use Retry Issue Card in the admin panel.</b>\n` +
+            `🔗 https://ziiropay.com`
           ).catch(() => {});
 
           return res.status(202).json({
@@ -5958,8 +5415,7 @@ export async function registerRoutes(
           });
         }
 
-        // ── All other Strowallet errors ───────────────────────────────────────
-        const friendlyErr = rawMsg || "Unknown error from card provider";
+        // ── All other provider errors ─────────────────────────────────────────
         sendTelegramMessage(
           `❌ <b>Card Creation Failed</b>\n\n` +
           `👤 <b>User:</b> ${profile.fullName}\n` +
@@ -5967,55 +5423,50 @@ export async function registerRoutes(
           `📞 <b>Phone:</b> ${profile.phone || "—"}\n` +
           `💵 <b>Amount:</b> $${CARD_COST_USD.toFixed(2)} USDT\n` +
           `💰 <b>User balance:</b> $${balanceUsdt.toFixed(2)} USDT\n` +
-          `⚠️ <b>Error:</b> ${friendlyErr}\n` +
-          `📋 <b>Full response:</b>\n<pre>${JSON.stringify(data, null, 2).slice(0, 600)}</pre>\n\n` +
-          `👉 Review this card request manually or contact Strowallet support.`
+          `⚠️ <b>Error:</b> ${errMsg.slice(0, 300)}\n\n` +
+          `👉 Review this card request manually or contact ZiiroPay support.`
         ).catch(() => {});
 
         return res.status(400).json({
           message: sanitizeProviderError(
-            data,
+            created.response.body,
             "We couldn't process your card application right now. Our team has been notified — please try again shortly."
           ),
         });
       }
 
-      const cardInfo = data.response || data.data || data;
-      const cardId = cardInfo.card_id || cardInfo.id || `stro_${Date.now()}`;
-      const last4 = cardInfo.card_number ? cardInfo.card_number.slice(-4) : cardInfo.last4 || null;
+      if (!created.cardId) {
+        // Provider said OK but returned no card id — never guess. Do not charge; escalate.
+        sendTelegramMessage(
+          `🚨 <b>Card creation — success response WITHOUT a card id</b>\n\n` +
+          `👤 ${profile.fullName} (${profile.email})\nThe user was NOT charged. Check ZiiroPay for a card created for this cardholder.`
+        ).catch(() => {});
+        return res.status(502).json({ message: "Your card is being verified by our provider. Please check back shortly — you have not been charged." });
+      }
 
-      // Deduct the full $30 user charge (fundAmount $20 goes to card, $10 is Izichanj's activation fee)
+      // Charge the full price (CARD_LOAD_USD goes to the card, the rest is Izichanj's fee/margin)
       const newBalance = balanceUsdt - CARD_COST_USD;
       await storage.updateProfileBalance(profile.id, newBalance);
 
       const card = await storage.createVirtualCard({
         profileId: profile.id,
-        cardId: String(cardId),
-        cardType: "mastercard",
+        cardId: created.cardId,
+        cardType: "visa",
         nameOnCard,
-        last4,
-        brand: "MasterCard",
+        last4: created.last4 ?? undefined,
+        brand: created.brand || "Visa",
         status: "active",
-        balance: fundAmount.toString(), // $20 — the actual card loaded balance shown to user
+        balance: CARD_LOAD_USD.toString(), // the actual card loaded balance shown to user
         currency: "USD",
-        cardDetail: cardInfo,
+        cardDetail: created.detail,
       });
 
       res.status(201).json(card);
     } catch (e: any) {
-        console.error("Create card error:", e);
-        // Network / proxy failure — Strowallet was unreachable after all retries.
-        // isProxyOrNetworkFailure() already exists in this scope for exactly this case.
-        // The user's balance is NOT affected: deduction only happens AFTER a successful
-        // Strowallet response (further above), so no refund is needed.
-        if (isProxyOrNetworkFailure(e)) {
-          return res.status(503).json({
-            message: "We’re having trouble reaching our card provider right now. Please try again in a few minutes — no charge has been made to your account.",
-          });
-        }
-        res.status(500).json({ message: "Internal Error" });
-      }
-    });
+      console.error("Create card error:", e);
+      res.status(500).json({ message: "Internal Error" });
+    }
+  });
 
   // POST /api/cards/:id/cancel — user cancels a pending card and gets an instant refund
   app.post("/api/cards/:id/cancel", isAuthenticated, async (req: any, res) => {
@@ -6135,7 +5586,7 @@ export async function registerRoutes(
     }
   });
 
-  // POST /api/cards/:id/user-retry — user retries Strowallet card creation (no balance re-deduction)
+  // POST /api/cards/:id/user-retry — user retries card issuance for a pending card (no balance re-deduction)
   app.post("/api/cards/:id/user-retry", isAuthenticated, notBanned, async (req: any, res) => {
     try {
       const profile = await getProfileFromReq(req);
@@ -6146,72 +5597,29 @@ export async function registerRoutes(
       if (card.status !== "pending") {
         return res.status(400).json({ message: "Card is not in pending status." });
       }
-      if (!profile.strowalletCustomerId) {
-        return res.status(400).json({ message: "No Strowallet customer account linked. Please contact support." });
-      }
 
-      const _stroBase = "https://strowallet.com/api/bitvcard";
-      const _stroKey = process.env.STROWALLET_PUBLIC_KEY || "";
-
-      // NOTE: No balance deduction — the full charge was already deducted when the pending card was created.
-      // Strowallet receives the load amount SNAPSHOTTED when the user was charged
-      // (falls back to current pricing for legacy pending cards without a snapshot).
-      const snapshotLoad2 = Number((card.cardDetail as any)?.pricingSnapshot?.loadAmount);
-      const fundAmount = Number.isFinite(snapshotLoad2) && snapshotLoad2 >= 5 ? snapshotLoad2 : getCardPricing().virtual.loadAmount;
-
-      const payload: Record<string, string> = {
-        name_on_card: card.nameOnCard || profile.fullName,
-        card_type: "mastercard",
-        public_key: _stroKey,
-        amount: fundAmount.toString(),
-        customerEmail: profile.email,
-        customer_id: profile.strowalletCustomerId,
-        id_image: (await storage.getKyc(profile.id))?.idDocumentUrl || "",
-        brand: "MasterCard",
-      };
-
-      const response = await strowalletFetch(`${_stroBase}/create-card/`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "Accept": "application/json" },
-        body: JSON.stringify(payload),
-      });
-
-      const data = await response.json();
-      console.log("[USER RETRY CARD] Strowallet response:", JSON.stringify(data, null, 2));
-
-      if (!response.ok || data.status === "error" || data.status === false) {
-        return res.status(400).json({
+      // The full charge was already taken when the pending card was created — no balance change here.
+      const issued = await issuePendingCard(card, profile);
+      if (!issued.ok) {
+        return res.status(issued.status).json({
           success: false,
-          message: sanitizeProviderError(
-            data,
-            "Your card isn't ready just yet. Please try again in a little while."
-          ),
+          message: issued.status === 400
+            ? sanitizeProviderError(issued.raw, "Your card isn't ready just yet. Please try again in a little while.")
+            : issued.message,
         });
       }
-
-      // Success — activate card in DB
-      const cardInfo = data.response || data.data || data;
-      const newCardId = cardInfo.card_id || cardInfo.id || `stro_${Date.now()}`;
-      const last4 = cardInfo.card_number ? String(cardInfo.card_number).slice(-4) : cardInfo.last4 || null;
-
-      await storage.updateVirtualCard(card.id, {
-        cardId: String(newCardId),
-        last4,
-        status: "active",
-        cardDetail: cardInfo,
-      });
 
       await storage.createNotification({
         profileId: profile.id,
         type: "custom_message",
         title: "Your Virtual Card is Ready! 💳",
-        message: "Your Mastercard has been issued. You can now view your card details.",
+        message: "Your card has been issued. You can now view your card details.",
       }).catch(() => {});
 
       if (profile.phone) {
         sendWhatsAppNotification(
           profile.phone,
-          `*Izichanj*\n\n💳 Your Mastercard is ready!\n\nYour Mastercard has been successfully issued. Log in to view your card details.\n\nhttps://izichanj.com`,
+          `*Izichanj*\n\n💳 Your card is ready!\n\nYour card has been successfully issued. Log in to view your card details.\n\nhttps://izichanj.com`,
           profile.fullName
         );
       }
@@ -6220,18 +5628,20 @@ export async function registerRoutes(
         `✅ <b>Pending Card Issued (User Retry)</b>\n\n` +
         `👤 <b>User:</b> ${profile.fullName}\n` +
         `📧 <b>Email:</b> ${profile.email}\n` +
-        `💳 <b>Card ID:</b> ${newCardId}\n` +
-        `🔢 <b>Last 4:</b> ${last4 || "N/A"}`
+        `💳 <b>Card ID:</b> ${issued.cardId}\n` +
+        `🔢 <b>Last 4:</b> ${issued.last4 || "N/A"}`
       ).catch(() => {});
 
-      res.json({ success: true, message: "Card issued successfully!", cardId: newCardId, last4 });
+      res.json({ success: true, message: "Card issued successfully!", cardId: issued.cardId, last4: issued.last4 });
     } catch (e: any) {
       console.error("[user retry card]", e);
       res.status(500).json({ message: e.message });
     }
   });
 
-  // POST /api/cards/:id/check-status — user polls Strowallet to see if their pending card was created
+  // POST /api/cards/:id/check-status — user checks whether their pending card has been issued.
+  // ZiiroPay has no "list cards" endpoint; pending cards are issued via retry and announced by the
+  // virtualcard.created.complete webhook, so this only refreshes the cardholder link and reports status.
   app.post("/api/cards/:id/check-status", isAuthenticated, async (req: any, res) => {
     try {
       const profile = await getProfileFromReq(req);
@@ -6240,7 +5650,6 @@ export async function registerRoutes(
       const card = await storage.getVirtualCard(Number(req.params.id), profile.id);
       if (!card) return res.status(404).json({ message: "Card not found" });
 
-      // If already active, just return that
       if (card.status === "active") {
         return res.json({ found: true, card, message: "Your card is already active." });
       }
@@ -6248,75 +5657,11 @@ export async function registerRoutes(
         return res.json({ found: false, message: `Card status is '${card.status}'.` });
       }
 
-      if (!profile.strowalletCustomerId) {
-        return res.json({ found: false, message: "No Strowallet customer linked to your account." });
+      const holder = await resolveCardholder(profile);
+      if (!holder.customerId) {
+        return res.json({ found: false, message: "Your card verification is still being reviewed by our card provider." });
       }
 
-      const _stroBase = "https://strowallet.com/api/bitvcard";
-      const _stroKey = process.env.STROWALLET_PUBLIC_KEY || "";
-
-      // Try Strowallet's list-card endpoint to see if the card was created on their side
-      let stroCard: any = null;
-      try {
-        const listRes = await strowalletFetch(`${_stroBase}/list-card/`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "Accept": "application/json" },
-          body: JSON.stringify({
-            public_key: _stroKey,
-            customer_id: profile.strowalletCustomerId,
-          }),
-        });
-        const listData = await listRes.json();
-        console.log("[CHECK CARD STATUS] Strowallet list-card response:", JSON.stringify(listData));
-
-        // Strowallet may return array or object with cards array
-        const cards: any[] = Array.isArray(listData.response)
-          ? listData.response
-          : Array.isArray(listData.data)
-          ? listData.data
-          : Array.isArray(listData)
-          ? listData
-          : listData.cards || [];
-
-        // Find a card that isn't already tracked (not our pending marker ID)
-        stroCard = cards.find((c: any) =>
-          c.card_id && !String(c.card_id).startsWith("pending_")
-        ) || null;
-      } catch (e) {
-        console.warn("[CHECK CARD STATUS] list-card call failed:", e);
-      }
-
-      if (stroCard) {
-        // Card found on Strowallet — activate it in our DB
-        const newCardId = stroCard.card_id || stroCard.id;
-        const last4 = stroCard.card_number ? String(stroCard.card_number).slice(-4) : stroCard.last4 || null;
-        const updatedCard = await storage.updateVirtualCard(card.id, {
-          cardId: String(newCardId),
-          last4,
-          status: "active",
-          cardDetail: stroCard,
-        });
-
-        // In-app notification
-        await storage.createNotification({
-          profileId: profile.id,
-          type: "custom_message",
-          title: "Your Virtual Card is Ready! 💳",
-          message: "Your Mastercard has been issued. You can now view your card details.",
-        }).catch(() => {});
-
-        sendTelegramMessage(
-          `✅ <b>Pending Card Self-Resolved (User Check)</b>\n\n` +
-          `👤 <b>User:</b> ${profile.fullName}\n` +
-          `📧 <b>Email:</b> ${profile.email}\n` +
-          `💳 <b>Card ID:</b> ${newCardId}\n` +
-          `🔢 <b>Last 4:</b> ${last4 || "N/A"}`
-        ).catch(() => {});
-
-        return res.json({ found: true, card: updatedCard, message: "Your card is ready!" });
-      }
-
-      // Card not found on Strowallet yet
       return res.json({ found: false, message: "Your card is still being processed. Please check again later or contact support." });
     } catch (e: any) {
       console.error("[check card status]", e);
@@ -6331,6 +5676,7 @@ export async function registerRoutes(
 
       const card = await storage.getVirtualCard(Number(req.params.id), profile.id);
       if (!card) return res.status(404).json({ message: "Card not found" });
+      if (card.status !== "active") return res.status(400).json({ message: "Card is not active" });
 
       const { amount } = req.body;
       const fundAmount = parseFloat(amount);
@@ -6349,36 +5695,53 @@ export async function registerRoutes(
         return res.status(400).json({ message: `Insufficient USDT balance. You need $${totalCharge.toFixed(2)} USDT ($${fundAmount.toFixed(2)} to card + $${breakdown.fixedFee.toFixed(2)} fee + $${breakdown.variableFee.toFixed(2)} network fee). Your current balance is $${balanceUsdt.toFixed(2)} USDT.` });
       }
 
-      const response = await strowalletFetch(`${STROWALLET_BASE}/fund-card/`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "Accept": "application/json" },
-        body: JSON.stringify({
-          card_id: card.cardId,
-          amount: fundAmount.toString(),  // Strowallet still receives the load amount
-          public_key: strowalletPublicKey,
-        }),
-      });
+      // Charge FIRST with an atomic conditional debit (race-free), refund if the provider fails.
+      const debited = await db
+        .update(profiles)
+        .set({ balance: sql`(${profiles.balance})::numeric - ${totalCharge}` })
+        .where(and(eq(profiles.id, profile.id), sql`(${profiles.balance})::numeric >= ${totalCharge}`))
+        .returning({ balance: profiles.balance });
+      if (debited.length === 0) {
+        return res.status(400).json({ message: "Insufficient balance for this top-up." });
+      }
+      const refundUser = async () => {
+        await db
+          .update(profiles)
+          .set({ balance: sql`(${profiles.balance})::numeric + ${totalCharge}` })
+          .where(eq(profiles.id, profile.id));
+      };
 
-      const data = await response.json();
-      console.log("[STROWALLET] Fund card response:", JSON.stringify(data));
+      let fundRes: ZiiropayResponse;
+      try {
+        fundRes = await fundCard(card.cardId, fundAmount);
+      } catch (netErr: any) {
+        await refundUser();
+        console.error("[CARD FUND] network error — refunded:", netErr?.message);
+        sendTelegramMessage(
+          `📡 <b>Card top-up — provider unreachable (user refunded)</b>\n\n` +
+          `👤 ${profile.fullName} (${profile.email})\n💳 Card ${card.cardId}\n💵 $${fundAmount.toFixed(2)}\n\n` +
+          `Verify the card balance in ZiiroPay in case the top-up still went through.`
+        ).catch(() => {});
+        return res.status(502).json({ message: "Could not reach card provider. No funds were charged." });
+      }
 
-      if (!response.ok || data.status === "error" || data.status === false) {
+      console.log("[CARD FUND] provider HTTP", fundRes.httpStatus, fundRes.ok ? "ok" : `failed: ${fundRes.message.slice(0, 300)}`);
+      if (!fundRes.ok) {
+        await refundUser();
         return res.status(400).json({
           message: sanitizeProviderError(
-            data,
+            fundRes.body,
             "We couldn't fund your card right now. No charge was made — please try again in a moment."
           ),
         });
       }
 
-      // Deduct the FULL charge (load + fixed + variable fees) from user's wallet
-      const newBalance = balanceUsdt - totalCharge;
-      await storage.updateProfileBalance(profile.id, newBalance);
-
-      const currentCardBalance = parseFloat(card.balance || "0");
-      const updatedCard = await storage.updateVirtualCard(card.id, {
-        balance: (currentCardBalance + fundAmount).toString(),
-      });
+      // Atomic card balance increment
+      const [updatedCard] = await db
+        .update(virtualCards)
+        .set({ balance: sql`(${virtualCards.balance})::numeric + ${fundAmount}` })
+        .where(eq(virtualCards.id, card.id))
+        .returning();
 
       // Log local funding transaction so it appears in card history
       await storage.createCardTransaction({
@@ -6405,39 +5768,33 @@ export async function registerRoutes(
       const card = await storage.getVirtualCard(Number(req.params.id), profile.id);
       if (!card) return res.status(404).json({ message: "Card not found" });
 
-      const response = await strowalletFetch(`${STROWALLET_BASE}/fetch-card-detail/`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "Accept": "application/json" },
-        body: JSON.stringify({
-          card_id: card.cardId,
-          public_key: strowalletPublicKey,
-        }),
-      });
-
-      const data = await response.json();
-      if (!response.ok || data.success === false || data.status === "error" || data.status === false) {
-        console.log("[CARD DETAIL] Strowallet error response:", JSON.stringify(data));
+      let details;
+      try {
+        details = await getCardDetails(card.cardId);
+      } catch (netErr: any) {
+        console.log("[CARD DETAIL] network error:", netErr?.message || netErr);
+        return res.json({ card, remoteDetail: null });
+      }
+      if (!details.response.ok) {
+        console.log("[CARD DETAIL] provider error: HTTP", details.response.httpStatus, details.response.message.slice(0, 300));
         return res.json({ card, remoteDetail: null });
       }
 
-      // Strowallet wraps card details one level deeper: data.response.card_detail
-      const detail = data.response?.card_detail || data.response || data.data || data;
-      console.log("[CARD DETAIL] Strowallet detail keys:", Object.keys(detail || {}));
-      if (detail.balance !== undefined) {
+      if (details.balance !== null) {
         await storage.updateVirtualCard(card.id, {
-          balance: String(detail.balance),
-          cardDetail: detail,
+          balance: String(details.balance),
+          cardDetail: details.detail,
         });
       }
 
-      res.json({ card, remoteDetail: detail });
+      res.json({ card, remoteDetail: details.detail });
     } catch (e: any) {
       console.error("Fetch card detail error:", e);
       res.status(500).json({ message: e.message || "Internal Error" });
     }
   });
 
-  // POST /api/cards/:id/refresh-balance — sync card balance from Strowallet and update DB
+  // POST /api/cards/:id/refresh-balance — sync card balance from ZiiroPay and update DB
   app.post("/api/cards/:id/refresh-balance", isAuthenticated, async (req: any, res) => {
     try {
       const profile = await getProfileFromReq(req);
@@ -6449,23 +5806,22 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Cannot refresh balance for a pending or cancelled card" });
       }
 
-      const response = await strowalletFetch(`${STROWALLET_BASE}/fetch-card-detail/`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "Accept": "application/json" },
-        body: JSON.stringify({ card_id: card.cardId, public_key: strowalletPublicKey }),
-      });
+      let details;
+      try {
+        details = await getCardDetails(card.cardId);
+      } catch (netErr: any) {
+        console.log("[REFRESH BALANCE] network error:", netErr?.message || netErr);
+        return res.json({ balance: card.balance, synced: false });
+      }
 
-      const data = await response.json();
-      const detail = data.response?.card_detail || data.response || data.data || data;
-
-      if (detail?.balance !== undefined && detail?.balance !== null) {
-        const newBalance = String(detail.balance);
-        await storage.updateVirtualCard(card.id, { balance: newBalance, cardDetail: detail });
+      if (details.response.ok && details.balance !== null) {
+        const newBalance = String(details.balance);
+        await storage.updateVirtualCard(card.id, { balance: newBalance, cardDetail: details.detail });
         console.log(`[REFRESH BALANCE] Card ${card.id}: ${card.balance} → ${newBalance}`);
         return res.json({ balance: newBalance, synced: true });
       }
 
-      // If Strowallet didn't return a balance, just return the stored one
+      // If the provider didn't return a balance, just return the stored one
       return res.json({ balance: card.balance, synced: false });
     } catch (e: any) {
       console.error("Refresh balance error:", e);
@@ -6481,73 +5837,6 @@ export async function registerRoutes(
       const card = await storage.getVirtualCard(Number(req.params.id), profile.id);
       if (!card) return res.status(404).json({ message: "Card not found" });
 
-      const response = await strowalletFetch(`${STROWALLET_BASE}/card-transactions/`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "Accept": "application/json" },
-        body: JSON.stringify({
-          card_id: card.cardId,
-          public_key: strowalletPublicKey,
-        }),
-      });
-
-      const data = await response.json();
-      console.log("[CARD TX] card_id:", card.cardId, "| response keys:", Object.keys(data || {}), "| success:", data?.success, "| status:", data?.status);
-
-      if (!response.ok) {
-        console.log("[CARD TX] HTTP error:", response.status, JSON.stringify(data));
-        // Still return local transactions even if Strowallet fails
-        const localOnly = await storage.getCardTransactions(card.id, profile.id);
-        return res.json(localOnly.map((lt) => ({
-          id: `local_${lt.id}`,
-          type: lt.type,
-          amount: lt.amount,
-          currency: lt.currency,
-          description: lt.description,
-          date: lt.createdAt,
-          source: "local",
-        })));
-      }
-
-      // Log full structure for debugging (first time only)
-      if (data && typeof data === "object") {
-        console.log("[CARD TX] Full response (truncated):", JSON.stringify(data).slice(0, 800));
-      }
-
-      // Don't abort on success=false — Strowallet sometimes returns false even with data
-      // Strowallet may return transactions nested in many different ways
-      function findArray(obj: any, depth = 0): any[] | null {
-        if (depth > 4) return null;
-        if (Array.isArray(obj)) return obj;
-        if (obj && typeof obj === "object") {
-          for (const key of ["transactions", "data", "items", "records", "list", "response"]) {
-            const found = findArray(obj[key], depth + 1);
-            if (found) return found;
-          }
-        }
-        return null;
-      }
-
-      const txList =
-        Array.isArray(data.response?.card_transactions) ? data.response.card_transactions :
-        Array.isArray(data.response) ? data.response :
-        Array.isArray(data.response?.transactions) ? data.response.transactions :
-        Array.isArray(data.response?.data) ? data.response.data :
-        Array.isArray(data.response?.data?.transactions) ? data.response.data.transactions :
-        Array.isArray(data.card_transactions) ? data.card_transactions :
-        Array.isArray(data.data) ? data.data :
-        Array.isArray(data.data?.transactions) ? data.data.transactions :
-        Array.isArray(data.transactions) ? data.transactions :
-        findArray(data) ?? [];
-
-      console.log("[CARD TX] Found", txList.length, "Strowallet transactions");
-
-      // Auto-sync balance from the transaction response if provided
-      const latestBalance = data.response?.balance ?? data.balance ?? null;
-      if (latestBalance !== null && latestBalance !== undefined) {
-        await storage.updateVirtualCard(card.id, { balance: String(latestBalance) });
-      }
-
-      // Merge local funding records (from our DB) with Strowallet spending records
       const localTxns = await storage.getCardTransactions(card.id, profile.id);
       const localFormatted = localTxns.map((lt) => ({
         id: `local_${lt.id}`,
@@ -6559,17 +5848,36 @@ export async function registerRoutes(
         source: "local",
       }));
 
-      // Normalise Strowallet transactions so they have a consistent shape
-      const stroFormatted = txList.map((t: any) => ({ ...t, source: "strowallet" }));
+      // Provider history is best-effort: if it fails the user still sees their local records.
+      let history;
+      try {
+        history = await getCardHistory(card.cardId);
+      } catch (netErr: any) {
+        console.log("[CARD TX] network error — local only:", netErr?.message || netErr);
+        return res.json(localFormatted);
+      }
+      if (!history.response.ok) {
+        console.log("[CARD TX] provider error: HTTP", history.response.httpStatus, history.response.message.slice(0, 300));
+        return res.json(localFormatted);
+      }
 
-      // Merge and sort: newest first
-      const merged = [...localFormatted, ...stroFormatted].sort((a: any, b: any) => {
+      // Auto-sync balance from the history response if provided
+      const latestBalance = history.response.body?.response?.balance ?? history.response.body?.balance ?? null;
+      if (latestBalance !== null && latestBalance !== undefined && latestBalance !== "") {
+        await storage.updateVirtualCard(card.id, { balance: String(latestBalance) });
+      }
+
+      // Fund / withdraw / creation are already in the local log — keep the provider's other entries.
+      const remoteFormatted = history.transactions
+        .filter((t: any) => !/fund|withdraw|load|topup|top_up|deposit|creat/i.test(String(t.type || t.transaction_type || t.txn_type || "")))
+        .map((t: any) => ({ ...t, source: "ziiropay" }));
+
+      const merged = [...localFormatted, ...remoteFormatted].sort((a: any, b: any) => {
         const da = new Date(a.date || a.created_at || a.transaction_date || 0).getTime();
         const db2 = new Date(b.date || b.created_at || b.transaction_date || 0).getTime();
         return db2 - da;
       });
 
-      console.log("[CARD TX] Returning", merged.length, "total (local:", localFormatted.length, "+ strowallet:", stroFormatted.length, ")");
       res.json(merged);
     } catch (e: any) {
       console.error("Card transactions error:", e);
@@ -6580,7 +5888,7 @@ export async function registerRoutes(
   // ────────────────────────────────────────────────────────────────────
   // Virtual Card Statement (PDF download)
   // GET /api/cards/:id/statement?from=YYYY-MM-DD&to=YYYY-MM-DD
-  // Defaults: last 30 days. Combines local funding events with Strowallet
+  // Defaults: last 30 days. Combines local funding events with provider
   // spending events and renders a branded multi-page PDF statement.
   // ────────────────────────────────────────────────────────────────────
   app.get("/api/cards/:id/statement", isAuthenticated, async (req: any, res) => {
@@ -6608,31 +5916,18 @@ export async function registerRoutes(
       // 1) Local funding/creation events (always reliable)
       const localTxns = await storage.getCardTransactions(card.id, profile.id);
 
-      // 2) Strowallet spending events (best effort — never fail the statement on API issues)
+      // 2) Provider history (best effort — never fail the statement on API issues).
+      //    Fund / withdraw / creation are already in the local log, so skip them here.
       let stroTxns: any[] = [];
       try {
-        const response = await strowalletFetch(`${STROWALLET_BASE}/card-transactions/`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "Accept": "application/json" },
-          body: JSON.stringify({ card_id: card.cardId, public_key: strowalletPublicKey }),
-        });
-        if (response.ok) {
-          const data = await response.json();
-          function findArray(obj: any, depth = 0): any[] | null {
-            if (depth > 4) return null;
-            if (Array.isArray(obj)) return obj;
-            if (obj && typeof obj === "object") {
-              for (const key of ["transactions", "data", "items", "records", "list", "response", "card_transactions"]) {
-                const found = findArray(obj[key], depth + 1);
-                if (found) return found;
-              }
-            }
-            return null;
-          }
-          stroTxns = findArray(data) ?? [];
+        const history = await getCardHistory(card.cardId);
+        if (history.response.ok) {
+          stroTxns = history.transactions.filter(
+            (t: any) => !/fund|withdraw|load|topup|top_up|deposit|creat/i.test(String(t.type || t.transaction_type || t.txn_type || "")),
+          );
         }
       } catch (e) {
-        console.warn("[statement] Strowallet card-transactions fetch failed; continuing with local-only data:", (e as Error).message);
+        console.warn("[statement] ZiiroPay history fetch failed; continuing with local-only data:", (e as Error).message);
       }
 
       // Normalise everything into CardStatementTxn shape
@@ -6660,7 +5955,7 @@ export async function registerRoutes(
           amount: isNaN(amt) ? 0 : amt,
           currency: (t.currency || cardCurrency) as string,
           reference: t.id || t.reference || t.txn_ref || null,
-          source: "strowallet",
+          source: "ziiropay",
         } as CardStatementTxn;
       });
 
@@ -6709,8 +6004,29 @@ export async function registerRoutes(
 
       const card = await storage.getVirtualCard(Number(req.params.id), profile.id);
       if (!card) return res.status(404).json({ message: "Card not found" });
+      if (card.status !== "active" && card.status !== "frozen") {
+        return res.status(400).json({ message: "Only active or frozen cards can be frozen or unfrozen." });
+      }
 
       const newStatus = card.status === "frozen" ? "active" : "frozen";
+
+      // Apply it at the provider first so the card really stops/starts working.
+      if (!String(card.cardId).startsWith("pending_")) {
+        let result: ZiiropayResponse;
+        try {
+          result = await setCardStatus(card.cardId, newStatus);
+        } catch (netErr: any) {
+          console.error("[CARD FREEZE] network error:", netErr?.message);
+          return res.status(502).json({ message: "We couldn't reach the card provider. Please try again in a moment." });
+        }
+        if (!result.ok) {
+          console.log("[CARD FREEZE] provider error: HTTP", result.httpStatus, result.message.slice(0, 300));
+          return res.status(400).json({
+            message: sanitizeProviderError(result.body, "We couldn't update your card status right now. Please try again shortly."),
+          });
+        }
+      }
+
       const updatedCard = await storage.updateVirtualCard(card.id, { status: newStatus });
       res.json(updatedCard);
     } catch (e: any) {
@@ -6720,11 +6036,11 @@ export async function registerRoutes(
   });
 
   // ════════════════════════════════════════════════════════════════════════
-  //  NFC VIRTUAL CARD SERVICE  (Strowallet BitVCard NFC)
+  //  NFC VIRTUAL CARD SERVICE  (ZiiroPay card — NFC section)
   //  Runs alongside the standard virtual card. Apple Pay & Google Pay ready.
   //  Pricing:
   //    • Issuance: flat $19 (user) → $5 to card, fees absorbed/profit
-  //    • Funding:  amount + ($1.90 + 1.9%) Strowallet fees + $0.25 Izichanj
+  //    • Funding:  amount + ($1.90 + 1.9%) provider fees + $0.25 Izichanj
   //    • Withdraw: amount → wallet, $1 service fee
   // ════════════════════════════════════════════════════════════════════════
 
@@ -6845,7 +6161,7 @@ export async function registerRoutes(
     }
   }
 
-  // Pre-flight readiness — check that profile + KYC have all fields Strowallet needs
+  // Pre-flight readiness — check that profile + KYC have all fields the card provider needs
   app.get("/api/nfc-cards/readiness", isAuthenticated, async (req: any, res) => {
     try {
       const profile = await getProfileFromReq(req);
@@ -6876,7 +6192,7 @@ export async function registerRoutes(
     }
   });
 
-  // Create a new NFC card — flat $19 charge, $5 to card, no separate cardholder needed
+  // Create a new card (NFC section) — flat charge, load amount goes to the card. Requires an approved ZiiroPay cardholder.
   app.post("/api/nfc-cards/create", isAuthenticated, notBanned, async (req: any, res) => {
     try {
       const profile = await getProfileFromReq(req);
@@ -6884,166 +6200,69 @@ export async function registerRoutes(
       if (profile.kycStatus !== "verified") {
         return res.status(403).json({ message: "KYC verification required before applying for an NFC card" });
       }
-      if (!strowalletPublicKey) {
+      if (!isZiiropayConfigured()) {
         return res.status(500).json({ message: "NFC card service not configured" });
       }
 
       const nfcPricing = getCardPricing().nfc;
       const breakdown = calcNfcCardCreationCost(nfcPricing.loadAmount, nfcPricing.price);
-      const COST_USD = breakdown.total;       // flat $19
-      const LOAD_USD = breakdown.loadAmount;  // $5 to card
+      const COST_USD = breakdown.total;       // flat price charged to the user
+      const LOAD_USD = breakdown.loadAmount;  // amount loaded on the card
 
       const balanceUsdt = parseFloat(profile.balance || "0");
       if (balanceUsdt < COST_USD) {
         return res.status(400).json({ message: `Insufficient balance. NFC cards cost $${COST_USD.toFixed(2)} USDT. Your balance: $${balanceUsdt.toFixed(2)} USDT.` });
       }
 
-      // ── Auto-map profile + KYC into Strowallet payload ──
-      const kycDoc = await storage.getKyc(profile.id);
       const nameParts = (profile.fullName || "").trim().split(/\s+/);
       const firstName = (profile.firstName || nameParts[0] || "").trim();
       const lastName  = (profile.lastName  || nameParts.slice(1).join(" ") || firstName).trim();
-      const fullName  = `${firstName} ${lastName}`.trim() || profile.fullName;
-      const nameOnCard = fullName; // alias used by storage.createNfcCard below
-      const dob       = (profile.dateOfBirth || "").trim();
-      const phone     = (profile.phone || "").trim();
-      const idType    = (kycDoc?.idType    || "").trim();
-      const idNumber  = (kycDoc?.idNumber  || "").trim();
+      const nameOnCard = `${firstName} ${lastName}`.trim() || profile.fullName;
 
-      // Hardcoded US billing address — Strowallet requires a US address for issuance.
-      // Use ISO country code "US" (Strowallet rejects "United States").
-      const HARDCODED_LINE1   = "3401 N. Miami Ave. Ste 230";
-      const HARDCODED_CITY    = "Miami";
-      const HARDCODED_STATE   = "FL";
-      const HARDCODED_POSTAL  = "33127";
-      const HARDCODED_COUNTRY = "USA";
-
-      // Pre-flight: refuse to call provider with missing required user fields
-      const missing: string[] = [];
-      if (!firstName) missing.push("First name");
-      if (!lastName)  missing.push("Last name");
-      if (!dob)       missing.push("Date of birth");
-      if (!phone)     missing.push("Phone");
-      if (!idType)    missing.push("ID type");
-      if (!idNumber)  missing.push("ID number");
-      if (missing.length > 0) {
-        return res.status(400).json({
-          message: `Please complete your Profile & KYC first to enable NFC Card creation. Missing: ${missing.join(", ")}.`,
-          missingFields: missing,
-        });
-      }
-
-      // BitVCard NFC create payload — POST body to /create-nfc-card/
-      // Address is fully hardcoded; user identity fields come from profile + KYC.
-      // Both camelCase and snake_case keys are sent so we satisfy whichever the
-      // provider validates against.
-      const payload: Record<string, string> = {
-        // Required auth — Strowallet expects public_key in the request body
-        public_key: strowalletPublicKey,
-
-        // Required by the user's spec
-        name:        fullName,
-        first_name:  firstName,
-        last_name:   lastName,
-        email:       profile.email,
-        amount_usd:  String(LOAD_USD),
-
-        // Hardcoded billing address (snake_case per spec)
-        line1:       HARDCODED_LINE1,
-        city:        HARDCODED_CITY,
-        state:       HARDCODED_STATE,
-        postal_code: HARDCODED_POSTAL,
-        country:     HARDCODED_COUNTRY,
-
-        // KYC + contact (snake_case)
-        phone,
-        dob,
-        id_type:     idType,
-        id_number:   idNumber,
-
-        // ── Aliases (camelCase / alt names) for backward compatibility ──
-        firstName,
-        lastName,
-        fullName,
-        nameOnCard:    fullName,
-        name_on_card:  fullName,
-        customerEmail: profile.email,
-        phoneNumber:   phone,
-        dateOfBirth:   dob,
-        idType,
-        idNumber,
-        houseNumber:   HARDCODED_LINE1.split(" ")[0],
-        zipCode:       HARDCODED_POSTAL,
-        zip_code:      HARDCODED_POSTAL,
-        amount:        String(LOAD_USD),
-        address:       HARDCODED_LINE1,
-      };
-
-      const response = await strowalletFetch(`${STROWALLET_BASE}/create-nfc-card/`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "Accept": "application/json" },
-        body: JSON.stringify(payload),
-      });
-
-      const data = await response.json();
-
-      const failed = !response.ok || data.status === "error" || data.status === false || data.success === false;
-      if (failed) {
-        // Strict allowlist of payload keys we are willing to log — no PII leaves logs.
-        const SAFE_KEYS = new Set([
-          "public_key", "amount", "country", "city", "state", "zipCode", "zip_code", "id_type", "idType",
-        ]);
-        const safePayload: Record<string, string> = {};
-        for (const k of Object.keys(payload)) {
-          if (SAFE_KEYS.has(k)) safePayload[k] = payload[k];
+      // ZiiroPay issues cards to an approved cardholder (card KYC). Auto-link if it was approved meanwhile.
+      const holder = await resolveCardholder(profile);
+      if (!holder.customerId) {
+        if (holder.pending) {
+          return res.status(422).json({ code: "STROWALLET_KYC_PENDING", message: CARD_KYC_PENDING_MESSAGE });
         }
-        // Only the field names that were sent (not values) for the rest, so we can debug schema mismatches.
-        safePayload._sentKeys = Object.keys(payload).join(",");
-        console.log("================== [STROWALLET CREATE-NFC-CARD ERROR] ==================");
-        console.log("[NFC] HTTP status:", response.status, "| profile:", profile.id);
-        console.log("[NFC] Request payload (safe):", JSON.stringify(safePayload, null, 2));
-        // Log only provider error message/code — never echo back the full response (it may contain submitted PII).
-        const provMsg = (data && (data.message || data.error || data.errors)) ?? "(no message)";
-        console.log("[NFC] Provider error:", typeof provMsg === "string" ? provMsg.slice(0, 500) : JSON.stringify(provMsg).slice(0, 500));
-        console.log("=========================================================================");
-      } else {
-        console.log("[NFC] create-nfc-card OK — profile:", profile.id, "http:", response.status);
+        return res.status(400).json({ message: "Please complete the card KYC registration first before applying for a card." });
       }
 
-      if (failed) {
-        const rawErr = data.message ?? data.error ?? data.errors ?? data;
-        const errMsg = typeof rawErr === "string" ? rawErr : JSON.stringify(rawErr);
-        const lower = errMsg.toLowerCase();
-        const isProviderNoFunds =
-          lower.includes("insufficient") || lower.includes("no fund") ||
-          lower.includes("not enough") || lower.includes("low balance") ||
-          (lower.includes("balance") && lower.includes("wallet"));
-
-        // ── Strowallet KYC not yet approved on their side ───────────────────────
-        // Two signals: (1) explicit KYC-pending message; (2) generic upstream error
-        // ("internal server error" / 500) — Strowallet's NFC endpoint returns this
-        // exact string when the cardholder isn't fully approved on their platform.
-        // We surface the SAME friendly response as /api/cards/create so the UI behaves
-        // consistently. No funds are deducted (we never charged the user yet).
-        const isKycExplicit =
-          lower.includes("kyc") && (lower.includes("not approved") || lower.includes("complete") || lower.includes("process"));
-        const isProviderGenericError =
-          lower.includes("internal server error") ||
-          (response.status >= 500 && response.status < 600);
-        if (isKycExplicit || isProviderGenericError) {
+      let created: CreatedCard;
+      try {
+        created = await createDollarCard({ name: nameOnCard, customerId: holder.customerId, amountUsd: LOAD_USD });
+      } catch (netErr: any) {
+        if (isProxyOrNetworkFailure(netErr)) {
+          // The POST is never retried, but a timeout can be ambiguous — tell the admin to check.
           sendTelegramMessage(
-            `❌ <b>NFC Card Creation Failed — Likely KYC Pending</b>\n\n` +
+            `⚠️ <b>NFC Card — provider unreachable during creation</b>\n\n` +
             `👤 ${profile.fullName} (${profile.email})\n` +
-            `⚠️ Provider message: <code>${errMsg.slice(0, 200)}</code>\n` +
-            `ℹ️ Returned the standard "card application under review" message to the user.`
+            `<code>${String(netErr?.message || "").slice(0, 200)}</code>\n\n` +
+            `The user was NOT charged. If a card shows up for this cardholder in ZiiroPay, link or refund it manually.`
           ).catch(() => {});
-          return res.status(422).json({
-            code: "STROWALLET_KYC_PENDING",
-            message: "Your card application is under review by our card provider. This process can take up to 48 hours after KYC approval. You will be notified once you can apply.",
+          return res.status(503).json({
+            code: "PROVIDER_UNAVAILABLE",
+            message: "Our card provider is temporarily unreachable. Please wait a moment and try again. You have not been charged.",
           });
         }
+        throw netErr;
+      }
 
-        if (isProviderNoFunds) {
+      if (!created.response.ok) {
+        const kind = classifyCreateFailure(created.response);
+        const errMsg = created.response.message || "(no message)";
+        console.log("[NFC create] provider error: HTTP", created.response.httpStatus, "|", errMsg.slice(0, 300));
+
+        if (kind === "kyc_pending") {
+          sendTelegramMessage(
+            `❌ <b>Card Creation Failed — KYC Pending</b>\n\n` +
+            `👤 ${profile.fullName} (${profile.email})\n` +
+            `⚠️ Provider message: <code>${errMsg.slice(0, 200)}</code>`
+          ).catch(() => {});
+          return res.status(422).json({ code: "STROWALLET_KYC_PENDING", message: CARD_KYC_PENDING_MESSAGE });
+        }
+
+        if (kind === "no_funds") {
           // Master wallet low — hold funds, mark pending, alert admin
           const newBalance = balanceUsdt - COST_USD;
           await storage.updateProfileBalance(profile.id, newBalance);
@@ -7051,10 +6270,8 @@ export async function registerRoutes(
             profileId: profile.id,
             cardId: `pending_nfc_${Date.now()}`,
             nameOnCard,
-            brand: "MasterCard",
+            brand: "Visa",
             status: "pending",
-            // Balance shown to user = the load amount that will arrive on the card ($5).
-            // The full $19 we collected is recorded under cardDetail.amountHeld for refunds.
             balance: LOAD_USD.toString(),
             currency: "USD",
             cardDetail: {
@@ -7083,11 +6300,11 @@ export async function registerRoutes(
             ).catch(() => {});
           }
           sendTelegramMessage(
-            `🚨 <b>NFC CARD — Master Wallet Low</b>\n\n` +
+            `🚨 <b>NFC CARD — ZiiroPay balance low</b>\n\n` +
             `👤 ${profile.fullName} (${profile.email})\n` +
             `💵 Charged $${COST_USD.toFixed(2)} USDT\n` +
             `🗂 Pending NFC card #${pending.id}\n\n` +
-            `👉 Fund Strowallet, then issue manually.`
+            `👉 Fund your ZiiroPay account, then issue the card manually.`
           ).catch(() => {});
           return res.status(202).json({
             pending: true,
@@ -7099,34 +6316,42 @@ export async function registerRoutes(
         sendTelegramMessage(
           `❌ <b>NFC Card Creation Failed</b>\n\n` +
           `👤 ${profile.fullName} (${profile.email})\n` +
-          `⚠️ <b>Error:</b> <code>${errMsg.slice(0, 200)}</code>\n` +
-          `📋 <pre>${JSON.stringify(data, null, 2).slice(0, 600)}</pre>`
+          `⚠️ <b>Error:</b> <code>${errMsg.slice(0, 200)}</code>`
         ).catch(() => {});
         return res.status(400).json({
           message: sanitizeProviderError(
-            data,
+            created.response.body,
             "We couldn't process your NFC card request right now. Our team has been notified — please try again shortly."
           ),
         });
       }
 
-      const cardInfo = data.response || data.data || data;
-      const cardId = cardInfo.card_id || cardInfo.id || cardInfo.cardId || `nfc_${Date.now()}`;
-      const last4 = cardInfo.card_number ? String(cardInfo.card_number).slice(-4) : cardInfo.last4 || null;
+      if (!created.cardId) {
+        // Provider said OK but returned no card id — never guess. Do not charge; escalate.
+        sendTelegramMessage(
+          `🚨 <b>NFC Card — success response WITHOUT a card id</b>\n\n` +
+          `👤 ${profile.fullName} (${profile.email})\n` +
+          `The user was NOT charged. Check ZiiroPay for a card created for this cardholder.`
+        ).catch(() => {});
+        return res.status(502).json({ message: "Your card is being verified by our provider. Please check back shortly — you have not been charged." });
+      }
+
+      const cardId = created.cardId;
+      const last4 = created.last4;
 
       const newBalance = balanceUsdt - COST_USD;
       await storage.updateProfileBalance(profile.id, newBalance);
 
       const card = await storage.createNfcCard({
         profileId: profile.id,
-        cardId: String(cardId),
+        cardId,
         nameOnCard,
-        last4,
-        brand: "MasterCard",
+        last4: last4 ?? undefined,
+        brand: created.brand || "Visa",
         status: "active",
         balance: LOAD_USD.toString(),
         currency: "USD",
-        cardDetail: cardInfo,
+        cardDetail: created.detail,
       });
 
       await storage.createNfcCardTransaction({
@@ -7146,13 +6371,12 @@ export async function registerRoutes(
         `💵 Charged $${COST_USD.toFixed(2)} USDT`
       ).catch(() => {});
 
-      // Notify the user on WhatsApp + email (mirrored automatically).
       if (profile.phone) {
         sendWhatsAppNotification(
           profile.phone,
           `*Izichanj*\n\n✅ NFC Card Issued\n\n` +
           `Your contactless NFC card is ready to use! 🎉\n\n` +
-          `💳 Card: Visa ****${last4 || "----"}\n` +
+          `💳 Card: ${created.brand || "Visa"} ****${last4 || "----"}\n` +
           `💵 Loaded: $${LOAD_USD.toFixed(2)} USD\n\n` +
           `Open the NFC Cards section in the app to view your full card details and start spending.\n\n` +
           `https://izichanj.com`,
@@ -7163,16 +6387,7 @@ export async function registerRoutes(
       res.status(201).json(card);
     } catch (e: any) {
       console.error("[NFC create]", e);
-      // Translate proxy / network blips into a friendly "try again" message
-      // so users don't see raw "fetch failed" errors. The user has NOT been
-      // charged at this point — the balance debit only happens on success.
       if (isProxyOrNetworkFailure(e)) {
-        sendTelegramMessage(
-          `⚠️ <b>NFC Card — Proxy/Network Failure</b>\n\n` +
-          `<code>${String(e?.message || "").slice(0, 200)}</code>\n` +
-          `<code>${String(e?.cause?.message || "").slice(0, 200)}</code>\n\n` +
-          `Returned a "try again shortly" message to the user.`
-        ).catch(() => {});
         return res.status(503).json({
           code: "PROVIDER_UNAVAILABLE",
           message: "Our card provider is temporarily unreachable. Please wait a moment and try again. You have not been charged.",
@@ -7182,7 +6397,7 @@ export async function registerRoutes(
     }
   });
 
-  // Fetch NFC card details (PAN, CVV, etc.) live from Strowallet.
+  // Fetch NFC card details (PAN, CVV, etc.) live from ZiiroPay.
   // Network/upstream failures are returned as { remoteDetail: null, reason } so the
   // UI can show a friendly empty state and a working retry button — never a 500.
   app.get("/api/nfc-cards/:id/details", isAuthenticated, async (req: any, res) => {
@@ -7192,17 +6407,9 @@ export async function registerRoutes(
       const card = await storage.getNfcCard(Number(req.params.id), profile.id);
       if (!card) return res.status(404).json({ message: "NFC card not found" });
 
-      const params = new URLSearchParams({
-        public_key: strowalletPublicKey,
-        card_id: card.cardId,
-      });
-
-      let response: Response;
+      let details;
       try {
-        response = await strowalletFetch(`${STROWALLET_BASE}/fetch-nfccard-detail/?${params.toString()}`, {
-          method: "GET",
-          headers: { "Accept": "application/json" },
-        });
+        details = await getCardDetails(card.cardId);
       } catch (netErr: any) {
         console.log("[NFC DETAIL] Network error:", netErr?.message || netErr);
         // Fall back to whatever we last cached so the user sees something.
@@ -7214,11 +6421,8 @@ export async function registerRoutes(
         });
       }
 
-      let data: any = {};
-      try { data = await response.json(); } catch { data = {}; }
-
-      if (!response.ok || data.status === "error" || data.status === false || data.success === false) {
-        console.log("[NFC DETAIL] Strowallet error:", JSON.stringify(data));
+      if (!details.response.ok) {
+        console.log("[NFC DETAIL] Provider error: HTTP", details.response.httpStatus, details.response.message.slice(0, 300));
         return res.json({
           card,
           remoteDetail: card.cardDetail || null,
@@ -7227,18 +6431,17 @@ export async function registerRoutes(
         });
       }
 
-      const detail = data.response?.card_detail || data.response || data.data || data;
-      if (detail?.balance !== undefined && detail?.balance !== null) {
-        await storage.updateNfcCard(card.id, { balance: String(detail.balance), cardDetail: detail });
+      if (details.balance !== null) {
+        await storage.updateNfcCard(card.id, { balance: String(details.balance), cardDetail: details.detail });
       }
-      res.json({ card, remoteDetail: detail });
+      res.json({ card, remoteDetail: details.detail });
     } catch (e: any) {
       console.error("[NFC details]", e);
       res.status(500).json({ message: e.message || "Internal Error" });
     }
   });
 
-  // NFC card transactions (Strowallet spending records merged with local fund/withdraw logs)
+  // NFC card transactions (ZiiroPay history merged with local fund/withdraw logs)
   app.get("/api/nfc-cards/:id/transactions", isAuthenticated, async (req: any, res) => {
     try {
       const profile = await getProfileFromReq(req);
@@ -7259,75 +6462,31 @@ export async function registerRoutes(
         source: "local",
       }));
 
-      const params = new URLSearchParams({
-        public_key: strowalletPublicKey,
-        card_id: card.cardId,
-      });
-
-      let response: Response;
+      let history;
       try {
-        response = await strowalletFetch(`${STROWALLET_BASE}/nfc-card-transactions/?${params.toString()}`, {
-          method: "GET",
-          headers: { "Accept": "application/json" },
-        });
+        history = await getCardHistory(card.cardId);
       } catch (netErr: any) {
         console.log("[NFC TX] Network error — returning local only:", netErr?.message || netErr);
         return res.json(localFmt);
       }
-
-      let data: any = {};
-      try { data = await response.json(); } catch { data = {}; }
-
-      if (!response.ok) {
-        console.log("================== [STROWALLET NFC-TRANSACTIONS ERROR] ==================");
-        console.log("[NFC TX] HTTP status:", response.status);
-        console.log("[NFC TX] Card:", card.cardId, "| Profile:", profile.id);
-        console.log("[NFC TX] Raw response (full):", JSON.stringify(data, null, 2));
-        console.log("=========================================================================");
+      if (!history.response.ok) {
+        console.log("[NFC TX] Provider error — card:", card.cardId, "| HTTP", history.response.httpStatus, "|", history.response.message.slice(0, 300));
         return res.json(localFmt);
       }
 
-      // Strowallet wraps the list under several different keys depending on the
-      // endpoint version. Walk the payload and pick the first array we find.
-      const findArray = (obj: any, depth = 0): any[] | null => {
-        if (!obj || depth > 4) return null;
-        if (Array.isArray(obj)) return obj;
-        if (typeof obj !== "object") return null;
-        for (const k of Object.keys(obj)) {
-          const v = obj[k];
-          if (Array.isArray(v)) return v;
-        }
-        for (const k of Object.keys(obj)) {
-          const found = findArray(obj[k], depth + 1);
-          if (found) return found;
-        }
-        return null;
-      };
-
-      const remoteList: any[] =
-        data?.response?.card_transactions ||
-        data?.response?.transactions ||
-        data?.response?.data ||
-        data?.transactions ||
-        data?.data ||
-        findArray(data) ||
-        [];
-
-      // Debug log — helps diagnose why spend transactions aren't appearing
-      // (different Strowallet shapes, empty responses, etc.)
-      if (!Array.isArray(remoteList) || remoteList.length === 0) {
-        console.log("[NFC TX] Empty/unknown remote shape for card", card.cardId, "— payload keys:", Object.keys(data || {}));
-      }
-
-      const remoteFmt = (Array.isArray(remoteList) ? remoteList : []).map((tx: any, i: number) => ({
-        id: tx.id || tx.transaction_id || tx.txn_id || tx.reference || `remote_${i}`,
-        type: tx.type || tx.transaction_type || tx.txn_type || "spend",
-        amount: tx.amount ?? tx.value ?? tx.transaction_amount ?? "0",
-        currency: tx.currency || tx.transaction_currency || "USD",
-        description: tx.description || tx.narration || tx.merchant || tx.merchant_name || "Card transaction",
-        date: tx.created_at || tx.createdAt || tx.date || tx.transaction_date || tx.timestamp || tx.time,
-        source: "strowallet",
-      }));
+      // Fund / withdraw / creation are already in the local log — keep only the provider's
+      // other entries (spend, refunds, ...) so nothing is listed twice.
+      const remoteFmt = history.transactions
+        .filter((tx: any) => !/fund|withdraw|load|topup|top_up|deposit|creat/i.test(String(tx.type || tx.transaction_type || tx.txn_type || "")))
+        .map((tx: any, i: number) => ({
+          id: tx.id || tx.transaction_id || tx.txn_id || tx.reference || `remote_${i}`,
+          type: tx.type || tx.transaction_type || tx.txn_type || "spend",
+          amount: tx.amount ?? tx.value ?? tx.transaction_amount ?? "0",
+          currency: tx.currency || tx.transaction_currency || "USD",
+          description: tx.description || tx.narration || tx.narrative || tx.merchant || tx.merchant_name || "Card transaction",
+          date: tx.created_at || tx.createdAt || tx.date || tx.transaction_date || tx.timestamp || tx.time,
+          source: "ziiropay",
+        }));
 
       res.json([...remoteFmt, ...localFmt].sort((a, b) =>
         new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime()
@@ -7405,13 +6564,6 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Insufficient balance for this top-up." });
       }
 
-      const payload = {
-        public_key: strowalletPublicKey,
-        card_id: card.cardId,
-        amount: fundAmount.toString(),
-        type: "fund",
-      };
-
       // Atomic credit helper for refund-on-failure paths
       const refundUser = async () => {
         await db
@@ -7420,49 +6572,38 @@ export async function registerRoutes(
           .where(eq(profiles.id, profile.id));
       };
 
-      let response: Response;
-      let data: any;
+      let fundRes: ZiiropayResponse;
       try {
-        response = await strowalletFetch(`${STROWALLET_BASE}/fund-withdraw-nfccard/`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "Accept": "application/json" },
-          body: JSON.stringify(payload),
-        });
-        data = await response.json();
+        fundRes = await fundCard(card.cardId, fundAmount);
       } catch (netErr: any) {
-        // Network failure — instantly refund the user
+        // Network failure — refund the user. The request is never retried automatically,
+        // but a timeout can be ambiguous, so the admin is told to double-check the card.
         await refundUser();
         console.error("[NFC FUND] Network error — refunded:", netErr?.message);
         await recordNfcFailure({
           profile, cardId: card.id, cardCardId: card.cardId, last4: card.last4,
           kind: "fund", outcome: "network", amountUsd: fundAmount,
-          reason: `Provider unreachable: ${netErr?.message || "unknown"}. User was refunded.`,
+          reason: `Provider unreachable: ${netErr?.message || "unknown"}. User was refunded — verify the card balance in ZiiroPay in case the top-up still went through.`,
         });
         return res.status(502).json({ message: "Could not reach card provider. No funds were charged." });
       }
 
-      const fundFailed = !response.ok || data.status === "error" || data.status === false || data.success === false;
-      if (fundFailed) {
+      if (!fundRes.ok) {
         // Provider rejected — refund the user immediately
         await refundUser();
-        console.log("================== [STROWALLET NFC FUND ERROR — REFUNDED] ==================");
-        console.log("[NFC FUND] HTTP:", response.status, "| Profile:", profile.id, "| Card:", card.cardId);
-        console.log("[NFC FUND] Payload keys:", Object.keys(payload).join(","));
-        const provMsg = (data && (data.message || data.error || data.errors)) ?? "(no message)";
-        const provMsgStr = typeof provMsg === "string" ? provMsg.slice(0, 500) : JSON.stringify(provMsg).slice(0, 500);
-        console.log("[NFC FUND] Provider error:", provMsgStr);
-        console.log("=========================================================================");
+        const provMsgStr = fundRes.message.slice(0, 500) || "(no message)";
+        console.log("[NFC FUND ERROR — REFUNDED] HTTP:", fundRes.httpStatus, "| Profile:", profile.id, "| Card:", card.cardId, "| provider message:", provMsgStr);
 
         const isInsufficient = /insufficient|not.?enough|low.?balance/i.test(provMsgStr);
         await recordNfcFailure({
           profile, cardId: card.id, cardCardId: card.cardId, last4: card.last4,
           kind: "fund", outcome: isInsufficient ? "insufficient" : "failed", amountUsd: fundAmount,
-          reason: `Provider rejected (HTTP ${response.status}): ${provMsgStr}. User was refunded.`,
+          reason: `Provider rejected (HTTP ${fundRes.httpStatus}): ${provMsgStr}. User was refunded.`,
         });
 
         return res.status(400).json({
           message: sanitizeProviderError(
-            data,
+            fundRes.body,
             "We couldn't fund your NFC card right now. Your charge has been refunded — please try again in a moment."
           ),
         });
@@ -7523,73 +6664,66 @@ export async function registerRoutes(
         return res.status(400).json({ message: `Amount too small after $${breakdown.fee.toFixed(2)} service fee` });
       }
 
-      const payload = {
-        public_key: strowalletPublicKey,
-        card_id: card.cardId,
-        amount: amount.toString(),
-        type: "withdraw",
-      };
+      // The per-card lock is held across the provider call AND our bookkeeping. The ZiiroPay
+      // "virtualcard.withdrawal.success" webhook for this same withdrawal takes the same lock,
+      // so it waits for us, then finds our local row and only confirms it (no double credit).
+      const outcome = await withCardLock(card.cardId, async () => {
+        let result: ZiiropayResponse;
+        try {
+          result = await withdrawCard(card.cardId, amount);
+        } catch (netErr: any) {
+          return { kind: "network" as const, netErr };
+        }
+        if (!result.ok) return { kind: "rejected" as const, result };
 
-      let response: Response;
-      let data: any;
-      try {
-        response = await strowalletFetch(`${STROWALLET_BASE}/fund-withdraw-nfccard/`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "Accept": "application/json" },
-          body: JSON.stringify(payload),
+        // Atomic wallet credit (net) and card debit (full amount).
+        await db.update(profiles)
+          .set({ balance: sql`(${profiles.balance})::numeric + ${breakdown.netToWallet}` })
+          .where(eq(profiles.id, profile.id));
+        const [updated] = await db.update(nfcCards)
+          .set({ balance: sql`GREATEST((${nfcCards.balance})::numeric - ${amount}, 0)` })
+          .where(eq(nfcCards.id, card.id))
+          .returning();
+        await storage.createNfcCardTransaction({
+          cardId: card.id,
+          profileId: profile.id,
+          type: "withdraw",
+          amount: amount.toFixed(2),
+          currency: "USD",
+          description: `NFC withdrawal — $${amount.toFixed(2)} pulled from card, $${breakdown.netToWallet.toFixed(2)} credited to wallet (− $${breakdown.fee.toFixed(2)} fee)`,
         });
-        data = await response.json();
-      } catch (netErr: any) {
-        console.error("[NFC WITHDRAW] Network error:", netErr?.message);
+        return { kind: "ok" as const, updated };
+      });
+
+      if (outcome.kind === "network") {
+        console.error("[NFC WITHDRAW] Network error:", outcome.netErr?.message);
         await recordNfcFailure({
           profile, cardId: card.id, cardCardId: card.cardId, last4: card.last4,
           kind: "withdraw", outcome: "network", amountUsd: amount,
-          reason: `Provider unreachable: ${netErr?.message || "unknown"}`,
+          reason: `Provider unreachable: ${outcome.netErr?.message || "unknown"}. If ZiiroPay did execute it, the webhook will credit the wallet exactly once.`,
         });
-        return res.status(502).json({ message: "Could not reach card provider. Please try again in a moment." });
+        return res.status(502).json({ message: "Could not reach card provider. Please check your card and wallet balance shortly before trying again." });
       }
 
-      const wdFailed = !response.ok || data.status === "error" || data.status === false || data.success === false;
-      if (wdFailed) {
-        console.log("================== [STROWALLET NFC WITHDRAW ERROR] ==================");
-        console.log("[NFC WITHDRAW] HTTP:", response.status, "| Profile:", profile.id, "| Card:", card.cardId);
-        console.log("[NFC WITHDRAW] Payload:", JSON.stringify({ ...payload, public_key: "[REDACTED]" }));
-        console.log("[NFC WITHDRAW] Raw response (full):", JSON.stringify(data, null, 2));
-        console.log("=====================================================================");
-
-        const provMsg = (data && (data.message || data.error || data.errors)) ?? "(no message)";
-        const provMsgStr = typeof provMsg === "string" ? provMsg.slice(0, 500) : JSON.stringify(provMsg).slice(0, 500);
+      if (outcome.kind === "rejected") {
+        const r = outcome.result;
+        console.log("[NFC WITHDRAW] HTTP:", r.httpStatus, "| Profile:", profile.id, "| Card:", card.cardId, "| provider message:", r.message.slice(0, 500));
+        const provMsgStr = r.message.slice(0, 500) || "(no message)";
         const isInsufficient = /insufficient|not.?enough|low.?balance/i.test(provMsgStr);
         await recordNfcFailure({
           profile, cardId: card.id, cardCardId: card.cardId, last4: card.last4,
           kind: "withdraw", outcome: isInsufficient ? "insufficient" : "failed", amountUsd: amount,
-          reason: `Provider rejected (HTTP ${response.status}): ${provMsgStr}`,
+          reason: `Provider rejected (HTTP ${r.httpStatus}): ${provMsgStr}`,
         });
-
         return res.status(400).json({
           message: sanitizeProviderError(
-            data,
+            r.body,
             "We couldn't move funds off your NFC card right now. Please try again in a moment."
           ),
         });
       }
 
       console.log("[NFC WITHDRAW] OK — profile:", profile.id, "| card:", card.cardId, "| amount:", amount);
-
-      // Credit wallet (net) and reduce card balance (full amount)
-      const balanceUsdt = parseFloat(profile.balance || "0");
-      await storage.updateProfileBalance(profile.id, balanceUsdt + breakdown.netToWallet);
-      const updated = await storage.updateNfcCard(card.id, {
-        balance: (cardBal - amount).toString(),
-      });
-      await storage.createNfcCardTransaction({
-        cardId: card.id,
-        profileId: profile.id,
-        type: "withdraw",
-        amount: amount.toFixed(2),
-        currency: "USD",
-        description: `NFC withdrawal — $${amount.toFixed(2)} pulled from card, $${breakdown.netToWallet.toFixed(2)} credited to wallet (− $${breakdown.fee.toFixed(2)} fee)`,
-      });
       await resetNfcFailures(card.id);
       await notifyAdminNfcAttempt({
         profile, card: { id: card.id, cardId: card.cardId, last4: card.last4 },
@@ -7597,14 +6731,14 @@ export async function registerRoutes(
         reason: `Net to wallet $${breakdown.netToWallet.toFixed(2)} (− $${breakdown.fee.toFixed(2)} fee)`,
       });
 
-      res.json({ card: updated, credited: breakdown.netToWallet, fee: breakdown.fee });
+      res.json({ card: outcome.updated, credited: breakdown.netToWallet, fee: breakdown.fee });
     } catch (e: any) {
       console.error("[NFC withdraw]", e);
       res.status(500).json({ message: e.message || "Internal Error" });
     }
   });
 
-  // Refresh NFC card balance from Strowallet
+  // Refresh NFC card balance from ZiiroPay
   app.post("/api/nfc-cards/:id/refresh-balance", isAuthenticated, async (req: any, res) => {
     try {
       const profile = await getProfileFromReq(req);
@@ -7615,17 +6749,9 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Cannot refresh balance for a pending or cancelled card" });
       }
 
-      const params = new URLSearchParams({
-        public_key: strowalletPublicKey,
-        card_id: card.cardId,
-      });
-
-      let response: Response;
+      let details;
       try {
-        response = await strowalletFetch(`${STROWALLET_BASE}/fetch-nfccard-detail/?${params.toString()}`, {
-          method: "GET",
-          headers: { "Accept": "application/json" },
-        });
+        details = await getCardDetails(card.cardId);
       } catch (netErr: any) {
         console.log("[NFC refresh] Network error:", netErr?.message || netErr);
         return res.json({
@@ -7636,13 +6762,9 @@ export async function registerRoutes(
         });
       }
 
-      let data: any = {};
-      try { data = await response.json(); } catch { data = {}; }
-      const detail = data?.response?.card_detail || data?.response || data?.data || data;
-
-      if (detail?.balance !== undefined && detail?.balance !== null) {
-        const newBalance = String(detail.balance);
-        await storage.updateNfcCard(card.id, { balance: newBalance, cardDetail: detail });
+      if (details.response.ok && details.balance !== null) {
+        const newBalance = String(details.balance);
+        await storage.updateNfcCard(card.id, { balance: newBalance, cardDetail: details.detail });
         return res.json({ balance: newBalance, synced: true });
       }
       return res.json({
@@ -7686,7 +6808,7 @@ export async function registerRoutes(
         proxy_ip: proxyIp,
         proxy_configured: !!proxyUrl,
         proxy_url_set: !!proxyUrl,
-        strowallet_sees: proxyIp || directData.ip,
+        provider_sees: proxyIp || directData.ip,
         proxy_error: proxyError,
       });
     } catch (e: any) {

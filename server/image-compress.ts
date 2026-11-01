@@ -72,3 +72,27 @@ export async function ensureKycImageSize(objectPath: string): Promise<string> {
     return objectPath; // Safe fallback — don't break the main flow
   }
 }
+
+/**
+ * Download a KYC image from object storage and return it as a base64 string (no data-URI prefix).
+ * Used for the card provider's `id_front_image` field. Compresses first if the file is large.
+ * Returns "" when the image cannot be loaded.
+ */
+export async function loadKycImageBase64(objectPath: string): Promise<string> {
+  if (!objectPath) return "";
+  try {
+    const sizedPath = await ensureKycImageSize(objectPath);
+    if (sizedPath.startsWith("http") && !sizedPath.startsWith("https://storage.googleapis.com")) {
+      const r = await fetch(sizedPath);
+      if (!r.ok) return "";
+      return Buffer.from(await r.arrayBuffer()).toString("base64");
+    }
+    const storage = new ObjectStorageService();
+    const file = await storage.getObjectEntityFile(sizedPath);
+    const [buffer] = await file.download();
+    return buffer.toString("base64");
+  } catch (err) {
+    console.error("[KYC base64] could not load image:", (err as Error)?.message || err);
+    return "";
+  }
+}
