@@ -1172,9 +1172,11 @@ export async function registerRoutes(
     }
   });
 
-  // POST /api/ziiropay/webhook — ZiiroPay card events (virtualcard.withdrawal.success, ...).
+  // ZiiroPay card events (virtualcard.withdrawal.success, ...).
+  // Official URL: POST https://www.izichanj.com/api/webhooks/ziiropay
+  // (/api/ziiropay/webhook is kept as an alias so URLs already registered keep working.)
   // Auth, idempotency, per-card locking and money rules live in ./ziiropay-webhook(-core).ts.
-  app.post("/api/ziiropay/webhook", createZiiropayWebhookHandler({
+  const ziiropayWebhookHandler = createZiiropayWebhookHandler({
     calcWithdrawal: (amount) => {
       const b = calcNfcCardWithdrawCost(amount, getCardPricing().nfc.withdrawFee);
       return { fee: b.fee, netToWallet: b.netToWallet };
@@ -1187,7 +1189,9 @@ export async function registerRoutes(
         sendWhatsAppNotification(p.phone, `*Izichanj*\n\n💳 ${title}\n\n${message}\n\nhttps://izichanj.com`, p.fullName);
       }
     },
-  }));
+  });
+  app.post("/api/webhooks/ziiropay", ziiropayWebhookHandler);
+  app.post("/api/ziiropay/webhook", ziiropayWebhookHandler);
 
   app.post("/api/nowpayments/ipn", async (req, res) => {
     try {
