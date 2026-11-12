@@ -740,7 +740,7 @@ function CardItem({ card }: { card: VirtualCard }) {
         <div className="relative overflow-hidden rounded-t-md" style={{ aspectRatio: "1.586" }}>
           <img
             src={cardTemplateBg}
-            alt="Virtual Mastercard"
+            alt="Virtual Visa"
             className={`absolute inset-0 w-full h-full object-cover ${isFrozen ? "opacity-40 grayscale" : ""} ${isPending ? "opacity-50 grayscale" : ""}`}
           />
           {isPending && (
