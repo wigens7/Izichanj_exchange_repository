@@ -141,7 +141,7 @@ function ApplyCardSection() {
   const [idNumber, setIdNumber] = useState("");
   const [kycPending, setKycPending] = useState(false);
 
-  // Extra fields â shown when missing from profile
+  // Extra fields — shown when missing from profile
   const [extraFirstName, setExtraFirstName] = useState("");
   const [extraLastName, setExtraLastName] = useState("");
   const [extraDob, setExtraDob] = useState("");
@@ -179,7 +179,7 @@ function ApplyCardSection() {
       const res = await apiRequest("POST", "/api/cards/register-cardholder", body);
       if (!res.ok) {
         const data = await res.json() as any;
-        // Check for 409 â email already registered in Strowallet
+        // Check for 409 — email already registered in Strowallet
         if (res.status === 409 && data.alreadyRegistered) {
           // Auto-show manual entry form
           setShowManualId(true);
@@ -275,11 +275,11 @@ function ApplyCardSection() {
       </CardHeader>
       <CardContent className="space-y-4">
 
-        {/* Step 1 â Strowallet KYC (only if not yet registered) */}
+        {/* Step 1 – Strowallet KYC (only if not yet registered) */}
         {stroLoading ? (
           <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
             <Loader2 className="w-4 h-4 animate-spin" />
-            Checking card KYC statusâ¦
+            Checking card KYC status…
           </div>
         ) : !isRegistered ? (
           <div className="border rounded-lg p-4 space-y-4 bg-amber-50/50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-800">
@@ -289,12 +289,12 @@ function ApplyCardSection() {
                 <p className="font-medium text-sm">Card Identity Verification Required</p>
                 <p className="text-xs text-muted-foreground mt-0.5">
                   To comply with card network regulations, we need to verify your ID before issuing a virtual card.
-                  Your name, date of birth, and country are already on file â just provide your ID details below.
+                  Your name, date of birth, and country are already on file — just provide your ID details below.
                 </p>
               </div>
             </div>
 
-            {/* Missing profile info â collected once, saved to profile */}
+            {/* Missing profile info — collected once, saved to profile */}
             {hasMissingFields && (
               <div className="grid gap-3 sm:grid-cols-2">
                 {needsFirstName && (
@@ -381,7 +381,7 @@ function ApplyCardSection() {
                 data-testid="button-register-cardholder"
               >
                 {registerMutation.isPending ? (
-                  <><Loader2 className="w-4 h-4 animate-spin mr-2" />Submittingâ¦</>
+                  <><Loader2 className="w-4 h-4 animate-spin mr-2" />Submitting…</>
                 ) : (
                   <><ShieldCheck className="w-4 h-4 mr-2" />Submit Card KYC</>
                 )}
@@ -396,7 +396,7 @@ function ApplyCardSection() {
               </Button>
             </div>
 
-            {/* Manual Strowallet ID entry â for users already registered manually */}
+            {/* Manual Strowallet ID entry – for users already registered manually */}
             {showManualId && (
               <div className="border rounded-lg p-4 space-y-3 bg-blue-50/50 dark:bg-blue-950/20 border-blue-200 dark:border-blue-800">
                 <div className="flex items-start gap-2">
@@ -420,7 +420,7 @@ function ApplyCardSection() {
                   data-testid="button-set-manual-customer-id"
                 >
                   {manualIdMutation.isPending ? (
-                    <><Loader2 className="w-4 h-4 animate-spin mr-2" />Linkingâ¦</>
+                    <><Loader2 className="w-4 h-4 animate-spin mr-2" />Linking…</>
                   ) : (
                     <>Link Customer ID</>
                   )}
@@ -435,7 +435,7 @@ function ApplyCardSection() {
           </div>
         )}
 
-        {/* Step 2 â Apply card (only if Strowallet KYC done) */}
+        {/* Step 2 – Apply card (only if Strowallet KYC done) */}
         {isRegistered && (
           <>
             <div className="bg-muted/30 rounded-md p-4 space-y-3">
@@ -454,15 +454,15 @@ function ApplyCardSection() {
               {/* Simple flat breakdown */}
               <div className="border-t border-border/50 pt-2.5 space-y-1.5">
                 <div className="flex justify-between text-xs text-muted-foreground" data-testid="text-card-fee">
-                  <span>â¡ Card / Activation fee</span>
+                  <span>⚡ Card / Activation fee</span>
                   <span>${CARD_FIXED_FEE.toFixed(2)}</span>
                 </div>
                 <div className="flex justify-between text-xs text-emerald-600 dark:text-emerald-400 font-medium" data-testid="text-card-load-amount">
-                  <span>ð³ Amount to card</span>
+                  <span>💳 Amount to card</span>
                   <span>${CARD_LOAD_AMOUNT.toFixed(2)}</span>
                 </div>
                 <div className="flex justify-between text-[11px] text-muted-foreground/70 italic" data-testid="text-card-network-fee">
-                  <span>ð Network fee (3.4%)</span>
+                  <span>🌐 Network fee (3.4%)</span>
                   <span>Included</span>
                 </div>
                 <div className="flex justify-between text-sm font-bold text-foreground pt-1.5 border-t border-border/40" data-testid="text-card-total">
@@ -486,10 +486,10 @@ function ApplyCardSection() {
                   Our Team is Reviewing Your Documents
                 </p>
                 <p className="text-xs text-blue-700 dark:text-blue-400">
-                  Your registration was submitted successfully. Our team is currently reviewing your identity documents â this is a normal process that takes <strong>24 to 48 hours</strong>.
+                  Your registration was submitted successfully. Our team is currently reviewing your identity documents — this is a normal process that takes <strong>24 to 48 hours</strong>.
                 </p>
                 <p className="text-xs text-blue-700 dark:text-blue-400">
-                  â You don't need to do anything. Once our team approves your documents, you'll be able to create your card immediately. You'll receive a WhatsApp notification when ready.
+                  ✅ You don't need to do anything. Once our team approves your documents, you'll be able to create your card immediately. You'll receive a WhatsApp notification when ready.
                 </p>
               </div>
             )}
@@ -504,7 +504,7 @@ function ApplyCardSection() {
                 {createMutation.isPending ? (
                   <><Loader2 className="w-4 h-4 animate-spin mr-2" />{vc.applying}</>
                 ) : (
-                  <><CreditCard className="w-4 h-4 mr-2" />{vc.applyButton} â ${CARD_COST.toFixed(2)}</>  
+                  <><CreditCard className="w-4 h-4 mr-2" />{vc.applyButton} — ${CARD_COST.toFixed(2)}</>  
                 )}
               </Button>
             )}
@@ -568,7 +568,7 @@ function CardItem({ card }: { card: VirtualCard }) {
       a.click();
       a.remove();
       URL.revokeObjectURL(url);
-      toast({ title: "Statement downloaded", description: `Period: ${stmtFrom} â ${stmtTo}` });
+      toast({ title: "Statement downloaded", description: `Period: ${stmtFrom} → ${stmtTo}` });
       setShowStatement(false);
     } catch (e: any) {
       toast({ title: "Download failed", description: e.message, variant: "destructive" });
@@ -602,7 +602,7 @@ function CardItem({ card }: { card: VirtualCard }) {
     },
     onSuccess: (data) => {
       if (data.refunded > 0) {
-        toast({ title: "Card deleted â refund issued", description: `$${data.refunded.toFixed(2)} USDT has been refunded to your balance.` });
+        toast({ title: "Card deleted — refund issued", description: `$${data.refunded.toFixed(2)} USDT has been refunded to your balance.` });
       } else {
         toast({ title: "Card deleted", description: "The virtual card has been removed from your account." });
       }
@@ -679,7 +679,7 @@ function CardItem({ card }: { card: VirtualCard }) {
     },
     onSuccess: (data: any) => {
       if (data?.found) {
-        toast({ title: "ð Your card is ready!", description: "Card details are now available." });
+        toast({ title: "🎉 Your card is ready!", description: "Card details are now available." });
         qc.invalidateQueries({ queryKey: ["/api/cards"] });
         qc.invalidateQueries({ queryKey: ["/api/user"] });
       } else {
@@ -705,7 +705,7 @@ function CardItem({ card }: { card: VirtualCard }) {
       return data;
     },
     onSuccess: (data: any) => {
-      toast({ title: "ð Card issued successfully!", description: "Your virtual card is now ready." });
+      toast({ title: "🎉 Card issued successfully!", description: "Your virtual card is now ready." });
       qc.invalidateQueries({ queryKey: ["/api/cards"] });
       qc.invalidateQueries({ queryKey: ["/api/user"] });
     },
@@ -721,7 +721,7 @@ function CardItem({ card }: { card: VirtualCard }) {
     setTimeout(() => setCopied(null), 2000);
   };
 
-  // Backend returns { card, remoteDetail } â extract the actual detail object
+  // Backend returns { card, remoteDetail } — extract the actual detail object
   // Also normalize camelCase vs snake_case field names from Strowallet
   const rawDetail = detailsQuery.data?.remoteDetail ?? detailsQuery.data;
   const cardDetails = rawDetail ? {
@@ -787,7 +787,7 @@ function CardItem({ card }: { card: VirtualCard }) {
               <p className="text-white font-mono text-xl sm:text-2xl tracking-[0.2em] drop-shadow-lg">
                 {showDetails && cardDetails?.card_number
                   ? cardDetails.card_number.replace(/(.{4})/g, "$1 ").trim()
-                  : `â¢â¢â¢â¢ â¢â¢â¢â¢ â¢â¢â¢â¢ ${card.last4 || "â¢â¢â¢â¢"}`}
+                  : `•••• •••• •••• ${card.last4 || "••••"}`}
               </p>
 
               <div className="flex items-end justify-between gap-2">
@@ -796,12 +796,12 @@ function CardItem({ card }: { card: VirtualCard }) {
                   {showDetails && cardDetails ? (
                     <div className="flex items-center gap-3">
                       <span>Exp: {cardDetails.expiry_month}/{cardDetails.expiry_year}</span>
-                      <span>CVV: {cardDetails.cvv || "â¢â¢â¢"}</span>
+                      <span>CVV: {cardDetails.cvv || "•••"}</span>
                     </div>
                   ) : (
                     <div className="flex items-center gap-3">
-                      <span>Exp: â¢â¢/â¢â¢</span>
-                      <span>CVV: â¢â¢â¢</span>
+                      <span>Exp: ••/••</span>
+                      <span>CVV: •••</span>
                     </div>
                   )}
                 </div>
@@ -886,15 +886,15 @@ function CardItem({ card }: { card: VirtualCard }) {
                 {fundBreakdown && (
                   <div className="border-t border-border/50 pt-2.5 space-y-1.5" data-testid={`text-fund-breakdown-${card.id}`}>
                     <div className="flex justify-between text-xs text-muted-foreground">
-                      <span>â¡ Funding fee</span>
+                      <span>⚡ Funding fee</span>
                       <span>${fundBreakdown.fixedFee.toFixed(2)}</span>
                     </div>
                     <div className="flex justify-between text-xs text-muted-foreground">
-                      <span>ð Network fee ({(pricing.virtual.topupVarPct * 100).toFixed(1)}%)</span>
+                      <span>🌐 Network fee ({(pricing.virtual.topupVarPct * 100).toFixed(1)}%)</span>
                       <span>${fundBreakdown.variableFee.toFixed(2)}</span>
                     </div>
                     <div className="flex justify-between text-xs text-emerald-600 dark:text-emerald-400 font-medium">
-                      <span>ð³ Amount to card</span>
+                      <span>💳 Amount to card</span>
                       <span>${fundBreakdown.loadAmount.toFixed(2)}</span>
                     </div>
                     <div className="flex justify-between text-sm font-bold text-foreground pt-1.5 border-t border-border/40">
@@ -919,7 +919,7 @@ function CardItem({ card }: { card: VirtualCard }) {
               <div className="space-y-4 pt-2">
                 <p className="text-sm text-muted-foreground">
                   Generate a branded PDF statement of all funding and spending activity on
-                  <span className="font-semibold"> â¢â¢â¢â¢ {(card.last4 || "0000").slice(-4)}</span> for the period below.
+                  <span className="font-semibold"> •••• {(card.last4 || "0000").slice(-4)}</span> for the period below.
                 </p>
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1.5">
@@ -999,7 +999,7 @@ function CardItem({ card }: { card: VirtualCard }) {
                     data-testid={`button-statement-download-${card.id}`}
                   >
                     {downloadingStmt ? (
-                      <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Generatingâ¦</>
+                      <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Generating…</>
                     ) : (
                       <><Download className="w-4 h-4 mr-2" /> Download PDF</>
                     )}
@@ -1021,7 +1021,7 @@ function CardItem({ card }: { card: VirtualCard }) {
                   <DialogTitle className="flex items-center gap-2">
                     <History className="w-5 h-5 text-primary" />
                     Transaction History
-                    <span className="text-sm font-normal text-muted-foreground ml-1">â {card.nameOnCard}</span>
+                    <span className="text-sm font-normal text-muted-foreground ml-1">— {card.nameOnCard}</span>
                   </DialogTitle>
                   <div className="flex items-center gap-2 shrink-0">
                     {/* Live balance inside modal */}
@@ -1030,7 +1030,7 @@ function CardItem({ card }: { card: VirtualCard }) {
                       <p className="text-sm font-bold font-mono text-primary">
                         {refreshBalanceMutation.isPending ? (
                           <span className="inline-flex items-center gap-1 text-muted-foreground">
-                            <Loader2 className="w-3 h-3 animate-spin" /> Syncingâ¦
+                            <Loader2 className="w-3 h-3 animate-spin" /> Syncing…
                           </span>
                         ) : (
                           `$${Number(localBalance ?? card.balance).toFixed(2)} USD`
@@ -1060,7 +1060,7 @@ function CardItem({ card }: { card: VirtualCard }) {
                 {transactionsQuery.isLoading ? (
                   <div className="flex flex-col items-center justify-center py-10 gap-3">
                     <Loader2 className="w-7 h-7 animate-spin text-primary" />
-                    <p className="text-sm text-muted-foreground">Loading transactionsâ¦</p>
+                    <p className="text-sm text-muted-foreground">Loading transactions…</p>
                   </div>
                 ) : transactionsQuery.isError ? (
                   <div className="flex flex-col items-center justify-center py-10 gap-3 text-center">
@@ -1162,7 +1162,7 @@ function CardItem({ card }: { card: VirtualCard }) {
                   data-testid={`button-check-card-status-${card.id}`}
                 >
                   {checkStatusMutation.isPending ? (
-                    <><Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" />Checkingâ¦</>
+                    <><Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" />Checking…</>
                   ) : (
                     <><RefreshCw className="w-3.5 h-3.5 mr-1.5" />Check status</>
                   )}
@@ -1176,7 +1176,7 @@ function CardItem({ card }: { card: VirtualCard }) {
                   data-testid={`button-user-retry-card-${card.id}`}
                 >
                   {userRetryMutation.isPending ? (
-                    <><Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" />Retryingâ¦</>
+                    <><Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" />Retrying…</>
                   ) : (
                     <><RotateCcw className="w-3.5 h-3.5 mr-1.5" />Retry creation</>
                   )}
@@ -1278,7 +1278,7 @@ function CardItem({ card }: { card: VirtualCard }) {
               data-testid={`button-refresh-balance-action-${card.id}`}
             >
               <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${refreshBalanceMutation.isPending ? "animate-spin" : ""}`} />
-              {refreshBalanceMutation.isPending ? "Syncingâ¦" : "Refresh Balance"}
+              {refreshBalanceMutation.isPending ? "Syncing…" : "Refresh Balance"}
             </Button>
 
             <Button
