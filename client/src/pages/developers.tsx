@@ -17,6 +17,7 @@ import {
   Webhook,
   X,
 } from 'lucide-react';
+import { setPageMetadata } from '@/lib/seo';
 
 const checkoutCurl = `curl -X POST https://izichanj.com/api/v1/checkout \\
   -H "Authorization: Bearer izk_test_sk_YOUR_TEST_SECRET_KEY" \\
@@ -167,14 +168,11 @@ export default function DevelopersPage() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   useEffect(() => {
-    document.title = 'Developer documentation · Izichanj Pay';
-    let description = document.querySelector<HTMLMetaElement>('meta[name="description"]');
-    if (!description) {
-      description = document.createElement('meta');
-      description.name = 'description';
-      document.head.appendChild(description);
-    }
-    description.content = 'Integrate Izichanj Pay into your website. API reference and server-side examples for accepting HTG and USDT payments.';
+    setPageMetadata({
+      title: 'Developer documentation · Izichanj Pay',
+      description: 'Integrate Izichanj Pay into your website with server-side API examples for accepting HTG and USDT payments. Live use requires merchant approval.',
+      path: '/developers',
+    });
   }, []);
 
   function closeMobileMenu() {

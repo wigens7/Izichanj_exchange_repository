@@ -9,6 +9,8 @@ import { Loader2 } from "lucide-react";
 import { useEffect, useRef, useCallback } from "react";
 
 import LoginPage from "@/pages/login";
+import PublicHomePage from "@/pages/public-home";
+import PublicFAQPage from "@/pages/public-faq";
 import VerifyEmailPage from "@/pages/verify-email";
 import ForgotPasswordPage from "@/pages/forgot-password";
 import DashboardPage from "@/pages/dashboard";
@@ -94,6 +96,14 @@ function ProtectedRoute({ component: Component, adminOnly = false }: { component
   );
 }
 
+function HomeRoute() {
+  const { data: user, isLoading } = useUser();
+  if (!isLoading && user) {
+    return <ProtectedRoute component={DashboardPage} />;
+  }
+  return <PublicHomePage />;
+}
+
 function Router() {
   return (
     <Switch>
@@ -102,9 +112,7 @@ function Router() {
       <Route path="/verify-email" component={VerifyEmailPage} />
       <Route path="/forgot-password" component={ForgotPasswordPage} />
 
-      <Route path="/">
-        <ProtectedRoute component={DashboardPage} />
-      </Route>
+      <Route path="/" component={HomeRoute} />
       <Route path="/deposit">
         <ProtectedRoute component={DepositPage} />
       </Route>
@@ -120,9 +128,7 @@ function Router() {
       <Route path="/admin">
         <ProtectedRoute component={AdminPage} adminOnly />
       </Route>
-      <Route path="/faq">
-        <Redirect to="/profile" />
-      </Route>
+      <Route path="/faq" component={PublicFAQPage} />
       <Route path="/p2p">
         <ProtectedRoute component={P2PMarketPage} />
       </Route>
