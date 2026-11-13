@@ -931,3 +931,57 @@
 @media (prefers-reduced-motion: reduce) {
   .seo-site *, .seo-site *::before, .seo-site *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; }
 }
+
+
+/* Keep the sign-in screen close to the approved, compact reference layout. */
+.auth-page-shell--simple {
+  position: relative;
+  isolation: isolate;
+  background: #121212 !important;
+}
+.auth-page-shell--simple::before {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  top: 0;
+  right: 0;
+  bottom: auto;
+  left: 0;
+  width: 100%;
+  height: 3px;
+  border-radius: 0;
+  background: #542080;
+  filter: none;
+  opacity: 1;
+  animation: none;
+}
+.auth-page-shell--simple::after { display: none; }
+.auth-page-shell--simple > * { position: relative; z-index: 1; }
+.auth-page-shell--simple .auth-dark-panel {
+  padding: 0 !important;
+  background: transparent !important;
+  backdrop-filter: none !important;
+}
+.auth-page-shell--simple .auth-form-card {
+  overflow: visible;
+  border: 1px solid #363a3f !important;
+  border-radius: 16px !important;
+  background: #1f2226 !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+}
+.auth-page-shell--simple .auth-form-card::before { display: none; }
+.auth-login-brand img { filter: none !important; }
+.auth-login-brand p {
+  margin: .7rem 0 0;
+  color: #a3a3ad;
+  font-size: clamp(1.05rem, 4vw, 1.3rem);
+  line-height: 1.35;
+}
+@media (max-width: 520px) {
+  .auth-page-shell--simple {
+    justify-content: flex-start;
+    padding-top: 3.5rem !important;
+  }
+  .auth-page-shell--simple .auth-form-card { border-radius: 16px !important; }
+}

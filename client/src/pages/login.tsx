@@ -836,58 +836,14 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="auth-page-shell min-h-[100svh] flex">
-      <div className="auth-showcase hidden lg:flex lg:w-[45%] bg-[hsl(228,33%,10%)] relative overflow-hidden">
-        <div className="absolute inset-0">
-          <div className="auth-liquid-orb auth-liquid-orb--indigo absolute top-[-20%] left-[-10%] w-[60%] h-[60%] rounded-full bg-[hsl(230,75%,57%)]/10 blur-[120px]" />
-          <div className="auth-liquid-orb auth-liquid-orb--teal absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] rounded-full bg-[hsl(160,84%,39%)]/8 blur-[100px]" />
-        </div>
+    <div className="auth-page-shell auth-page-shell--simple min-h-[100svh] flex flex-col items-center justify-center px-4 py-8">
+      <header className="auth-login-brand mb-7 w-full max-w-[465px] text-center">
+        <img src={logoImg} alt="Izichanj Exchange" className="mx-auto h-16 w-auto object-contain" />
+        <p>Secure Crypto to Cash Exchange</p>
+      </header>
 
-        <div className="relative z-10 flex flex-col justify-between p-10 xl:p-14 w-full max-w-[760px] mx-auto">
-          <div className="flex items-center gap-2.5">
-            <img src={logoImg} alt="Izichanj Logo" className="h-10 w-auto" />
-            <span className="text-xl font-display font-bold text-white uppercase tracking-wider">Izichanj</span>
-          </div>
-
-          <div className="space-y-8">
-            <div>
-              <p className="auth-showcase-eyebrow"><span /> USDT TO LOCAL CASH · HAITI</p>
-              <h2 className="text-4xl xl:text-5xl font-display font-bold text-white leading-[1.05] text-balance">
-                Convert USDT to local cash instantly
-              </h2>
-              <p className="text-white/55 mt-4 text-base max-w-md leading-relaxed">
-                The fastest and most secure way to exchange cryptocurrency for MonCash and NatCash in Haiti.
-              </p>
-            </div>
-
-            <ExchangePreview />
-
-            <div className="auth-feature-list space-y-3">
-              <FeatureItem icon={ArrowRightLeft} title="Instant Exchange" description="Convert USDT (TRC20/BEP20) to HTG at competitive rates" />
-              <FeatureItem icon={ShieldCheck} title="Bank-Level Security" description="2FA, biometric login, and encrypted transactions" />
-              <FeatureItem icon={Zap} title="Fast Withdrawals" description="Receive funds to MonCash or NatCash in 15-20 minutes" />
-            </div>
-          </div>
-
-          <p className="text-white/20 text-xs">Secured by industry-standard encryption</p>
-        </div>
-      </div>
-
-      <div className="auth-dark-panel relative z-10 flex-1 flex items-center justify-center p-4 sm:p-6 lg:p-10">
-        <div className="auth-content w-full max-w-[460px]">
-          <div className="auth-mobile-brand lg:hidden">
-            <div className="auth-mobile-brand__top">
-              <img src={logoImg} alt="Izichanj Exchange" className="auth-logo h-12 w-auto" />
-              <span className="auth-secure-pill"><ShieldCheck className="h-3.5 w-3.5" /> Secure exchange</span>
-            </div>
-            <div className="auth-mobile-intro">
-              <p className="auth-mobile-eyebrow"><span /> USDT TO LOCAL CASH</p>
-              <h1>Move crypto.<br /><span>Get local cash.</span></h1>
-              <p>{t.login.appSubtitle}</p>
-            </div>
-            <ExchangePreview compact />
-          </div>
-
+      <div className="auth-dark-panel w-full max-w-[465px]">
+        <div className="auth-content w-full">
           {showForgotPin ? (
             <Card className="auth-form-card border shadow-sm">
               <CardContent className="pt-6">
