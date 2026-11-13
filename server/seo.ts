@@ -22,7 +22,7 @@ function escapeHtml(value: string) {
 }
 
 function brandMarkup() {
-  return `<a class="seo-brand" href="/" aria-label="Izichanj Exchange home"><span class="seo-brand-mark">I</span><span><strong>IZICHANJ</strong><small>EXCHANGE</small></span></a>`;
+  return `<a class="seo-brand" href="/about" aria-label="Izichanj Exchange home"><span class="seo-brand-mark">I</span><span><strong>IZICHANJ</strong><small>EXCHANGE</small></span></a>`;
 }
 
 function homeMarkup() {
@@ -91,7 +91,7 @@ function faqMarkup() {
       </nav>
     </header>
     <section class="seo-container seo-faq">
-      <a class="seo-back-link" href="/">← Back to Izichanj</a>
+      <a class="seo-back-link" href="/about">← Back to Izichanj</a>
       <p class="seo-eyebrow"><span></span> HELP CENTER</p>
       <h1>Frequently asked questions</h1>
       <p class="seo-lede">Clear information about Izichanj services and where to verify current terms.</p>
@@ -104,10 +104,10 @@ function faqMarkup() {
 function developersMarkup() {
   return `<main class="seo-site">
     <header class="seo-container seo-nav">${brandMarkup()}
-      <nav class="seo-nav-links" aria-label="Main navigation"><a href="/">Exchange</a><a href="/faq">FAQ</a><a href="/login">Sign in</a></nav>
+      <nav class="seo-nav-links" aria-label="Main navigation"><a href="/about">Exchange</a><a href="/faq">FAQ</a><a href="/login">Sign in</a></nav>
     </header>
     <section class="seo-container seo-faq">
-      <a class="seo-back-link" href="/">← Back to Izichanj</a>
+      <a class="seo-back-link" href="/about">← Back to Izichanj</a>
       <p class="seo-eyebrow"><span></span> IZICHANJ PAY · API DOCUMENTATION</p>
       <h1>Build payments into your flow.</h1>
       <p class="seo-lede">Integrate Izichanj Pay to accept HTG and USDT payments. Review server-side examples, test-mode guidance, webhook verification, and merchant approval requirements.</p>
@@ -117,10 +117,10 @@ function developersMarkup() {
 }
 
 const publicPages: Record<string, PublicPage> = {
-  "/": {
+  "/about": {
     title: seoHome.title,
     description: seoHome.description,
-    path: "/",
+    path: "/about",
     content: homeMarkup(),
     schema: {
       "@context": "https://schema.org",
@@ -195,7 +195,7 @@ function replaceCanonical(html: string, url?: string) {
 
 function withMetadata(indexHtml: string, page: PublicPage | null, route: string) {
   const isPrivate = !page;
-  const title = page?.title ?? (route === "/register" ? "Create an account | Izichanj" : route === "/login" ? "Sign in | Izichanj" : "Izichanj account");
+  const title = page?.title ?? (route === "/register" ? "Create an account | Izichanj" : route === "/login" || route === "/" ? "Sign in | Izichanj" : "Izichanj account");
   const description = page?.description ?? "Sign in to access your Izichanj account.";
   let html = indexHtml.replace(/<title>[\s\S]*?<\/title>/i, `<title>${escapeHtml(title)}</title>`);
   html = replaceMeta(html, "name", "description", description);
@@ -241,7 +241,7 @@ function withMetadata(indexHtml: string, page: PublicPage | null, route: string)
 }
 
 const knownRoutes = new Set([
-  "/", "/login", "/register", "/verify-email", "/forgot-password", "/faq", "/developers",
+  "/", "/about", "/login", "/register", "/verify-email", "/forgot-password", "/faq", "/developers",
   "/deposit", "/withdraw", "/profile", "/security", "/admin", "/p2p", "/send-funds",
   "/virtual-cards", "/top-up", "/report", "/canal-plus", "/merchant",
 ]);
@@ -265,5 +265,5 @@ export function renderSeoDocument(indexHtml: string, route: string) {
 }
 
 export function renderNotFoundDocument() {
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>Page not found | Izichanj</title></head><body style="margin:0;background:#0b0e13;color:#f4f5f6;font:16px system-ui,sans-serif"><main style="max-width:680px;margin:12vh auto;padding:32px"><p style="color:#f7a600;font-size:12px;letter-spacing:.16em">IZICHANJ EXCHANGE</p><h1>Page not found</h1><p style="color:#a5abb5;line-height:1.7">This address does not match a public page. Return to the Izichanj homepage.</p><a href="/" style="color:#f7a600">Go to homepage</a></main></body></html>`;
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>Page not found | Izichanj</title></head><body style="margin:0;background:#0b0e13;color:#f4f5f6;font:16px system-ui,sans-serif"><main style="max-width:680px;margin:12vh auto;padding:32px"><p style="color:#f7a600;font-size:12px;letter-spacing:.16em">IZICHANJ EXCHANGE</p><h1>Page not found</h1><p style="color:#a5abb5;line-height:1.7">This address does not match a public page. Return to the Izichanj homepage.</p><a href="/about" style="color:#f7a600">Go to homepage</a></main></body></html>`;
 }
