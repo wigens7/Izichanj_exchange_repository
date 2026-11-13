@@ -37,7 +37,7 @@ export default function PublicHomePage() {
     setPageMetadata({
       title: seoHome.title,
       description: seoHome.description,
-      path: "/",
+      path: "/about",
       schema: organizationSchema,
     });
   }, []);
@@ -45,7 +45,7 @@ export default function PublicHomePage() {
   return (
     <main className="seo-site">
       <header className="seo-container seo-nav">
-        <a className="seo-brand" href="/" aria-label="Izichanj Exchange home">
+        <a className="seo-brand" href="/about" aria-label="Izichanj Exchange information">
           <span className="seo-brand-mark">I</span>
           <span>
             <strong>IZICHANJ</strong>
