@@ -754,8 +754,8 @@ function SignUpForm() {
 
 function FeatureItem({ icon: Icon, title, description }: { icon: any; title: string; description: string }) {
   return (
-    <div className="flex items-start gap-3">
-      <div className="w-10 h-10 rounded-md bg-white/10 flex items-center justify-center flex-shrink-0">
+    <div className="auth-feature-item flex items-start gap-3">
+      <div className="auth-feature-icon w-10 h-10 rounded-md bg-white/10 flex items-center justify-center flex-shrink-0">
         <Icon className="w-5 h-5 text-white/80" />
       </div>
       <div>
@@ -808,14 +808,14 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex">
-      <div className="hidden lg:flex lg:w-[45%] bg-[hsl(228,33%,10%)] relative overflow-hidden">
+    <div className="auth-page-shell min-h-[100svh] flex">
+      <div className="auth-showcase hidden lg:flex lg:w-[45%] bg-[hsl(228,33%,10%)] relative overflow-hidden">
         <div className="absolute inset-0">
-          <div className="absolute top-[-20%] left-[-10%] w-[60%] h-[60%] rounded-full bg-[hsl(230,75%,57%)]/10 blur-[120px]" />
-          <div className="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] rounded-full bg-[hsl(160,84%,39%)]/8 blur-[100px]" />
+          <div className="auth-liquid-orb auth-liquid-orb--indigo absolute top-[-20%] left-[-10%] w-[60%] h-[60%] rounded-full bg-[hsl(230,75%,57%)]/10 blur-[120px]" />
+          <div className="auth-liquid-orb auth-liquid-orb--teal absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] rounded-full bg-[hsl(160,84%,39%)]/8 blur-[100px]" />
         </div>
 
-        <div className="relative z-10 flex flex-col justify-between p-10 w-full">
+        <div className="relative z-10 flex flex-col justify-between p-10 xl:p-14 w-full max-w-[760px] mx-auto">
           <div className="flex items-center gap-2.5">
             <img src={logoImg} alt="Izichanj Logo" className="h-10 w-auto" />
             <span className="text-xl font-display font-bold text-white uppercase tracking-wider">Izichanj</span>
@@ -823,15 +823,15 @@ export default function LoginPage() {
 
           <div className="space-y-8">
             <div>
-              <h2 className="text-3xl font-display font-bold text-white leading-tight text-balance">
+              <h2 className="text-4xl xl:text-5xl font-display font-bold text-white leading-[1.05] text-balance">
                 Convert USDT to local cash instantly
               </h2>
-              <p className="text-white/40 mt-3 text-sm max-w-sm">
+              <p className="text-white/55 mt-4 text-base max-w-md leading-relaxed">
                 The fastest and most secure way to exchange cryptocurrency for MonCash and NatCash in Haiti.
               </p>
             </div>
 
-            <div className="space-y-5">
+            <div className="auth-feature-list space-y-3">
               <FeatureItem icon={ArrowRightLeft} title="Instant Exchange" description="Convert USDT (TRC20/BEP20) to HTG at competitive rates" />
               <FeatureItem icon={ShieldCheck} title="Bank-Level Security" description="2FA, biometric login, and encrypted transactions" />
               <FeatureItem icon={Zap} title="Fast Withdrawals" description="Receive funds to MonCash or NatCash in 15-20 minutes" />
@@ -842,17 +842,17 @@ export default function LoginPage() {
         </div>
       </div>
 
-      <div className="auth-dark-panel flex-1 flex items-center justify-center p-6">
-        <div className="w-full max-w-[420px]">
-          <div className="lg:hidden text-center mb-8">
+      <div className="auth-dark-panel relative z-10 flex-1 flex items-center justify-center p-4 sm:p-6 lg:p-10">
+        <div className="auth-content w-full max-w-[460px]">
+          <div className="auth-mobile-brand lg:hidden text-center mb-7">
             <div className="flex items-center justify-center gap-2.5 mb-2">
-              <img src={logoImg} alt="Izichanj Logo" className="h-12 w-auto" />
+              <img src={logoImg} alt="Izichanj Logo" className="auth-logo h-12 w-auto" />
             </div>
             <p className="text-sm text-muted-foreground mt-2">{t.login.appSubtitle}</p>
           </div>
 
           {showForgotPin ? (
-            <Card className="border shadow-sm">
+            <Card className="auth-form-card border shadow-sm">
               <CardContent className="pt-6">
                 <ForgotPinForm
                   email={savedEmail}
@@ -864,7 +864,7 @@ export default function LoginPage() {
               </CardContent>
             </Card>
           ) : showPinLogin ? (
-            <Card className="border shadow-sm">
+            <Card className="auth-form-card border shadow-sm">
               <CardContent className="pt-6">
                 <PinLoginForm
                   email={savedEmail}
@@ -880,7 +880,7 @@ export default function LoginPage() {
               </CardContent>
             </Card>
           ) : (
-            <Card className="border shadow-sm">
+            <Card className="auth-form-card border shadow-sm">
               <Tabs defaultValue={window.location.pathname === "/register" || new URLSearchParams(window.location.search).get("ref") ? "signup" : "signin"} className="w-full">
                 <CardHeader className="pb-3">
                   <TabsList className="grid w-full grid-cols-2" data-testid="tabs-auth">
