@@ -766,6 +766,34 @@ function FeatureItem({ icon: Icon, title, description }: { icon: any; title: str
   );
 }
 
+function ExchangePreview({ compact = false }: { compact?: boolean }) {
+  return (
+    <div className={`auth-exchange-preview ${compact ? "auth-exchange-preview--compact" : ""}`} aria-label="Example exchange path from USDT to HTG with MonCash and NatCash payouts">
+      <div className="auth-exchange-heading">
+        <span className="auth-exchange-heading__label"><span className="auth-exchange-dot" /> EXCHANGE PATH</span>
+        <span className="auth-exchange-heading__country">HAITI</span>
+      </div>
+      <div className="auth-exchange-route">
+        <div className="auth-exchange-token">
+          <span>YOU SEND</span>
+          <strong>USDT</strong>
+          <small>Digital asset</small>
+        </div>
+        <div className="auth-exchange-arrow"><ArrowRightLeft className="h-4 w-4" /></div>
+        <div className="auth-exchange-token auth-exchange-token--local">
+          <span>YOU RECEIVE</span>
+          <strong>HTG</strong>
+          <small>Local cash</small>
+        </div>
+      </div>
+      <div className="auth-exchange-methods">
+        <span className="auth-exchange-methods__label">PAYOUT OPTIONS</span>
+        <div className="auth-exchange-methods__items"><span>MonCash</span><span>NatCash</span></div>
+      </div>
+    </div>
+  );
+}
+
 export default function LoginPage() {
   const { data: user, isLoading } = useUser();
   const [, setLocation] = useLocation();
@@ -823,6 +851,7 @@ export default function LoginPage() {
 
           <div className="space-y-8">
             <div>
+              <p className="auth-showcase-eyebrow"><span /> USDT TO LOCAL CASH · HAITI</p>
               <h2 className="text-4xl xl:text-5xl font-display font-bold text-white leading-[1.05] text-balance">
                 Convert USDT to local cash instantly
               </h2>
@@ -830,6 +859,8 @@ export default function LoginPage() {
                 The fastest and most secure way to exchange cryptocurrency for MonCash and NatCash in Haiti.
               </p>
             </div>
+
+            <ExchangePreview />
 
             <div className="auth-feature-list space-y-3">
               <FeatureItem icon={ArrowRightLeft} title="Instant Exchange" description="Convert USDT (TRC20/BEP20) to HTG at competitive rates" />
@@ -844,11 +875,17 @@ export default function LoginPage() {
 
       <div className="auth-dark-panel relative z-10 flex-1 flex items-center justify-center p-4 sm:p-6 lg:p-10">
         <div className="auth-content w-full max-w-[460px]">
-          <div className="auth-mobile-brand lg:hidden text-center mb-7">
-            <div className="flex items-center justify-center gap-2.5 mb-2">
-              <img src={logoImg} alt="Izichanj Logo" className="auth-logo h-12 w-auto" />
+          <div className="auth-mobile-brand lg:hidden">
+            <div className="auth-mobile-brand__top">
+              <img src={logoImg} alt="Izichanj Exchange" className="auth-logo h-12 w-auto" />
+              <span className="auth-secure-pill"><ShieldCheck className="h-3.5 w-3.5" /> Secure exchange</span>
             </div>
-            <p className="text-sm text-muted-foreground mt-2">{t.login.appSubtitle}</p>
+            <div className="auth-mobile-intro">
+              <p className="auth-mobile-eyebrow"><span /> USDT TO LOCAL CASH</p>
+              <h1>Move crypto.<br /><span>Get local cash.</span></h1>
+              <p>{t.login.appSubtitle}</p>
+            </div>
+            <ExchangePreview compact />
           </div>
 
           {showForgotPin ? (
