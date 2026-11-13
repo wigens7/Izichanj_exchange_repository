@@ -985,3 +985,8 @@
   }
   .auth-page-shell--simple .auth-form-card { border-radius: 16px !important; }
 }
+
+
+.auth-info-footer { display: flex; flex-wrap: wrap; justify-content: center; gap: .55rem; }
+.auth-info-footer a { display: inline-flex; min-height: 2.35rem; align-items: center; justify-content: center; border: 1px solid rgba(255,255,255,.14); border-radius: 999px; padding: 0 .85rem; color: #a3a3ad; font-size: .78rem; text-decoration: none; transition: border-color .18s ease, color .18s ease, background .18s ease; }
+.auth-info-footer a:hover, .auth-info-footer a:focus-visible { border-color: rgba(247,166,0,.6); color: #fff; background: rgba(247,166,0,.06); outline: none; }

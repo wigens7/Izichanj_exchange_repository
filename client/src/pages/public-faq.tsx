@@ -27,7 +27,7 @@ export default function PublicFAQPage() {
   return (
     <main className="seo-site">
       <header className="seo-container seo-nav">
-        <a className="seo-brand" href="/" aria-label="Izichanj Exchange home">
+        <a className="seo-brand" href="/about" aria-label="Izichanj Exchange home">
           <span className="seo-brand-mark">I</span>
           <span><strong>IZICHANJ</strong><small>EXCHANGE</small></span>
         </a>
@@ -38,7 +38,7 @@ export default function PublicFAQPage() {
         </nav>
       </header>
       <section className="seo-container seo-faq">
-        <a className="seo-back-link" href="/"><ArrowLeft size={15} aria-hidden="true" /> Back to Izichanj</a>
+        <a className="seo-back-link" href="/about"><ArrowLeft size={15} aria-hidden="true" /> Back to Izichanj</a>
         <p className="seo-eyebrow"><span /> HELP CENTER</p>
         <h1>Frequently asked questions</h1>
         <p className="seo-lede">Clear information about Izichanj services and where to verify current terms.</p>

@@ -101,7 +101,7 @@ function HomeRoute() {
   if (!isLoading && user) {
     return <ProtectedRoute component={DashboardPage} />;
   }
-  return <PublicHomePage />;
+  return <LoginPage />;
 }
 
 function Router() {
@@ -112,6 +112,7 @@ function Router() {
       <Route path="/verify-email" component={VerifyEmailPage} />
       <Route path="/forgot-password" component={ForgotPasswordPage} />
 
+      <Route path="/about" component={PublicHomePage} />
       <Route path="/" component={HomeRoute} />
       <Route path="/deposit">
         <ProtectedRoute component={DepositPage} />

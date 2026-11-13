@@ -35,8 +35,12 @@ export function serveStatic(app: Express) {
       res.setHeader("X-Robots-Tag", "noindex, nofollow");
     }
 
-    if (route === "/" || route === "/faq" || route === "/developers") {
-      res.setHeader("X-Robots-Tag", "index, follow");
+    if (route === "/" || route === "/about" || route === "/faq" || route === "/developers") {
+      if (route === "/") {
+        res.setHeader("X-Robots-Tag", "noindex, nofollow");
+      } else {
+        res.setHeader("X-Robots-Tag", "index, follow");
+      }
       res.type("html");
       return res.send(renderSeoDocument(indexHtml, route));
     }
