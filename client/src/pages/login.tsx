@@ -904,6 +904,12 @@ export default function LoginPage() {
           )}
         </div>
       </div>
+
+      <footer className="auth-info-footer mt-5 w-full max-w-[465px]" aria-label="Public information">
+        <a href="/about">Exchange info</a>
+        <a href="/faq">FAQ</a>
+        <a href="/developers">Developer docs</a>
+      </footer>
     </div>
   );
 }
