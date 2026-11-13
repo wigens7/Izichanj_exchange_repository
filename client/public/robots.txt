@@ -1,11 +1,13 @@
 # Izichanj — https://www.izichanj.com
+# OAI Search can crawl public pages; API responses are not public pages.
+User-agent: OAI-SearchBot
+Allow: /
+Disallow: /api/
+
+# GPTBot keeps the existing wildcard policy; no training preference is changed.
 User-agent: *
 Allow: /
-
-# Don't index authenticated/private app surfaces
-Disallow: /admin
+# Account routes are protected and send X-Robots-Tag: noindex. robots.txt is not access control.
 Disallow: /api/
-Disallow: /verify-receipt
-Disallow: /checkout
 
 Sitemap: https://www.izichanj.com/sitemap.xml
